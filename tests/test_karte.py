@@ -10,10 +10,14 @@ import time
 import numpy as np
 
 HIER = os.path.dirname(os.path.abspath(__file__))
-for d in ('sim', 'lib', 'line_follower'):
+for d in ('sim', 'lib', 'line_follower', 'kartograf'):
     sys.path.insert(0, os.path.join(HIER, '..', d))
+import abspielen    # noqa: E402
+import aufnahme     # noqa: E402
 import karte as K   # noqa: E402
+import kartierer    # noqa: E402
 import linie        # noqa: E402
+import messfahrt    # noqa: E402
 import tiefe        # noqa: E402
 from welt import Welt  # noqa: E402
 
@@ -128,6 +132,82 @@ _, d = W.kamera((2.556, 0.515, 0.947), 0, 2)
 kurve = [(0.05, 0.004), (0.085, 0.013), (0.23, 0.096), (0.264, 0.129), (0.312, 0.156), (0.349, 0.191), (0.393, 0.207),
          (0.438, 0.242), (0.462, 0.265)]
 check('Tiefe: in der Kurve stoert der Fussgaenger am Rand nicht (Fahrweg folgt der Linie)', bm.pruefe(d, False, kurve)[1] is None)
+
+# ---------------- Messfahrt: aufzeichnen und wieder lesen (auch wenn die Datei mittendrin abbricht) ----------------
+with tempfile.TemporaryDirectory() as ordner:
+    datei = os.path.join(ordner, 'a.jsonl.gz')
+    a = aufnahme.Aufnahme(datei, {'quelle': 'test', 'cfg': {'lidar_x': 0.0}}, bild_hz=2.0)
+    for i in range(200):
+        a.scan(1000.0 + i * 0.1, '/scan0', {'stamp': 1000.0 + i * 0.1, 'amin': -math.pi, 'ainc': 0.1, 'rmin': 0.05,
+                                           'rmax': 12.0, 'ti': 0.0, 'st': 0.0, 'r': np.full(63, 2.5)})
+        a.schreiben({'typ': 'odom', 't': 1000.0 + i * 0.1, 'stamp': 0.0, 'vx': 0.1, 'vy': 0.0, 'wz': 0.0})
+    a.bild(1000.0, 1000.0, np.zeros((480, 640, 3), np.uint8))
+    a.stopp()
+    eintraege = list(aufnahme.lesen(datei))
+    scans = [e for e in eintraege if e['typ'] == 'scan']
+    check('Aufnahme: alles wieder lesbar', eintraege[0]['typ'] == 'kopf' and len(scans) == 200
+          and abs(aufnahme.scan_aus_json(scans[0])['r'][0] - 2.5) < 1e-6 and any(e['typ'] == 'bild' for e in eintraege),
+          f'({len(eintraege)} Eintraege, {os.path.getsize(datei) // 1024} KB)')
+    with open(datei, 'rb') as f:
+        halb = f.read()[:os.path.getsize(datei) // 2]
+    with open(datei, 'wb') as f:
+        f.write(halb)
+    check('Aufnahme: abgebrochene Datei bis zur kaputten Stelle lesbar', 0 < len(list(aufnahme.lesen(datei))) < len(eintraege))
+
+# ---------------- Zeitstempel: Nachrichten kommen gesammelt an (ausgelasteter Rechner) ----------------
+u = kartierer.Uhr()
+zeiten = [u.zeit(0.0, 100.0 + (i // 6) * 0.3) for i in range(120)]   # ohne Stempel, alle 0,3 s sechs auf einmal
+abstaende = np.diff(zeiten[60:])
+check('Ohne Zeitstempel: gesammelte Nachrichten werden gleichmaessig verteilt', np.abs(abstaende - 0.05).max() < 0.02,
+      f'(Abstand {abstaende.min() * 1000:.0f}..{abstaende.max() * 1000:.0f} ms, gesendet alle 50 ms)')
+
+
+# ---------------- Fehler, die es am echten Roboter geben kann: Messfahrt in der Simulationswelt + abspielen ----------
+def messfahrt_pruefen(name, pruefung=None, grenze=(0.05, 2.0), **fehler):
+    """2 Runden fahren (mit dem Fehler), abspielen wie auf dem Roboter. In Runde 2 muss die Karte stimmen
+    (gegen die wahre Position, ausgerichtet am Anfang von Runde 2)."""
+    t0 = time.time()
+    with tempfile.TemporaryDirectory() as ordner:
+        datei = os.path.join(ordner, 'f.jsonl.gz')
+        messfahrt.erzeugen(datei, runden=2, kamera=False, lidar_strahlen=300, **fehler)
+        erg = abspielen.abspielen(datei, kamera=False)
+    r = messfahrt.runden_fehler(erg['posen'], erg['wahr'], erg['kopf']['runde_m'])
+    kr = erg['kartierer']
+    ok = (len(r) == 2 and r[1]['pos_mittel'] < grenze[0] and abs(r[1]['winkel_mittel']) < grenze[1]
+          and r[1]['pos_max'] < 0.15)
+    extra = ''
+    if pruefung:
+        ok2, extra = pruefung(kr)
+        ok = ok and ok2
+    info = (f"(Runde 2: im Mittel {r[1]['pos_mittel'] * 100:.1f} cm / {r[1]['winkel_mittel']:+.1f} Grad, "
+            f"max {r[1]['pos_max'] * 100:.1f} cm; {extra}; "
+            f"{time.time() - t0:.0f} s)" if len(r) == 2 else '(keine Position)')
+    check(name, ok, info)
+
+
+def vorne_90(kr):
+    w = math.degrees(kr.kal.einbau[2])
+    warnt = any('LiDAR-Richtung' in x for x in kr.warnungen())
+    return kr.kal.einbau_gelernt and abs(w - 90) < 3 and warnt, f'gelernt: vorne {w:+.1f} Grad, Warnung {warnt}'
+
+
+def ecke(kr):
+    x, y, _ = kr.kal.einbau
+    return abs(x - 0.12) < 0.03 and abs(y - 0.10) < 0.03, f'gelernt: {x * 100:+.0f} / {y * 100:+.0f} cm (wahr +12 / +10)'
+
+
+messfahrt_pruefen('Messfahrt: LiDAR "vorne" 90 Grad falsch -> erkannt und herausgerechnet', vorne_90,
+                  lidar0_einbau=(0.0, 0.0, 90.0), lidar1_einbau=(-0.12, 0.0, 94.0))
+messfahrt_pruefen('Messfahrt: Lagesensor falsch herum -> erkannt und korrigiert',
+                  lambda kr: (kr.kal.imu_vorzeichen < 0, f'Vorzeichen {kr.kal.imu_vorzeichen:+.0f}'), imu_vorzeichen=-1.0)
+messfahrt_pruefen('Messfahrt: LiDAR gespiegelt -> erkannt und korrigiert',
+                  lambda kr: (kr.kal.spiegeln, f'gespiegelt erkannt: {kr.kal.spiegeln}'), lidar_gespiegelt=True)
+messfahrt_pruefen('Messfahrt: Odometrie/IMU kommen gesammelt an (0,3 s)', None, stau=0.3)
+# ohne Zeitstempel geht es nur ungefaehr (die Position haengt bis zu 0,3 s hinterher)
+messfahrt_pruefen('Messfahrt: ... und dazu ohne Zeitstempel (ungenauer)', None, grenze=(0.08, 5.0), stau=0.3, stempel='null')
+messfahrt_pruefen('Messfahrt: /odom_raw ohne Geschwindigkeiten (nur Position)', None, odom_twist=False)
+messfahrt_pruefen('Messfahrt: Haupt-LiDAR an der Ecke, Wenden auf der Stelle, Aufbau verdeckt 90 Grad', ecke,
+                  lidar0_einbau=(0.12, 0.10, 0.0), lidar1_einbau=(-0.12, -0.10, 0.0), lidar_verdeckt=90.0, wenden=True)
 
 print('\nAlle Tests bestanden.' if not fehler else f'\n{fehler} Test(s) fehlgeschlagen.')
 sys.exit(1 if fehler else 0)

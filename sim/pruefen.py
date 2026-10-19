@@ -5,6 +5,7 @@
 #   SIM_DAUER=150        so viele Sekunden fahren
 #   SIM_SCHWER=1         wie in echt: grosser Raum, zweiter LiDAR versetzt eingebaut, Lagesensor 3 % daneben,
 #                        Scans kommen spaeter an (prueft, ob die Karte trotzdem nicht wegdreht)
+#   SIM_EXTRA="-p lidar0_einbau:=[0.0,0.0,90.0] -p sensor_stau:=0.3"   weitere Fehler (siehe sim/simulator.py)
 #   SIM_KARTE_ORDNER=... Kartenordner (Standard: neu in den Logs). Zweimal mit demselben Ordner
 #                        starten -> prueft, ob der Roboter sich in der vorhandenen Karte wiederfindet.
 #   SIM_WUERFEL_ZUFALL=1 Wuerfel zufaellig legen (Lage, Groesse); SIM_WUERFEL_SAAT=7 fuer immer denselben Zufall
@@ -39,6 +40,7 @@ WUERFEL = ['-p', 'wuerfel_zufall:=true', '-p', f"wuerfel_saat:={int(os.environ.g
 WUERFEL += ['-p', 'arm_wie_planer:=true'] if os.environ.get('SIM_ARM_WIE_PLANER') else []
 SCHWER = ['-p', 'halle:=true', '-p', 'imu_skala:=1.03', '-p', 'lidar_umlauf:=0.12', '-p', 'lidar_verzoegerung:=0.1',
           '-p', 'lidar1_einbau:=[-0.12,0.0,4.0]'] if os.environ.get('SIM_SCHWER') else []
+SCHWER += os.environ.get('SIM_EXTRA', '').split()
 
 
 def starte(befehl, name, env):

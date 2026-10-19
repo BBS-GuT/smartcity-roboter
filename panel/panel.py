@@ -15,12 +15,14 @@
 #   START/TEST/STOPP -> startet/beendet den Linienfolger (KI-Zentrale muss laufen)
 #   STOPP            -> sendet sofort Stillstand an /cmd_vel UND beendet den Linienfolger
 #   Ansichten        -> KI-Sicht, Linie, LiDAR, Tiefe (Bild fuer Bild, ohne Stau)
-#   Karte            -> startet den Kartografen mit der KI (kartograf/kartograf.py), zeigt seine Dateien
+#   Karte            -> startet den Kartografen mit der KI (kartograf/kartograf.py), zeigt seine Dateien,
+#                       Messfahrt aufzeichnen + herunterladen (zum Auswerten mit kartograf/abspielen.py)
 #   Arm              -> nur auf Knopfdruck, nie waehrend der Fahrt
 import argparse
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -572,6 +574,16 @@ def mache_handler(node, prozesse, beenden=None):
         if name == 'karte_neu':
             node.karte_kommando_pub.publish(String(data='neu'))
             return 'Neue Karte angefangen. Die alte liegt als Sicherung in karten/ (nichts geloescht).'
+        if name == 'karte_aufnahme':
+            # Messfahrt aufzeichnen: alle Rohdaten fuer kartograf/abspielen.py (siehe docs/karte.md)
+            if not prozesse.laeuft('karte'):
+                return 'Kartograf laeuft nicht (er nimmt auf). Erst Kartograf starten.'
+            k = node.get('karte', max_alter=2.0) or {}
+            laeuft = bool((k.get('aufnahme') or {}).get('laeuft'))
+            node.karte_kommando_pub.publish(String(data='aufnahme_stopp' if laeuft else 'aufnahme_start'))
+            if laeuft:
+                return 'Aufnahme beendet. Herunterladen: Knopf "Aufnahme herunterladen" (Ordner karten/aufnahmen/)'
+            return ('Aufnahme laeuft. Jetzt 2-3 Runden normal fahren (auch Kurven und Wenden), dann wieder hier stoppen.')
         if name == 'umschauen':
             node.ki_kommando_pub.publish(String(data='umschauen'))
             time.sleep(0.5)
@@ -743,6 +755,24 @@ def mache_handler(node, prozesse, beenden=None):
                     self._senden(200, 'image/jpeg', b)
                 elif pfad == '/bild/tiefe.jpg':
                     self._senden(200, 'image/jpeg', node.jpeg_tiefe())
+                elif pfad == '/karte/aufnahme.jsonl.gz':
+                    # neueste Messfahrt zum Herunterladen
+                    ordner = os.path.join(REPO, 'karten', 'aufnahmen')
+                    try:
+                        dateien = sorted((f for f in os.listdir(ordner) if f.endswith('.jsonl.gz')),
+                                         key=lambda f: os.path.getmtime(os.path.join(ordner, f)))
+                    except FileNotFoundError:
+                        dateien = []
+                    if not dateien:
+                        return self._senden(404, 'text/plain; charset=utf-8', 'Noch keine Aufnahme'.encode())
+                    datei = os.path.join(ordner, dateien[-1])
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/gzip')
+                    self.send_header('Content-Length', str(os.path.getsize(datei)))
+                    self.send_header('Content-Disposition', f'attachment; filename="{dateien[-1]}"')
+                    self.end_headers()
+                    with open(datei, 'rb') as f:      # stueckweise (kann gross sein)
+                        shutil.copyfileobj(f, self.wfile)
                 elif pfad in KARTEN_DATEIEN:
                     datei, typ, herunterladen = KARTEN_DATEIEN[pfad]
                     try:

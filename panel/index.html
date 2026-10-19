@@ -272,6 +272,14 @@
       <button onclick="aktion(S && S.kartograf ? 'karte_stopp' : 'karte_start', {}, 'karte-antwort')" id="k-prozess">Kartograf</button>
       <label class="schalter" style="font-size:15px"><input type="checkbox" id="k-lidar" checked> LiDAR live</label>
     </div>
+    <div class="zeile">
+      <button id="k-aufnahme" onclick="aktion('karte_aufnahme', {}, 'karte-antwort')"
+              title="Nimmt alle Sensordaten auf (LiDAR, Raeder, Lagesensor, Arm, Kamerabilder). Damit kann man am Laptop genau nachrechnen, warum die Karte nicht passt.">Messfahrt aufzeichnen</button>
+      <a class="knopf" href="/karte/aufnahme.jsonl.gz">Aufnahme herunterladen</a>
+      <span id="k-aufnahme-info" class="hinweis" style="margin:0"></span>
+    </div>
+    <div class="zeile" id="k-zustand"></div>
+    <div class="warnkasten" id="k-warnungen" style="margin:10px 0 0" hidden></div>
     <div class="zeile legende">
       <span><i style="background:#e8e8e4"></i>frei (befahrbar)</span>
       <span><i style="background:#283240"></i>Wand / Hindernis (LiDAR)</span>
@@ -790,8 +798,24 @@ function zeigeKarteInfo() {
   else if (S.kartograf) t += 'Kartograf startet ...';
   if (info && info.punkte_3d) t += ` · ${info.punkte_3d.toLocaleString('de-DE')} 3D-Punkte`;
   if (k && k.lidar_einbau) t += ` · LiDAR ${k.lidar_einbau}`;
+  if (k && k.warnungen && k.warnungen.length) t += ' · ⚠ siehe Seite Karte';
   $('k-info').textContent = t || 'keine Karte';
   $('k-prozess').textContent = S.kartograf ? 'Kartograf stoppen' : 'Kartograf starten';
+  // Messfahrt-Aufnahme
+  const a = k && k.aufnahme, an = !!(a && a.laeuft);
+  $('k-aufnahme').textContent = an ? `Aufnahme stoppen (${fmt(a.dauer, 0)} s, ${a.mb} MB)` : 'Messfahrt aufzeichnen';
+  $('k-aufnahme').classList.toggle('aktiv', an);
+  $('k-aufnahme-info').textContent = !a ? '' : an ? `nimmt auf: ${a.datei}` :
+    `letzte Aufnahme: ${a.datei} (${a.mb} MB${a.grund ? ', ' + a.grund : ''})`;
+  // Zustand der Lokalisierung: wie oft passt der Abgleich, was wurde gelernt?
+  const z = $('k-zustand'); z.innerHTML = '';
+  if (k && k.sicher_anteil != null) chip(z, `Scan-Abgleich sicher: ${Math.round(k.sicher_anteil * 100)} %`,
+    k.sicher_anteil >= 0.8 ? 'gruen' : k.sicher_anteil >= 0.5 ? 'gelb' : 'rot');
+  if (k && k.kalibrierung) chip(z, 'Gelernt: ' + k.kalibrierung, '');
+  if (k && k.meldung) chip(z, 'Zuletzt: ' + k.meldung, '');
+  const w = $('k-warnungen'), ws = (k && k.warnungen) || [];
+  w.hidden = !ws.length; w.innerHTML = '';
+  for (const x of ws) { const d = document.createElement('div'); d.textContent = '⚠ ' + x; w.appendChild(d); }
   karteNeuZeichnen = true;
 }
 
@@ -905,6 +929,8 @@ function zeigeDashboard() {
   chip(box, !lf ? 'Linie: aus' : lf.linie ? `Linie ${lf.linie_quer != null ? fmt(lf.linie_quer * 100, 1) + ' cm' : 'ok'}` : 'Linie weg', !lf ? 'aus' : lf.linie ? 'gruen' : 'gelb');
   const k = S.karte;
   chip(box, k ? (k.x !== undefined ? `Karte ok (Fahrt ${k.fahrten})` : 'Karte: suche Position') : 'Karte aus', k && k.x !== undefined ? 'gruen' : 'aus');
+  if (k && k.warnungen && k.warnungen.length) chip(box, 'Karte: Hinweis, siehe Seite Karte', 'gelb');
+  if (k && k.aufnahme && k.aufnahme.laeuft) chip(box, `Messfahrt wird aufgezeichnet (${fmt(k.aufnahme.dauer, 0)} s)`, 'lila');
   const ob = $('objekte'); ob.innerHTML = '';
   for (const o of (ki ? ki.objekte : [])) chip(ob, `${o.name} ${Math.round(o.sicher * 100)} %${o.farbe ? ' ' + o.farbe : ''}${o.im_weg ? ' · IM WEG' : ''}`, o.im_weg ? 'rot' : '');
   // Ereignisse

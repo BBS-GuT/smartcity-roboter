@@ -33,12 +33,17 @@ GROESSE = 16.0           # m, Karte reicht von -8 bis +8 m um den Startpunkt der
 LO_BELEGT, LO_FREI, LO_MAX = 0.85, -0.4, 5.0   # Log-Odds je Messung und Grenze
 
 STANDARD = {
-    'max_reichweite': 4.0,     # LiDAR-Messungen weiter weg nicht eintragen (m)
+    # LiDAR-Messungen weiter weg nicht verwenden (m). Der T-mini Plus misst bis 12 m. In einem grossen Raum
+    # mit wenigen Dingen in der Naehe sind die fernen Waende das Einzige, woran der Abgleich die Drehung erkennt.
+    'max_reichweite': 8.0,
     'abgleich_xy': 0.06,       # Scan-Abgleich sucht +- so viel (m) ...
     'abgleich_w': 3.0,         # ... und +- so viel (Grad) um die mitgerechnete Position
     'min_guete': 0.35,         # so viel Anteil der Scanpunkte muss auf Belegtes passen, sonst nicht korrigieren
     'global_guete': 0.55,      # globale Suche: so gut muss es passen
 }
+# Passt der Abgleich laenger nicht, wird weiter gesucht (der Fehler vom Mitrechnen waechst mit der Zeit):
+# (seit so vielen s unsicher, +- m, +- Grad)
+SUCHFENSTER = ((0.0, None, None), (1.0, 0.15, 8.0), (3.0, 0.30, 15.0), (8.0, 0.50, 25.0))
 
 
 def drehe(punkte, w):
@@ -65,47 +70,65 @@ class Belegung:
         self.lo = np.zeros((self.n, self.n), np.float32)    # [iy, ix]
         self.c = dict(STANDARD)
         self.c.update(cfg or {})
-        self._treffer = None    # Trefferkarte fuer den Abgleich (wird bei Bedarf neu berechnet)
-        self._treffer_zeit = 0.0
+        self._treffer = {}      # Trefferkarten fuer den Abgleich je Unschaerfe (werden bei Bedarf neu berechnet)
+        self._treffer_stand = {}
+        self.stand = 0          # zaehlt jedes Eintragen (Trefferkarte nur neu rechnen, wenn sich etwas getan hat)
 
     def zellen(self, xy):
         ij = np.floor((np.asarray(xy) - self.ursprung) / self.aufl).astype(np.int64)
         ok = (ij[:, 0] >= 0) & (ij[:, 0] < self.n) & (ij[:, 1] >= 0) & (ij[:, 1] < self.n)
         return ij, ok
 
-    def eintragen(self, pose, punkte):
-        """Scan eintragen: Zellen auf dem Strahl werden freier, die Endpunkte belegter."""
+    def eintragen(self, pose, punkte, gewicht=1.0):
+        """Scan eintragen: Zellen auf dem Strahl werden freier, die Endpunkte belegter.
+        gewicht=2: zaehlt doppelt (erster Scan einer neuen Karte: sofort etwas zum Abgleichen da)."""
         p = np.asarray(punkte, dtype=np.float64)
         r = np.hypot(p[:, 0], p[:, 1])
         p = p[(r > 0.05) & (r < self.c['max_reichweite'])]
         if len(p) == 0:
             return
         r = np.hypot(p[:, 0], p[:, 1])
-        richtung = p / r[:, None]
-        schritte = np.arange(0.0, r.max(), self.aufl * 0.8)
-        frei = richtung[:, None, :] * schritte[None, :, None]               # (N, S, 2)
-        maske = schritte[None, :] < (r[:, None] - 1.5 * self.aufl)
-        frei = in_karte(pose, frei[maske])
-        ij, ok = self.zellen(frei)
-        idx = np.unique(ij[ok, 1] * self.n + ij[ok, 0])
+        # freie Zellen: Strahlen vom LiDAR bis kurz vor den Treffer als Linien malen (OpenCV, schnell auch bei 8 m)
+        kurz = p * (np.maximum(r - 1.5 * self.aufl, 0.0) / r)[:, None]
+        start = np.floor((np.array(pose[:2]) - self.ursprung) / self.aufl).astype(np.int32)
+        ziel = np.floor((in_karte(pose, kurz) - self.ursprung) / self.aufl).astype(np.int32)
+        x0, y0 = np.minimum(ziel.min(axis=0), start)
+        x1, y1 = np.maximum(ziel.max(axis=0), start) + 1
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, self.n), min(y1, self.n)
+        idx = np.zeros(0, np.int64)
+        if x1 > x0 and y1 > y0:
+            maske = np.zeros((y1 - y0, x1 - x0), np.uint8)
+            linien = np.stack([np.broadcast_to(start, ziel.shape), ziel], axis=1) - np.array([x0, y0], np.int32)
+            cv2.polylines(maske, list(linien.reshape(-1, 2, 1, 2)), False, 1)
+            yy, xx = np.nonzero(maske)
+            idx = (yy + y0).astype(np.int64) * self.n + (xx + x0)
         ende = in_karte(pose, p)
         ije, oke = self.zellen(ende)
         idx_e = np.unique(ije[oke, 1] * self.n + ije[oke, 0])
         idx = np.setdiff1d(idx, idx_e, assume_unique=True)
+        self.stand += 1
         flach = self.lo.ravel()
-        flach[idx] += LO_FREI
-        flach[idx_e] += LO_BELEGT
+        flach[idx] += LO_FREI * gewicht
+        flach[idx_e] += LO_BELEGT * gewicht
         np.clip(self.lo, -LO_MAX, LO_MAX, out=self.lo)
 
     # ---------------- Abgleich ----------------
-    def trefferkarte(self, neu=False):
-        """1.0 auf belegten Zellen, nach aussen abfallend (fuer den Scan-Abgleich)."""
-        if self._treffer is None or neu or time.time() - self._treffer_zeit > 1.0:
+    def trefferkarte(self, neu=False, unschaerfe=1.2):
+        """1.0 auf belegten Zellen, nach aussen abfallend (fuer den Scan-Abgleich).
+        unschaerfe (Zellen): groesser fuer die grobe Suche (sonst rutscht sie zwischen den Suchschritten durch)."""
+        u = round(unschaerfe, 1)
+        # neu rechnen nach 3x Eintragen (nicht nach Uhrzeit: so rechnet das Abspielen einer Aufnahme genau gleich)
+        if u not in self._treffer or neu or not 0 <= self.stand - self._treffer_stand[u] < 3:
             belegt = (self.lo > 1.0).astype(np.uint8)
             abstand = cv2.distanceTransform(1 - belegt, cv2.DIST_L2, 3)
-            self._treffer = np.exp(-(abstand ** 2) / (2 * 1.2 ** 2)).astype(np.float32)
-            self._treffer_zeit = time.time()
-        return self._treffer
+            self._treffer[u] = np.exp(-(abstand ** 2) / (2 * u ** 2)).astype(np.float32)
+            self._treffer_stand[u] = self.stand
+        return self._treffer[u]
+
+    def leeren(self):
+        """Alles vergessen (z. B. wenn ein grober Einstellungsfehler erkannt wurde)."""
+        self.lo[:] = 0
+        self._treffer, self._treffer_stand = {}, {}
 
     def bekannt(self):
         return bool((self.lo > 1.0).sum() > 50)
@@ -128,9 +151,9 @@ class Belegung:
             return 0.0
         return float(t[ij[ok, 1], ij[ok, 0]].sum() / len(punkte))
 
-    def abgleichen(self, pose, punkte, xy=None, w=None):
+    def abgleichen(self, pose, punkte, xy=None, w=None, min_guete=None):
         """Beste Position in der Naehe der mitgerechneten. Rueckgabe: (pose, guete) oder (None, guete).
-        xy (m) / w (Grad): so weit suchen (Standard: abgleich_xy / abgleich_w)."""
+        xy (m) / w (Grad): so weit suchen (Standard: abgleich_xy / abgleich_w). Weite Suche: erst grob, dann fein."""
         p = np.asarray(punkte, dtype=np.float64)
         # nur Punkte, die auch eingetragen werden (weiter weg steht nichts in der Karte -> zaehlte als "passt nicht")
         p = p[np.hypot(p[:, 0], p[:, 1]) < self.c['max_reichweite']]
@@ -138,13 +161,23 @@ class Belegung:
             return None, 0.0
         if len(p) > 240:
             p = p[np.linspace(0, len(p) - 1, 240).astype(int)]
-        t = self.trefferkarte()
+        xy = self.c['abgleich_xy'] if xy is None else xy
+        w = math.radians(self.c['abgleich_w'] if w is None else w)
+        # Suchstufen: jede sucht um das beste Ergebnis der vorigen, mit kleineren Schritten
+        stufen = []
+        while True:
+            schritt_xy, schritt_w = max(self.aufl, xy / 4), max(math.radians(1.0), min(w / 6, math.radians(4.0)))
+            stufen.append((xy, schritt_xy, w, schritt_w))
+            if schritt_xy <= self.aufl + 1e-9 and schritt_w <= math.radians(1.0) + 1e-9:
+                break
+            xy, w = schritt_xy, schritt_w
+        stufen.append((self.aufl, self.aufl / 2, math.radians(0.75), math.radians(0.25)))
         beste = (self.guete(pose, p), tuple(pose))
-        for stufe, (xy, schritt_xy, w, schritt_w) in enumerate((
-                (self.c['abgleich_xy'] if xy is None else xy, self.aufl,
-                 math.radians(self.c['abgleich_w'] if w is None else w), math.radians(1.0)),
-                (self.aufl, self.aufl / 2, math.radians(0.75), math.radians(0.25)))):
+        for xy, schritt_xy, w, schritt_w in stufen:
+            t = self.trefferkarte(unschaerfe=max(1.2, 0.6 * schritt_xy / self.aufl))
             mitte = beste[1]
+            # grobe Stufen: mit der unscharfen Karte neu bewerten (sonst wird ein besseres Grob-Ergebnis verworfen)
+            beste = (self._bewerten(t, mitte, p), mitte)
             versatz = np.arange(-xy, xy + 1e-9, schritt_xy)
             dx, dy = np.meshgrid(versatz, versatz)
             dx, dy = dx.ravel(), dy.ravel()
@@ -158,9 +191,13 @@ class Belegung:
                 k = int(np.argmax(werte))
                 if werte[k] > beste[0] + 1e-6:
                     beste = (float(werte[k]), (mitte[0] + dx[k], mitte[1] + dy[k], winkel(mitte[2] + dw)))
-        if beste[0] < self.c['min_guete']:
+        if beste[0] < (self.c['min_guete'] if min_guete is None else min_guete):
             return None, beste[0]
         return beste[1], beste[0]
+
+    def _bewerten(self, t, pose, p):
+        ij, ok = self.zellen(in_karte(pose, p))
+        return float(t[ij[ok, 1], ij[ok, 0]].sum() / len(p)) if ok.any() else 0.0
 
     def global_suchen(self, punkte, schritt_grad=2.0):
         """Position in der ganzen Karte suchen (neue Fahrt). Rueckgabe: (pose, guete, eindeutig)."""
@@ -322,6 +359,7 @@ class Karte:
         self.fahrten = 0
         self.letzte_pose = None
         self.einbau = {}        # weitere LiDARs: Name -> gelernte Einbau-Korrektur (dx, dy, dw) oder None
+        self.kalibrierung = {}  # selbst gelernt: Lagesensor-Skala, Haupt-LiDAR-Einbau ... (lib/kartierer.py)
 
     # ---------------- Speichern ----------------
     def laden(self):
@@ -341,13 +379,14 @@ class Karte:
         self.fahrten = info.get('fahrten', 0)
         self.letzte_pose = info.get('letzte_pose')
         self.einbau = info.get('einbau', {})
+        self.kalibrierung = info.get('kalibrierung', {})
         self.marker.liste = [m for m in info.get('marker', []) if m['art'] not in ('hindernis', 'person')]
         return True
 
     def speichern(self):
         os.makedirs(self.ordner, exist_ok=True)
         info = {'fahrten': self.fahrten, 'letzte_pose': self.letzte_pose, 'marker': self.marker.liste,
-                'einbau': self.einbau,
+                'einbau': self.einbau, 'kalibrierung': self.kalibrierung,
                 'aufloesung': self.belegung.aufl, 'ursprung': self.belegung.ursprung}
         tmp = os.path.join(self.ordner, 'karte_neu.npz')
         np.savez_compressed(tmp, belegung=self.belegung.lo.astype(np.float16),
@@ -525,21 +564,34 @@ class LidarEinbau:
         self.korrektur = tuple(korrektur) if korrektur else None   # None = noch nicht gelernt
         self.proben = []
         self.letzte_probe = 0.0
+        self.vermutung = (0.0, 0.0, 0.0)   # Startwert der Suche (aus der weiten Suche, s. u.)
+        self.versuche = 0
 
     def probe(self, karte_belegung, pose, punkte, jetzt):
         """Eine Messung: Scan dieses LiDARs (ohne Korrektur) an der sicheren Position 'pose' abgleichen."""
         if jetzt - self.letzte_probe < 0.5:
             return
         self.letzte_probe = jetzt
+        self.versuche += 1
+        start = verknuepfen(pose, self.korrektur or self.vermutung)
         # weiter suchen als sonst: von Hand eingestellt kann er einige Grad daneben liegen
-        neu, guete = karte_belegung.abgleichen(pose, punkte, xy=0.12, w=10.0)
+        neu, guete = karte_belegung.abgleichen(start, punkte, xy=0.12, w=10.0)
+        if (neu is None or guete < 0.5) and self.korrektur is None and self.versuche % 10 == 0:
+            # klappt lange nicht: sitzt er ganz anders (z. B. an der anderen Ecke, "vorne" um 90 Grad gedreht)?
+            # -> einmal sehr weit suchen (+-40 cm, ganz herum) und von dort weiterlernen
+            neu, guete = karte_belegung.abgleichen(start, punkte, xy=0.4, w=180.0, min_guete=0.5)
+            if neu is not None:
+                self.vermutung, self.proben = relativ(pose, neu), []
+            return
         if neu is None or guete < 0.5:
             return
         self.proben = (self.proben + [relativ(pose, neu)])[-self.PROBEN * 2:]
         if len(self.proben) < self.PROBEN:
             return
         p = np.array(self.proben[-self.PROBEN:])
+        p[:, 2] = p[0, 2] + np.array([winkel(v - p[0, 2]) for v in p[:, 2]])   # nicht ueber +-180 Grad springen
         mitte = np.median(p, axis=0)
+        mitte[2] = winkel(mitte[2])
         if (np.degrees(np.std(p[:, 2])) < self.STREUUNG_W and np.std(p[:, 0]) < self.STREUUNG_XY
                 and np.std(p[:, 1]) < self.STREUUNG_XY):
             alt = self.korrektur
@@ -571,6 +623,9 @@ class Lokalisierung:
         self.puffer = []                # Scans, solange die Position unbekannt ist: (odom, punkte)
         self.pfad = []                  # gefahrene Strecke dieser Fahrt (Karte)
         self.unsicher_seit = None       # seit wann passt der Abgleich nicht (dann weiter suchen)
+        self.zuletzt_sicher = None      # Zeit des letzten sicheren Abgleichs
+        self.letzter_abgleich = None    # fuer Selbstkalibrierung und Diagnose: zeit, pose, sicher, guete, fenster
+        self.letzte_punkte = None       # letzter Scan (alle LiDARs zusammen, LiDAR-System) fuer die Anzeige
         # weitere LiDARs: Name -> LidarEinbau (gelernte Korrektur steht in der Karte, gilt fuer den naechsten Start)
         self.einbau = {name: LidarEinbau(k) for name, k in (karte.einbau or {}).items()}
 
@@ -586,13 +641,25 @@ class Lokalisierung:
                 self.verlauf = self.verlauf[-200:]
 
     def odom_bei(self, zeit):
-        """Mitgerechnete Position zur Zeit 'zeit' (aus dem Verlauf, sonst die aktuelle)."""
+        """Mitgerechnete Position zur Zeit 'zeit' (aus dem Verlauf, zwischen zwei Eintraegen gemittelt)."""
         if zeit is None or not self.verlauf or zeit >= self.verlauf[-1][0]:
             return self.odom
+        nach = None
         for t, o in reversed(self.verlauf):
             if t <= zeit:
-                return o
+                if nach is None or nach[0] - t < 1e-6:
+                    return o
+                a = (zeit - t) / (nach[0] - t)
+                r = relativ(o, nach[1])
+                return verknuepfen(o, (r[0] * a, r[1] * a, r[2] * a))
+            nach = (t, o)
         return self.verlauf[0][1]
+
+    def pose_bei(self, zeit):
+        """Position in der Karte zur Zeit 'zeit' (z. B. Aufnahmezeit eines Kamerabilds) oder None."""
+        if self.pose is None:
+            return None
+        return verknuepfen(self.pose, relativ(self.odom, self.odom_bei(zeit)))
 
     def einbau_text(self):
         return '; '.join(f'{n}: {e.text()}' for n, e in self.einbau.items())
@@ -615,6 +682,7 @@ class Lokalisierung:
             if e.korrektur is not None:
                 alle.append(e.anwenden(p))
         alle = np.concatenate(alle) if len(alle) > 1 else alle[0]
+        self.letzte_punkte = alle
         if self.pose is None:
             if not bel.bekannt():
                 self.pose, self.status = (0.0, 0.0, 0.0), 'neue Karte'
@@ -624,22 +692,34 @@ class Lokalisierung:
                 return False
         pose_scan = verknuepfen(self.pose, relativ(self.odom, odom_scan))   # wo ich bei der Messung war
         sicher = not bel.bekannt()
+        fenster = 0
         if bel.bekannt():
-            # Passt es eine Weile nicht, weiter suchen (der Fehler der Odometrie waechst mit der Zeit)
-            weit = self.unsicher_seit is not None and jetzt - self.unsicher_seit > 1.0
-            neu, self.guete = bel.abgleichen(pose_scan, alle, *((0.15, 8.0) if weit else ()))
+            # Passt es eine Weile nicht, weiter suchen (der Fehler der Odometrie waechst mit der Zeit).
+            # Je weiter gesucht wird, desto besser muss es passen (sonst rastet er an einer falschen Stelle ein).
+            dauer = jetzt - self.unsicher_seit if self.unsicher_seit is not None else 0.0
+            fenster = max(i for i, (ab, _, _) in enumerate(SUCHFENSTER) if dauer >= ab)
+            _, xy, w = SUCHFENSTER[fenster]
+            neu, self.guete = bel.abgleichen(pose_scan, alle, xy, w, min_guete=bel.c['min_guete'] + 0.04 * fenster)
             if neu is not None:
                 pose_scan, sicher = neu, True
                 self.pose = verknuepfen(neu, bis_jetzt)
-                self.status, self.unsicher_seit = 'ok', None
+                self.status, self.unsicher_seit, self.zuletzt_sicher = 'ok', None, jetzt
             else:
                 self.unsicher_seit = self.unsicher_seit or jetzt
                 self.status = f'Abgleich unsicher ({self.guete:.0%}) - rechne mit'
+                if fenster:
+                    self.status += f', suche weiter (+-{SUCHFENSTER[fenster][1] * 100:.0f} cm)'
+        else:
+            self.zuletzt_sicher = jetzt
+        self.letzter_abgleich = {'zeit': scan_zeit if scan_zeit is not None else jetzt, 'pose': pose_scan,
+                                 'sicher': sicher and bel.bekannt(), 'guete': self.guete, 'fenster': fenster,
+                                 'punkte': len(alle)}
         # Nur eintragen, was sicher ist: sonst wandert die Karte mit dem Fehler mit und dreht sich.
         # Ausnahme: neues Gebiet (dort kann der Abgleich nicht passen, weil noch nichts in der Karte steht).
         neues_gebiet = not sicher and bel.bekannt_anteil(pose_scan, alle) < 0.3
         if eintragen and (sicher or neues_gebiet) and self._weit_genug(jetzt):
-            bel.eintragen(pose_scan, alle)
+            # leere Karte: erster Scan zaehlt doppelt, sonst passt der zweite evtl. schon nicht mehr genau darauf
+            bel.eintragen(pose_scan, alle, gewicht=1.0 if bel.bekannt() else 2.0)
             self.letzter_eintrag = (self.odom, jetzt)
         # weitere LiDARs: Einbau lernen, wenn die Position sicher ist und die Karte schon etwas hat
         if sicher and bel.bekannt():
