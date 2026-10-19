@@ -766,6 +766,10 @@ def mache_handler(node, prozesse, beenden=None):
                     if not dateien:
                         return self._senden(404, 'text/plain; charset=utf-8', 'Noch keine Aufnahme'.encode())
                     datei = os.path.join(ordner, dateien[-1])
+                    laeuft = ((node.get('karte', max_alter=3.0) or {}).get('aufnahme') or {}).get('laeuft')
+                    if laeuft:
+                        return self._senden(409, 'text/plain; charset=utf-8',
+                                            'Aufnahme laeuft noch - erst "Aufnahme stoppen", dann herunterladen'.encode())
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/gzip')
                     self.send_header('Content-Length', str(os.path.getsize(datei)))

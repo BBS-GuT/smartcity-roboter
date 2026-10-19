@@ -404,7 +404,11 @@ class Kartograf(Node):
                 'roboter': open(name).read().strip() if os.path.exists(name) else '',
                 'topics': {'odom': self.p('odom_topic'), 'imu': self.p('imu_topic'), 'bild': self.p('image_topic')},
                 'kalibrierung': self.kr.kal.speichern()}
-        self.aufnahme = A.Aufnahme(datei, kopf, bild_hz=self.p('aufnahme_bild_hz'))
+        try:
+            self.aufnahme = A.Aufnahme(datei, kopf, bild_hz=self.p('aufnahme_bild_hz'))
+        except OSError as e:     # Platte voll, keine Schreibrechte: Kartograf laeuft weiter
+            self.aufnahme = None
+            return f'Aufnahme geht nicht: {e}'
         self.get_logger().info(f'Messfahrt-Aufnahme: {datei}')
         return f'Aufnahme laeuft: {datei}'
 

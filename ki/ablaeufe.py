@@ -239,6 +239,11 @@ class Wegraeumen(Ablauf):
         self.braucht_arm = planer is not None
         self.versuch = 1
         self.zurueck_gefahren = 0.0
+        self.zuletzt_vermessen = None     # letzte Messung der Kamera in DIESEM Ablauf (bleibt ueber neues Anschauen)
+        self.lebend_seit = self.lebend_zuletzt = None
+        self.lebend_name = ''
+        self.letzter_schritt = jetzt
+        self.s_alt, self.s_phase = None, None   # fuer _gefahren (gemessene Strecke)
         self.vorgefahren = 0.0            # so weit ist er blind naeher herangefahren (m)
         self.grund = ''
         self._anschauen(jetzt)
@@ -247,6 +252,22 @@ class Wegraeumen(Ablauf):
         self._phase(jetzt, 'anschauen')
         self.messungen, self.lidar_werte, self.bilder, self.lebewesen = [], [], 0, None
         self.gesehen = 0                  # Bilder, in denen die Tiefenkamera etwas sah (auch ohne Vermessung)
+
+    def _gefahren(self, w, jetzt, tempo):
+        """Strecke (m, + vorwaerts) seit dem letzten Aufruf in dieser Phase. Mit Radzaehlern (w['strecke'], von der
+        Zentrale) die wirklich gefahrene Strecke - auch wenn die KI kurz haengt oder der Linienfolger den Befehl
+        blockiert. Ohne: befohlenes Tempo x Zeit, Zeit begrenzt (sonst springt es nach einer Pause)."""
+        if self.s_phase != self.phase:
+            self.s_phase, self.s_alt, self.letzte = self.phase, w.get('strecke'), jetzt
+            return 0.0
+        s = w.get('strecke')
+        if s is not None and self.s_alt is not None:
+            ds, self.s_alt = s - self.s_alt, s
+        else:
+            ds = tempo * min(0.15, jetzt - self.letzte)
+            self.s_alt = s
+        self.letzte = jetzt
+        return ds
 
     def _ende(self, ergebnis, text, art):
         self.ergebnis = ergebnis
@@ -261,15 +282,33 @@ class Wegraeumen(Ablauf):
         obj = w.get('objekt') if neu else None
         kamera_obj = obj if obj and obj.get('quelle') == 'tiefe' else None
         lid = w.get('lidar')
-        if self.phase in ('planen', 'naeher', 'ausfuehren', 'rueckweg') and neu:
-            lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE]
+        if self.phase in ('planen', 'naeher', 'ausfuehren', 'rueckweg'):
+            # Person/Tier/Fahrzeug taucht auf: Arm und Roboter halten STILL (keine neue Bewegung, Greifer bleibt
+            # wie er ist - sonst fiele ein gehaltener Wuerfel irgendwo hin). Weiter erst, wenn 2 s niemand mehr da ist.
+            lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE] if neu else []
             if lebend:
-                return self._ende('fehler', f'Wegraeumen abgebrochen: {lebend[0]} in Sicht -> Arm zurueck, warte', 'stopp')
+                if self.lebend_seit is None:
+                    self.lebend_seit = jetzt
+                    self.ereignisse.append((f'Wegraeumen: {lebend[0]} in Sicht -> Arm haelt still, warte', 'stopp'))
+                self.lebend_zuletzt, self.lebend_name = jetzt, lebend[0]
+            if self.lebend_seit is not None:
+                if jetzt - self.lebend_zuletzt < 2.0:
+                    if jetzt - self.lebend_seit > 30.0:
+                        return self._ende('fehler', f'Wegraeumen abgebrochen: {self.lebend_name} bleibt in Sicht', 'stopp')
+                    self.seit += jetzt - self.letzter_schritt     # Wartezeit des laufenden Schritts anhalten
+                    self.letzter_schritt, self.letzte = jetzt, jetzt
+                    self.s_alt = w.get('strecke')
+                    return befehl('stopp', f'Wegraeumen: {self.lebend_name} in Sicht -> Arm haelt still, warte')
+                self.lebend_seit = None
+                self.ereignisse.append(('Wegraeumen: niemand mehr in Sicht -> mache weiter', 'info'))
+        self.letzter_schritt = jetzt
+        c, d = self.c, self.dauer(jetzt)
         if self.phase == 'anschauen':
             if neu:
                 self.bilder += 1
                 if kamera_obj:
                     self.messungen.append(kamera_obj)
+                    self.zuletzt_vermessen = kamera_obj
                 if kamera_obj or w.get('tiefe_hindernis'):
                     self.gesehen += 1
                 if lid is not None:
@@ -283,11 +322,10 @@ class Wegraeumen(Ablauf):
             return self._entscheiden(jetzt, w)
         if self.phase == 'zurueck':
             hinten = w.get('lidar_hinten')
-            dt, self.letzte = jetzt - self.letzte, jetzt
+            self.zurueck_gefahren -= self._gefahren(w, jetzt, -c['zurueck_tempo'])
             if hinten is None or hinten < c['hinten_frei'] or self.zurueck_gefahren >= c['sicht_zurueck']:
                 self._anschauen(jetzt)
                 return befehl('stopp', 'Hindernis: schaue nochmal hin')
-            self.zurueck_gefahren += c['zurueck_tempo'] * dt
             return befehl('manoever', 'Hindernis zu nah fuer die Kamera -> fahre etwas zurueck',
                           manoever={'lin': -c['zurueck_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'zurueck'})
         if self.phase == 'abstand':
@@ -311,8 +349,8 @@ class Wegraeumen(Ablauf):
             self.warte = 0.0
             d = 0.0
         if self.phase == 'naeher':
-            # blind (Kamera sieht es so nah evtl. nicht mehr): nach Zeit und Tempo, langsam
-            dt, self.letzte = jetzt - self.letzte, jetzt
+            # blind (Kamera sieht es so nah evtl. nicht mehr): nach gemessener Strecke (Radzaehler), langsam
+            self.vorgefahren += self._gefahren(w, jetzt, c['naeher_tempo'])
             if self.vorgefahren >= self.naeher_ziel - 1e-4:
                 o = dict(self.objekt_plan, vor=self.objekt_plan['vor'] - self.vorgefahren,
                          vor_gemessen=self.objekt_plan['vor'])
@@ -320,11 +358,10 @@ class Wegraeumen(Ablauf):
                 self._phase(jetzt, 'planen')
                 threading.Thread(target=self._planen, args=(o, self.seite), daemon=True).start()
                 return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
-            self.vorgefahren += c['naeher_tempo'] * dt
             return befehl('manoever', f'Hindernis: fahre naeher heran ({self.vorgefahren * 100:.0f} cm)',
                           manoever={'lin': c['naeher_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'naeher heran'})
         if self.phase == 'rueckweg':
-            dt, self.letzte = jetzt - self.letzte, jetzt
+            self.vorgefahren += self._gefahren(w, jetzt, -c['naeher_tempo'])
             hinten = w.get('lidar_hinten')
             if self.vorgefahren <= 1e-4 or hinten is None or hinten < c['hinten_frei'] or d > 10.0:
                 if self.vorgefahren > 0.02:
@@ -336,7 +373,6 @@ class Wegraeumen(Ablauf):
                 self._phase(jetzt - c['arm_zeit'] * 0.5, 'kontrolle')
                 self.kontrolle_bilder = self.kontrolle_da = 0
                 return befehl('stopp', 'Wegraeumen: pruefe, ob der Weg frei ist')
-            self.vorgefahren -= c['naeher_tempo'] * dt
             return befehl('manoever', 'Wegraeumen: fahre zurueck, damit die Kamera den Platz sieht',
                           manoever={'lin': -c['naeher_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'zurueck'})
         if self.phase == 'ausfuehren':
@@ -386,8 +422,31 @@ class Wegraeumen(Ablauf):
             return self._ende('bestaetigt', f'Hindernis ist {self.lebewesen} -> nicht anfassen, warte', 'stopp')
         if len(self.messungen) < 3 and self.gesehen >= 3:
             return self._ende('bestaetigt', 'Hindernis bestaetigt (Tiefenkamera) -> warte', 'stopp')
+        if len(self.messungen) < 3 and (self.bilder < c['anschauen_bilder'] or self.gesehen > 0):
+            # Zu wenige Bilder (KI ueberlastet) oder nur ab und zu etwas gesehen: KEIN Urteil "frei" daraus
+            # machen - sonst faehrt er ueber etwas, das er nur nicht richtig sehen konnte. Stehen bleiben und
+            # nochmal hinschauen.
+            grund = (f'KI liefert zu wenige Bilder ({self.bilder})' if self.bilder < c['anschauen_bilder']
+                     else f'Kamera sieht es nur in {self.gesehen} von {self.bilder} Bildern')
+            self.ereignisse.append((f'Hindernis: {grund} -> schaue nochmal hin', 'info'))
+            self._anschauen(jetzt)
+            return befehl('stopp', f'Hindernis: {grund} -> schaue nochmal hin')
+        if len(self.messungen) < 3 and self.zuletzt_vermessen is not None:
+            # Vorhin hat die Kamera etwas gesehen, jetzt nicht mehr. Meist ist es nur zu nah (unter dem Blickfeld
+            # der Kamera, z. B. weil er nach dem Halt noch etwas gerollt ist) -> zurueck, bis sie es wieder sieht.
+            # Erst wenn es auch dann nicht mehr da ist, gilt der Weg als frei.
+            if self.zurueck_gefahren < c['sicht_zurueck']:
+                hinten = w.get('lidar_hinten')
+                if hinten is None or hinten < c['hinten_frei']:
+                    return self._ende('bestaetigt', 'Hindernis vorhin gesehen, jetzt zu nah fuer die Kamera, hinten '
+                                                    'nicht frei -> warte', 'stopp')
+                self.ereignisse.append(('Hindernis vorhin gesehen, jetzt nicht mehr (zu nah?) -> fahre etwas zurueck',
+                                        'info'))
+                self.letzte = jetzt
+                self._phase(jetzt, 'zurueck')
+                return befehl('stopp', 'Hindernis zu nah fuer die Kamera -> fahre etwas zurueck')
         if len(self.messungen) < 3:
-            # Kamera sieht nichts. Meldet der LiDAR noch etwas?
+            # Kamera sieht in allen Bildern nichts. Meldet der LiDAR noch etwas?
             lid = [x for x in self.lidar_werte if x < c['pruef_dist']]
             if len(lid) < 2:
                 return self._ende('frei', 'Kamera und LiDAR sehen nichts mehr -> weiter', 'fahren')

@@ -488,7 +488,7 @@ class Kartierer:
         t = self._zeit(name, d.get('stamp'), empfang)
         a = d['amin'] + np.arange(n) * d['ainc']
         spiegeln = self.c['scan_spiegeln'][i] if i < len(self.c['scan_spiegeln']) else False
-        if spiegeln or self.kal.spiegeln:
+        if spiegeln != self.kal.spiegeln:     # Einstellung und Selbstkorrektur heben sich auf, wenn beide da sind
             a = -a
         fronts = self.c['scan_front_deg']
         a = a - math.radians(fronts[i] if i < len(fronts) else 0.0)

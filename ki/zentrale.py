@@ -36,6 +36,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, CompressedImage, LaserScan, Imu
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 from cv_bridge import CvBridge
 
@@ -189,6 +190,9 @@ class Zentrale(Node):
         self.pub_antwort = self.create_publisher(String, '/ki/antwort', 10)
         self.create_subscription(Imu, '/imu/data_raw', self._imu, qos_profile_sensor_data)
         self.create_subscription(Twist, '/cmd_vel', self._cmd, 10)
+        # gefahrene Strecke (Radzaehler) fuer das blinde Heranfahren beim Wegraeumen
+        self.strecke, self.odom_zeit = 0.0, 0.0
+        self.create_subscription(Odometry, '/odom_raw', self._odom, qos_profile_sensor_data)
         self.create_subscription(String, '/line_follower/status', self._linie, 10)
         self.pub_befehl = self.create_publisher(String, '/ki/befehl', 10)
         self.pub_ereignis = self.create_publisher(String, '/ki/ereignis', 50)
@@ -271,6 +275,14 @@ class Zentrale(Node):
         self.gier_zeit = jetzt
         if jetzt - self.imu_zeit > 1.0:
             self.gier += msg.angular.z * dt
+        if jetzt - self.odom_zeit > 1.0:
+            self.strecke += msg.linear.x * dt     # keine Radzaehler: befohlene Strecke (ungenauer)
+
+    def _odom(self, msg):
+        jetzt = time.time()
+        dt = min(0.2, jetzt - self.odom_zeit) if self.odom_zeit else 0.0
+        self.odom_zeit = jetzt
+        self.strecke += msg.twist.twist.linear.x * dt
 
     def _linie(self, msg):
         try:
@@ -282,8 +294,10 @@ class Zentrale(Node):
 
     def _kommando(self, msg):
         if msg.data.strip() == 'greifen_zuruecksetzen':
-            for pol in list(self.politik.values()) or [self._politik(self.eigenes_modell)]:
-                pol.zuruecksetzen()
+            # alle Modelle, auch die, die seit dem Start noch nicht geladen wurden (z. B. 'yahboom')
+            namen = set(self.politik) | set((greifen._lies(greifen.LOKAL) or {}).get('modelle') or {})
+            for name in namen or {self.eigenes_modell}:
+                self._politik(name).zuruecksetzen()
             antwort = 'Gelerntes Greifen zurueckgesetzt (zurueck zum Vortraining)'
             self._sende_ereignis(time.time(), antwort, 'info')
             self.pub_antwort.publish(String(data=antwort))
@@ -466,6 +480,7 @@ class Zentrale(Node):
         w['lidar_hinten'] = self.lidar_hinten()
         w['weg'] = self.weg_voraus()
         w['gier'] = self.gier
+        w['strecke'] = self.strecke
         st = self.linie_status
         # Faehrt das Fahrprogramm wirklich? Nur dann darf die KI den Arm bewegen (nicht im TEST, nicht nach STOPP)
         self.entscheider.fahrt_aktiv = bool(st.get('drive')) and jetzt - st.get('_zeit', 0.0) < 1.0
@@ -477,7 +492,9 @@ class Zentrale(Node):
         w['objekt'] = w.get('tiefe_objekt') or lid_obj
         befehl = self.entscheider.update(jetzt, w)
         # Arm nur, wenn freigegeben (zurueck in die Fahrstellung darf er immer)
-        if befehl['arm'] and self.arm is not None and (self.entscheider.arm_freigabe or befehl['arm'] == 'fahrstellung'):
+        arm = befehl['arm']
+        zurueck = arm == 'fahrstellung' or (isinstance(arm, dict) and arm.get('pose') == 'fahrstellung')
+        if arm and self.arm is not None and (self.entscheider.arm_freigabe or zurueck):
             self._arm_befehl(befehl['arm'])
         with self.lock:
             self.befehl = befehl

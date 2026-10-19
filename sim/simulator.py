@@ -355,7 +355,7 @@ class Simulator(Node):
                                                verdeckt_deg=self.get_parameter('lidar_verdeckt').value,
                                                rng=self.rng, max_r=8.0)
             msg = LaserScan()
-            msg.header.stamp = self._stempel(time.time())
+            msg.header.stamp = self._stempel(ende - umlauf)   # ROS: Zeitstempel = erster Strahl des Scans
             msg.header.frame_id = f'laser{i}'
             msg.angle_min, msg.angle_increment = float(winkel[0]), float(winkel[1] - winkel[0])
             msg.angle_max = float(winkel[-1])

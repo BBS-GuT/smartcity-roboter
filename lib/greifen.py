@@ -163,8 +163,9 @@ class Politik:
             daten = _lies(self.lokal)
             (daten.get('modelle') or {}).pop(self.schluessel, None)
             if daten.get('modelle'):
-                with open(self.lokal, 'w') as f:
+                with open(self.lokal + '.neu', 'w') as f:      # erst Hilfsdatei, dann umbenennen (nie halb)
                     json.dump(daten, f, indent=1)
+                os.replace(self.lokal + '.neu', self.lokal)
             else:
                 os.remove(self.lokal)
         self.laden()

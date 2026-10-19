@@ -73,7 +73,7 @@ STANDARD = {
     'greif_seite': 0.06,       # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm)
     'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)
     'kontrolle_bereich': 0.45,  # in diesem Abstand (m) darf die Tiefenkamera dann nichts mehr sehen
-    'versuche': 2,             # so oft versuchen, dann warten
+    'versuche': 4,             # so oft versuchen (jeder Fehlversuch wird gelernt), dann warten
     'naeher_max': 0.12,        # reicht der Arm nicht hin: hoechstens so weit blind naeher heranfahren (m)
     'naeher_tempo': 0.03,      # ... so schnell (m/s)
     'notbremse_abbruch': 5.0,  # Notbremse waehrend des Wegraeumens laenger als das (s) -> abbrechen
@@ -104,6 +104,8 @@ class Entscheider:
         # Ablaeufe
         self.ablauf = None
         self.zebra_gesperrt, self.zebra_zuletzt = False, 0.0
+        self.zebra_merk = None        # zuletzt gesehener Zebrastreifen: (Abstand, Strecke dabei, Zeit) - falls die Kamera
+                                      # ihn danach nicht mehr sieht (zu nah, KI langsam, anderer Ablauf lief gerade)
         self.einfahrt_n, self.einfahrt_gesperrt_bis = 0, 0.0
         self.aufheben_gesperrt, self.weg_frei_seit = False, None
         self.umschauen_wunsch = None  # Zeit, zu der jemand (Kartograf/Panel) Umschauen gewuenscht hat
@@ -169,6 +171,13 @@ class Entscheider:
         Rueckgabe: {'aktion', 'faktor', 'grund', 'arm', 'manoever'}
         """
         self.jetzt = jetzt
+        if not self.arm_freigabe and self.ablauf is not None and self.ablauf.braucht_arm:
+            # Schalter "KI darf den Arm bewegen" waehrend eines Ablaufs ausgeschaltet: wie STOPP behandeln,
+            # Arm faehrt zurueck in die Fahrstellung, bevor wieder gefahren wird
+            self._ereignis(jetzt, f'{self.ablauf.name}: abgebrochen (Arm fuer die KI ausgeschaltet)', 'info')
+            if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
+                self.arm_zurueck_noetig = True
+            self.ablauf = None
         if not self.fahrt_aktiv:
             self.fehler_halt = None     # STOPP/TEST quittiert einen Manoever-Fehler
             # STOPP gedrueckt oder nur TEST: nichts am Arm bewegen, laufende Arm-Ablaeufe abbrechen.
@@ -190,6 +199,8 @@ class Entscheider:
             self.einfahrt_n = self.einfahrt_n + 1 if w.get('einfahrt_verboten') else 0
             if w.get('zebra'):
                 self.zebra_zuletzt = jetzt
+                if not self.zebra_gesperrt:
+                    self.zebra_merk = (w['zebra']['abstand'], w.get('strecke'), jetzt)
         if self.zebra_gesperrt and self.ablauf is None and jetzt - self.zebra_zuletzt > self.c['zebra_weg']:
             self.zebra_gesperrt = False  # ueber den Zebrastreifen drueber
         self._ampel_zeit(jetzt)
@@ -339,10 +350,23 @@ class Entscheider:
         if self.einfahrt_n >= c['einfahrt_bilder'] and jetzt >= self.einfahrt_gesperrt_bis:
             self.einfahrt_n = 0
             self._ereignis(jetzt, 'Schild "Einfahrt verboten" (Einbahnstrasse) -> wende', 'stopp')
+            self.zebra_merk = None       # nach dem Wenden liegt er nicht mehr vor ihm
             return self._ablauf_start(jetzt, Wenden(jetzt, c, w.get('gier', 0.0)))
         # 6. Zebrastreifen -> anhalten und umschauen
         z = w.get('zebra')
+        if not z and self.zebra_merk and not self.zebra_gesperrt:
+            # Kamera sieht ihn gerade nicht mehr, vorhin aber schon: mit der gefahrenen Strecke weiterrechnen.
+            # Sonst faehrt er drueber, wenn er ihn waehrend eines anderen Ablaufs (z. B. Hindernis anschauen)
+            # gesehen hat und er danach zu nah fuer die Kamera ist.
+            a, s0, t0 = self.zebra_merk
+            s1 = w.get('strecke')
+            rest = a - (s1 - s0) if s1 is not None and s0 is not None else a
+            if rest < -0.3 or jetzt - t0 > 30.0:
+                self.zebra_merk = None              # laengst drueber / zu alt
+            elif rest <= c['zebra_halt']:
+                z = {'abstand': max(0.05, rest)}
         if z and not self.zebra_gesperrt and z['abstand'] <= c['zebra_halt']:
+            self.zebra_merk = None
             self._ereignis(jetzt, f"Zebrastreifen {z['abstand'] * 100:.0f} cm voraus -> anhalten, umschauen", 'stopp')
             posen = self.posen if self.arm_erlaubt else {}
             return self._ablauf_start(jetzt, Zebrastreifen(jetzt, c, posen, z['abstand']))
@@ -398,6 +422,7 @@ class Entscheider:
             self.arm_zurueck_noetig = True
         if a.name == 'zebra':
             self.zebra_gesperrt = True
+            self.zebra_merk = None
             self.zebra_zuletzt = jetzt   # beim Umschauen sah die Kamera den Zebrastreifen nicht
         elif a.name in ('wenden', 'ausweichen'):
             self.einfahrt_gesperrt_bis = jetzt + 6.0

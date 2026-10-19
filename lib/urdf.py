@@ -16,6 +16,7 @@ import math
 import os
 import re
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 
 import numpy as np
@@ -136,11 +137,36 @@ def arm_geometrie(datei, greifpunkt=0.075):
     }
 
 
+MERKER = os.path.expanduser('~/.cache/smartcity_urdf.txt')   # zuletzt gefundener Pfad (leer = keiner)
+
+
 def finde_urdf():
     """Pfad zu Yahbooms Robotermodell auf diesem Rechner oder None.
     Sucht: Umgebungsvariable SMARTCITY_URDF, installierte ROS-Pakete (ros2 pkg prefix), typische Workspaces."""
     if os.environ.get('SMARTCITY_URDF'):
         return os.environ['SMARTCITY_URDF'] if os.path.exists(os.environ['SMARTCITY_URDF']) else None
+    # Die Suche dauert auf dem Roboter einige Sekunden (ros2 pkg prefix, viele Dateien) -> Ergebnis merken.
+    # Nichts gefunden: erst nach einem Tag wieder suchen.
+    try:
+        with open(MERKER) as f:
+            zeile = f.read().strip()
+        if zeile and os.path.exists(zeile):
+            return zeile
+        if not zeile and time.time() - os.path.getmtime(MERKER) < 86400:
+            return None
+    except OSError:
+        pass
+    gefunden = _suchen()
+    try:
+        os.makedirs(os.path.dirname(MERKER), exist_ok=True)
+        with open(MERKER, 'w') as f:
+            f.write(gefunden or '')
+    except OSError:
+        pass
+    return gefunden
+
+
+def _suchen():
     ordner = []
     for p in PAKETE:
         try:

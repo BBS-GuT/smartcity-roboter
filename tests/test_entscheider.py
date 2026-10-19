@@ -7,7 +7,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ki'))
-from entscheider import Entscheider  # noqa: E402
+from entscheider import Entscheider, STANDARD  # noqa: E402
 
 fehler = 0
 
@@ -103,6 +103,26 @@ for _ in range(30):                     # 3 s, aber kein neues Bild
     b = l.e.update(l.t, {'bild_nr': l.nr, 'bild_zeit': l.t, 'lidar': 0.3, 'objekte': []})
 pruefe('KI liefert keine neuen Bilder -> wartet weiter mit dem Urteil', b, 'stopp')
 
+# KI ueberlastet und Roboter rollt nach: Kamera sieht den Wuerfel in 2 Bildern (22 cm), dann nicht mehr
+# (zu nah, unter dem Blickfeld) -> darf NICHT "frei" daraus machen, sondern faehrt zurueck und schaut nochmal
+l = Lauf()
+NAH_WEG = {'vor': 0.22, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.045, 'quelle': 'tiefe'}
+aktionen, gefahren = [], 0.0
+for k in range(150):
+    l.t += 0.1
+    if k % 8 == 0:
+        l.nr += 1                            # nur alle 0,8 s ein KI-Bild
+    sichtbar = k < 16 or gefahren < -0.06    # erst wieder zu sehen, wenn er 6 cm zurueckgefahren ist
+    b = l.e.update(l.t, {'bild_nr': l.nr, 'bild_zeit': l.t, 'lidar': float('inf'), 'objekte': [], 'lidar_hinten': 1.0,
+                         'objekt': dict(NAH_WEG, vor=0.22 - gefahren) if sichtbar else None})
+    if b.get('manoever'):
+        gefahren += b['manoever']['lin'] * 0.1
+    aktionen.append(b['aktion'])
+ok = 'fahren' not in aktionen and 'manoever' in aktionen
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Hindernis gesehen, dann zu nah fuer die Kamera -> zurueck statt drueberfahren "
+      f"({gefahren * 100:.0f} cm, zuletzt {aktionen[-1]})")
+
 # ---------------- Zebrastreifen ----------------
 POSEN = {'fahrstellung': [90, 120, 10, 20, 90, 30],
          'blick_links': [135, 120, 10, 20, 90, 30], 'blick_rechts': [45, 120, 10, 20, 90, 30]}
@@ -166,6 +186,17 @@ pruefe('Fussgaenger am Zebrastreifen (LiDAR) -> wartet', b, 'stopp')
 arme, b = arm_befehle(l, 120, zebra={'abstand': 0.3}, lidar_xy=wand)
 pruefe('Fussgaenger weg -> weiter', b, 'fahren')
 
+# Zebrastreifen waehrend eines anderen Ablaufs gesehen (Hindernis anschauen), danach zu nah fuer die Kamera
+# -> muss trotzdem am Zebrastreifen halten und umschauen (nicht einfach drueberfahren)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt={'vor': 0.32, 'seite': 0.0, 'breite': 0.03, 'hoehe': 0.03, 'quelle': 'tiefe'})
+l.schritt(3, zebra={'abstand': 0.30})          # Zebrastreifen im Bild, waehrend er das Hindernis anschaut
+b = l.schritt(40)                               # Hindernis weg, Zebrastreifen nicht mehr zu sehen
+ok = l.e.ablauf is not None and l.e.ablauf.name == 'zebra' and b['aktion'] == 'stopp'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Zebrastreifen waehrend Hindernis-Pruefung gesehen -> haelt danach trotzdem am "
+      f"Zebrastreifen ({b['grund']})")
+
 # ---------------- Einbahnstrasse ----------------
 l = Lauf()
 pruefe('Einfahrt verboten 1 Bild -> noch nichts', l.schritt(1, einfahrt_verboten=True), 'fahren')
@@ -224,9 +255,9 @@ ereignisse = [t for _, t, _ in l.e.ereignisse]
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(1, objekt=NAH)
 arme, b, gruende = wegraeumen(l, 600, NAH, danach=NAH)     # liegt nach dem Greifen immer noch da
-ok = len(arme) == 18 and b['aktion'] == 'stopp'
+ok = len(arme) == 9 * STANDARD['versuche'] and b['aktion'] == 'stopp'
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> 2. Versuch, dann aufgeben und warten "
+print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> {STANDARD['versuche']} Versuche, dann aufgeben und warten "
       f"({len(arme)} Armbewegungen, {b['grund']})")
 pruefe('kein dritter Versuch, solange er da liegt', l.schritt(30, objekt=NAH), 'stopp', None)
 pruefe('Wuerfel weg -> weiter', l.schritt(30), 'fahren')
@@ -282,9 +313,9 @@ meldungen.clear()
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lernplaner, rueckmeldung=merke)
 l.schritt(1, objekt=NAH)
 wegraeumen(l, 600, NAH, danach=NAH)
-ok = meldungen == [False, False]
+ok = meldungen == [False] * STANDARD['versuche']
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> 2 Fehlversuche ans Lernen gemeldet: {meldungen}")
+print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> alle Fehlversuche ans Lernen gemeldet: {meldungen}")
 
 l = Lauf(arm_erlaubt=False, posen=POSEN, planer=planer)
 b = l.schritt(30, objekt=WUERFEL)
@@ -299,16 +330,29 @@ ok = any('nur bei START' in t for _, t, _ in l.e.ereignisse)
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} nur TEST -> Grund 'nur bei START' im Ereignis")
 
-# Person taucht waehrend des Greifens auf -> abbrechen, Arm zurueck
+# Person taucht waehrend des Greifens auf -> Arm und Roboter halten still (kein Armbefehl, Greifer bleibt),
+# nach 2 s ohne Person geht es weiter
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(1, objekt=NAH)
 arme, b, _ = wegraeumen(l, 45, NAH)
 ok_vorher = len(arme) > 0
-b = l.schritt(1, objekt=NAH, objekte=[{'name': 'Person', 'im_weg': False}])
-b2 = l.schritt(1, objekte=[{'name': 'Person', 'im_weg': False}])
-ok = ok_vorher and l.e.ablauf is None and 'fahrstellung' in (b['arm'], b2['arm'])
+PERSON = [{'name': 'Person', 'im_weg': False}]
+waehrend = [l.schritt(1, objekt=NAH, objekte=PERSON) for _ in range(40)]       # 4 s Person in Sicht
+ok_still = all(x['aktion'] == 'stopp' and not x['arm'] for x in waehrend) and l.e.ablauf is not None
+arme2, b, _ = wegraeumen(l, 300, NAH)
+ok = ok_vorher and ok_still and len(arme2) > 0 and b['aktion'] == 'fahren'
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} Person waehrend des Greifens -> Abbruch, Arm zurueck in Fahrstellung")
+print(f"{'OK  ' if ok else 'FEHLER'} Person waehrend des Greifens -> Arm haelt still, danach macht er weiter "
+      f"({len(arme2)} weitere Armbewegungen, dann {b['aktion']})")
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=NAH)
+wegraeumen(l, 45, NAH)
+l.e.arm_freigabe = False                         # Panel: Haken aus, waehrend der Arm unten ist
+b = l.schritt(1, objekt=NAH)
+b2 = l.schritt(1)
+ok = (l.e.ablauf is None or not l.e.ablauf.braucht_arm) and 'fahrstellung' in (b['arm'], b2['arm'])
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Arm-Freigabe waehrend des Greifens ausgeschaltet -> Abbruch, Arm zurueck in Fahrstellung")
 
 # Notbremse waehrend des Greifens: pausieren, nach 5 s abbrechen
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
