@@ -41,10 +41,13 @@ def strecke(x0=0.4, y0=0.4, x1=2.6, y1=1.8, r=0.25, schritt=0.005):
 
 
 class Welt:
-    def __init__(self, mit_einbahn=True, mit_wuerfel=True, mit_fussgaenger=True, halle=False):
+    def __init__(self, mit_einbahn=True, mit_wuerfel=True, mit_fussgaenger=True, halle=False, halle_rand=3.0,
+                 halle_haeuser=2):
         # halle=True: wie in echt - um das Spielfeld keine Waende, sondern ein grosser Raum (Waende 3-5 m weg).
         # Der LiDAR sieht dann viele Punkte weit weg und weniger Haeuser in der Naehe (schwerer fuer die Karte).
+        # halle_rand: so weit (m) sind die Hallenwaende vom Spielfeld weg, halle_haeuser: so viele Haeuser bleiben
         self.halle = halle
+        self.halle_rand = halle_rand
         self.punkte, self.laenge = strecke()
         d = np.diff(np.vstack([self.punkte, self.punkte[:1]]), axis=0)
         self.richtung = np.arctan2(d[:, 1], d[:, 0])
@@ -71,7 +74,7 @@ class Welt:
         self.haeuser = [(0.0, 0.0, 0.18, 0.6), (2.82, 1.4, 3.0, 2.2), (1.0, 2.02, 1.7, 2.2), (1.9, 0.0, 2.4, 0.18),
                         (0.9, 0.8, 1.3, 1.35), (1.7, 0.75, 2.1, 1.2), (2.82, 0.2, 2.98, 0.55)]
         if halle:   # in der Halle: nur zwei Haeuser in LiDAR-Hoehe, der Rest ist weit weg
-            self.haeuser = [self.haeuser[0], self.haeuser[4]]
+            self.haeuser = [self.haeuser[0], self.haeuser[4], self.haeuser[2], self.haeuser[5]][:halle_haeuser]
         self._raster()
 
     def pose_bei(self, s):
@@ -257,16 +260,17 @@ class Welt:
                         cv2.circle(bild, (lx, v), rr, (40, 40, 40), -1)
 
     # ------------------------------------------------------------------ LiDAR
-    def lidar(self, pose, n=360, rauschen=0.004, rng=None):
-        """Abstaende fuer n Strahlen, Winkel -pi..pi relativ zur Roboter-Blickrichtung."""
+    def lidar(self, pose, n=360, rauschen=0.004, rng=None, max_r=8.0):
+        """Abstaende fuer n Strahlen, Winkel -pi..pi relativ zur Roboter-Blickrichtung. inf = nichts getroffen."""
         x, y, w = pose
         winkel = -math.pi + np.arange(n) * 2 * math.pi / n
         richt = np.stack([np.cos(winkel + w), np.sin(winkel + w)], axis=1)
-        abstand = np.full(n, 8.0)
+        abstand = np.full(n, np.inf)
         segmente = []
         for x0, y0, x1, y1 in self.haeuser:
             segmente += [(x0, y0, x1, y0), (x1, y0, x1, y1), (x1, y1, x0, y1), (x0, y1, x0, y0)]
-        x0, y0, x1, y1 = (-3.0, -2.5, 7.5, 5.0) if self.halle else (0, 0, BREITE, HOEHE)
+        r = self.halle_rand
+        x0, y0, x1, y1 = (-r, -0.83 * r, BREITE + 1.5 * r, HOEHE + 0.93 * r) if self.halle else (0, 0, BREITE, HOEHE)
         segmente += [(x0, y0, x1, y0), (x1, y0, x1, y1), (x1, y1, x0, y1), (x0, y1, x0, y0)]
         s = np.array(segmente)
         p = np.array([x, y])
@@ -290,4 +294,42 @@ class Welt:
             tz[tz <= 0] = np.inf
             abstand = np.minimum(abstand, tz)
         rng = rng or np.random.default_rng()
+        abstand[abstand > max_r] = np.inf
         return (abstand + rng.normal(0, rauschen, n)).astype(np.float32), winkel
+
+    def lidar_umlauf(self, pose_zu, ende, einbau=(0.0, 0.0, 0.0), umlauf=0.0, n=360, gespiegelt=False,
+                     verdeckt_deg=0.0, rauschen=0.004, rng=None, max_r=12.0):
+        """Ein Scan wie vom echten LiDAR (mit den Fehlern, die es in echt geben kann).
+        pose_zu(t): wahre Roboter-Pose (Welt) zur Zeit t. ende: Zeit des letzten Strahls.
+        einbau: wo der LiDAR am Roboter sitzt (x m, y m, Drehung Grad). Der LiDAR meldet seine Winkel
+                relativ zu SEINER Nullrichtung - ist er gedreht eingebaut, ist "vorne" im Scan nicht vorne.
+        umlauf: Dauer einer Umdrehung (s). Die Strahlen werden nacheinander gemessen (bei 6 Hz: 0,17 s).
+        gespiegelt: LiDAR zaehlt die Winkel andersherum (Uhrzeigersinn) als gemeldet.
+        verdeckt_deg: so viel Grad sind vom Roboteraufbau verdeckt (Richtung Robotermitte bzw. nach hinten).
+                      Dort misst er den eigenen Aufbau (ca. 10 cm).
+        Rueckgabe: (abstaende, winkel) - so, wie sie im LaserScan stehen."""
+        ex, ey, ew = einbau[0], einbau[1], math.radians(einbau[2])
+
+        def pose_lidar(t):
+            x, y, w = pose_zu(t)
+            return (x + ex * math.cos(w) - ey * math.sin(w), y + ex * math.sin(w) + ey * math.cos(w), w + ew)
+        stuecke = 12 if umlauf > 0 else 1
+        r = None
+        for k in range(stuecke):
+            t = ende - umlauf + umlauf * (k + 0.5) / stuecke if umlauf > 0 else ende
+            rk, winkel = self.lidar(pose_lidar(t), n=n, rauschen=rauschen, rng=rng, max_r=max_r)
+            if r is None:
+                r = rk.copy()
+            a, b = k * n // stuecke, (k + 1) * n // stuecke
+            if gespiegelt:   # gemeldeter Strahl i zeigt in Wirklichkeit in Richtung -winkel[i]
+                idx = (n - np.arange(a, b)) % n
+                r[a:b] = rk[idx]
+            else:
+                r[a:b] = rk[a:b]
+        if verdeckt_deg > 0:
+            # Richtung zur Robotermitte im System des LiDARs (sitzt er in der Mitte: nach hinten)
+            innen = math.atan2(-ey, -ex) - ew if math.hypot(ex, ey) > 0.02 else math.pi - ew
+            echt = -winkel if gespiegelt else winkel
+            d = np.abs((echt - innen + math.pi) % (2 * math.pi) - math.pi)
+            r[d < math.radians(verdeckt_deg) / 2] = 0.10
+        return r, winkel

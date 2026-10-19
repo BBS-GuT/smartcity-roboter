@@ -8,8 +8,13 @@
 #   SIM_ANTRIEB=echt     Antrieb wie in echt (sim/antrieb.py: Motoren reagieren spaeter, Raeder rutschen in Kurven),
 #                        dazu Radzaehler/Lagesensor nur 10x pro Sekunde wie beim Yahboom-Board. Standard: ideal
 #   SIM_TEMPO=0.35       Linienfolger so schnell fahren lassen (Standard 0,15 m/s; dann wird das Tempo nicht geprueft)
+#   SIM_EXTRA="-p lidar0_einbau:=[0.0,0.0,90.0] -p sensor_stau:=0.3"   weitere Fehler (siehe sim/simulator.py)
 #   SIM_KARTE_ORDNER=... Kartenordner (Standard: neu in den Logs). Zweimal mit demselben Ordner
 #                        starten -> prueft, ob der Roboter sich in der vorhandenen Karte wiederfindet.
+#   SIM_WUERFEL_ZUFALL=1 Wuerfel zufaellig legen (Lage, Groesse); SIM_WUERFEL_SAAT=7 fuer immer denselben Zufall
+#   SIM_ARM_WIE_PLANER=1 simulierter Arm genau so, wie die KI ihn sich vorstellt (sonst etwas anders, siehe
+#                        sim/arm_sim.yaml geometrie_simulator -> die KI muss mit dem Gelernten ausgleichen)
+#   SIM_GREIFEN_BEHALTEN=1  auf dem Roboter Gelerntes (Logs/greifen_lokal.json) vom letzten Lauf weiterverwenden
 import json
 import math
 import os
@@ -35,8 +40,12 @@ GEGNER = bool(os.environ.get('SIM_GEGNER'))   # anderer Roboter blockiert die Li
 KARTEN = os.environ.get('SIM_KARTE_ORDNER', os.path.join(LOGS, 'sim_karten'))
 ANTRIEB = os.environ.get('SIM_ANTRIEB', 'ideal')
 TEMPO = float(os.environ.get('SIM_TEMPO', 0.15))
+WUERFEL = ['-p', 'wuerfel_zufall:=true', '-p', f"wuerfel_saat:={int(os.environ.get('SIM_WUERFEL_SAAT', 0))}"] \
+    if os.environ.get('SIM_WUERFEL_ZUFALL') else []
+WUERFEL += ['-p', 'arm_wie_planer:=true'] if os.environ.get('SIM_ARM_WIE_PLANER') else []
 SCHWER = ['-p', 'halle:=true', '-p', 'imu_skala:=1.03', '-p', 'lidar_umlauf:=0.12', '-p', 'lidar_verzoegerung:=0.1',
           '-p', 'lidar1_einbau:=[-0.12,0.0,4.0]'] if os.environ.get('SIM_SCHWER') else []
+SCHWER += os.environ.get('SIM_EXTRA', '').split()
 
 
 def starte(befehl, name, env):
@@ -49,11 +58,16 @@ def main():
         sys.exit('ROS_DOMAIN_ID=30 ist die der Roboter! Simulation nur mit anderer Domain-ID.')
     env = dict(os.environ)
     env.setdefault('SMARTCITY_ARM_YAML', os.path.join(REPO, 'sim', 'arm_sim.yaml'))
+    # Gelerntes Greifen der Simulation nicht in config/lokal/ (das gehoert dem echten Roboter)
+    env.setdefault('SMARTCITY_GREIFEN', os.path.join(LOGS, 'greifen_lokal.json'))
+    if not os.environ.get('SIM_GREIFEN_BEHALTEN') and os.path.exists(env['SMARTCITY_GREIFEN']):
+        os.remove(env['SMARTCITY_GREIFEN'])
     cfg = ['--params-file', os.path.join(REPO, 'config', 'roboter.yaml')]
     prozesse = [
         starte([sys.executable, os.path.join(REPO, 'sim', 'simulator.py')]
                + ['--ros-args', '-p', f'gegner:={str(GEGNER).lower()}', '-p', f'kamera_verzoegerung:={VERZ}',
-                  '-p', f'antrieb:={ANTRIEB}'] + (['-p', 'odom_hz:=10.0'] if ANTRIEB != 'ideal' else []) + SCHWER,
+                  '-p', f'antrieb:={ANTRIEB}'] + (['-p', 'odom_hz:=10.0'] if ANTRIEB != 'ideal' else []) + SCHWER
+               + WUERFEL,
                'simulator', env),
         starte([sys.executable, os.path.join(REPO, 'ki', 'zentrale.py'), '--ros-args'] + cfg, 'ki', env),
         starte([sys.executable, os.path.join(REPO, 'line_follower', 'line_follower.py'), '--ros-args'] + cfg +
@@ -186,6 +200,9 @@ def auswerten(zustaende, ereignisse, karte=()):
     check('Armbewegung selbst berechnet (keine eingelernten Greif-Posen)',
           any(t.startswith('Armbewegung berechnet') for t in texte))
     check('Wuerfel gegriffen', gegriffen)
+    versuche = [t for t in texte if t.startswith('Greifversuch')]
+    check('Greifversuch gelernt und gemeldet (Erfolg/daneben, Erfolgsquote)', bool(versuche),
+          f"({'; '.join(v.split(', Korrektur')[0] for v in versuche)})")
     abgelegt = zustaende[-1]['abgelegt']
     if abgelegt:
         _, seite = welt.s_von(*abgelegt)

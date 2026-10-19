@@ -8,7 +8,11 @@
 #   Ampel: wird rot, wenn der Roboter kommt; gruen nach 3 s Stand
 #   Fussgaenger: geht weg, wenn der Roboter 4 s vor dem Zebrastreifen gewartet hat
 #   Wuerfel: kann mit dem Arm gegriffen und abgelegt werden. Ob der Greifer ihn trifft, wird aus den
-#            Servowinkeln ausgerechnet (Arm-Geometrie aus sim/arm_sim.yaml), nicht aus eingelernten Posen.
+#            Servowinkeln ausgerechnet, nicht aus eingelernten Posen. Der Simulator rechnet dabei mit dem
+#            "wirklichen" Arm (sim/arm_sim.yaml, geometrie_simulator: etwas andere Masse, Servo-Nullpunkte,
+#            Durchhaengen), die KI plant mit den Nennmassen (geometrie). Wie beim echten Roboter muss sie den
+#            Unterschied also lernen (lib/greifen.py). Parameter arm_wie_planer:=true schaltet das aus.
+#            wuerfel_zufall:=true legt den Wuerfel zufaellig (Lage entlang/quer zur Strasse, Groesse).
 import json
 import math
 import os
@@ -34,6 +38,7 @@ sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 from welt import Welt  # noqa: E402
 from antrieb import Antrieb  # noqa: E402
 import arm as armlib   # noqa: E402
+import greifen         # noqa: E402
 
 
 class Simulator(Node):
@@ -61,9 +66,30 @@ class Simulator(Node):
         self.declare_parameter('kamera_hz', 15.0)     # Kamerabilder pro Sekunde
         self.antrieb = Antrieb(self.get_parameter('antrieb').value)
         self.odom_zeit = 0.0
+        self.declare_parameter('arm_wie_planer', False)   # true = Arm genau so, wie die KI ihn sich vorstellt
+        self.declare_parameter('wuerfel_zufall', False)   # true = Wuerfel zufaellig legen
+        self.declare_parameter('wuerfel_saat', 0)         # Zufallszahl dafuer (0 = jedes Mal anders)
+        # Weitere Fehler, die es am echten Roboter geben kann (alle Standardwerte = wie bisher, kein Fehler):
+        # lidar0_einbau: auch der erste LiDAR sitzt nicht in der Mitte / "vorne" ist gedreht (z. B. 90 oder 180 Grad)
+        self.declare_parameter('lidar0_einbau', [0.0, 0.0, 0.0])
+        self.declare_parameter('lidar_gespiegelt', False)   # LiDAR zaehlt die Winkel andersherum
+        self.declare_parameter('lidar_hz', 7.0)             # Umdrehungen je Sekunde (T-mini Plus: 6)
+        self.declare_parameter('lidar_strahlen', 360)       # Strahlen je Umdrehung (T-mini Plus: ca. 670)
+        self.declare_parameter('lidar_verdeckt', 0.0)       # so viel Grad verdeckt der Roboteraufbau je LiDAR
+        self.declare_parameter('odom_twist', True)          # False: /odom_raw ohne Geschwindigkeiten (nur Position)
+        self.declare_parameter('imu_vorzeichen', 1.0)       # -1: Lagesensor falsch herum eingebaut
+        self.declare_parameter('gyro_bias', 0.003)          # Nullpunktfehler des Lagesensors (rad/s)
+        self.declare_parameter('odom_rauschen', 0.0)        # Mecanum-Raeder rutschen zufaellig (Anteil der Geschw.)
+        self.declare_parameter('sensor_stau', 0.0)          # Odometrie/IMU kommen gesammelt alle so viele s an
+        self.declare_parameter('stempel', 'jetzt')          # Zeitstempel: jetzt | null (fehlt) | versatz (andere Uhr)
+        self.stau = []
+        self.stau_zeit = 0.0
         self.verlauf = deque(maxlen=400)          # (Zeit, Pose, Arm) fuer verspaetete Bilder
+        self.declare_parameter('halle_rand', 3.0)           # so weit (m) sind die Hallenwaende vom Spielfeld weg
+        self.declare_parameter('halle_haeuser', 2)          # so viele Haeuser stehen in der Halle
         self.welt = Welt(self.get_parameter('einbahn').value, self.get_parameter('wuerfel').value,
-                         self.get_parameter('fussgaenger').value, self.get_parameter('halle').value)
+                         self.get_parameter('fussgaenger').value, self.get_parameter('halle').value,
+                         self.get_parameter('halle_rand').value, self.get_parameter('halle_haeuser').value)
         self.imu_skala = self.get_parameter('imu_skala').value
         if self.get_parameter('gegner').value:
             x, y, _ = self.welt.pose_bei(1.75)
@@ -80,6 +106,13 @@ class Simulator(Node):
         self.haelt = None                     # gegriffener Zylinder
         self.abgelegt = None
         self.posen = armlib.lade_posen()
+        # "So ist der Arm wirklich" (weicht von dem ab, womit die KI plant)
+        einst = armlib.lade_einstellungen()
+        self.arm_geo = None if self.get_parameter('arm_wie_planer').value else einst.get('geometrie_simulator')
+        if self.arm_geo:
+            self.arm_geo = dict(einst.get('geometrie') or {}, **self.arm_geo)
+        if self.get_parameter('wuerfel_zufall').value:
+            self._wuerfel_zufaellig(self.get_parameter('wuerfel_saat').value or None)
         self.gefahren = 0.0
         self.create_subscription(Twist, '/cmd_vel', self.cmd, 10)
         self.create_subscription(String, '/arm6_joints_sim', self.arm_befehl, 10)
@@ -98,7 +131,7 @@ class Simulator(Node):
         self.create_timer(0.02, self.physik)
         self.create_timer(1 / self.get_parameter('kamera_hz').value, self.kamera)
         self.create_timer(0.1, self.tiefe)
-        self.create_timer(1 / 7, self.lidar)
+        self.create_timer(1 / self.get_parameter('lidar_hz').value, self.lidar)
         self.create_timer(1.0, lambda: self.pub_akku.publish(Float32(data=12.3)))
         self.create_timer(0.2, self.draufsicht)
         self.get_logger().info(f'Simulator laeuft, Strecke {self.welt.laenge:.2f} m')
@@ -107,6 +140,20 @@ class Simulator(Node):
     def cmd(self, msg):
         self.v, self.quer, self.w = msg.linear.x, msg.linear.y, msg.angular.z
         self.cmd_zeit = time.time()
+
+    def _wuerfel_zufaellig(self, saat):
+        rng = np.random.default_rng(saat)
+        for z in self.welt.zylinder:
+            if z['name'] != 'wuerfel':
+                continue
+            s = self.welt.wuerfel_s + float(rng.uniform(-0.10, 0.10))
+            quer = float(rng.uniform(-0.035, 0.035))
+            x, y, w = self.welt.pose_bei(s)
+            z['x'], z['y'] = x - quer * math.sin(w), y + quer * math.cos(w)
+            z['r'] = float(rng.uniform(0.018, 0.025))
+            z['h'] = 2 * z['r'] * float(rng.uniform(0.9, 1.0))
+            self.get_logger().info(f"Wuerfel zufaellig: {s - self.welt.wuerfel_s:+.2f} m entlang, {quer * 100:+.1f} cm "
+                                   f"quer, {z['r'] * 200:.1f} cm breit, {z['h'] * 100:.1f} cm hoch")
 
     def arm_befehl(self, msg):
         m = re.match(r'\[([^\]]*)\]', msg.data)
@@ -124,14 +171,13 @@ class Simulator(Node):
             for z in self.welt.zylinder:
                 if z['name'] != 'wuerfel':
                     continue
-                daneben = math.hypot(z['x'] - g[0], z['y'] - g[1])
-                if daneben < 0.02 and g[2] < z['h'] - 0.005:
+                ok, grund = greifen.trifft(g, (z['x'], z['y']), 2 * z['r'], z['h'])   # gleiche Regel wie im Training
+                if ok:
                     self.haelt = z
                     self.welt.zylinder.remove(z)
-                    self.get_logger().info(f'Wuerfel gegriffen ({daneben * 100:.1f} cm neben der Mitte)')
+                    self.get_logger().info(f'Wuerfel gegriffen ({grund})')
                 else:
-                    self.get_logger().info(f'Greifen daneben: {daneben * 100:.1f} cm neben dem Wuerfel, '
-                                           f'Greifer {g[2] * 100:.1f} cm hoch')
+                    self.get_logger().info(f'Greifen daneben: {grund}')
         if oeffnet and self.haelt is not None:
             if g is not None:
                 self.haelt['x'], self.haelt['y'] = g[0], g[1]   # faellt senkrecht nach unten
@@ -161,19 +207,37 @@ class Simulator(Node):
         self.gefahren += math.hypot(wv, wq) * dt
         # Odometrie mit Fehlern: 3 % zu kurz gemessen, Drehung leicht verfaelscht
         ov, oq, ow = rv * 0.97, rq * 0.97, rw * 1.02 + 0.004
+        rausch = self.get_parameter('odom_rauschen').value
+        if rausch > 0:   # Mecanum-Raeder rutschen: mal mehr, mal weniger, auch seitlich
+            ov *= 1 + float(self.rng.normal(0, rausch))
+            oq += abs(rv) * float(self.rng.normal(0, rausch))
         ox, oy, oth = self.odom_pose
         self.odom_pose = [ox + (ov * math.cos(oth) - oq * math.sin(oth)) * dt,
                           oy + (ov * math.sin(oth) + oq * math.cos(oth)) * dt, oth + ow * dt]
         if jetzt - self.odom_zeit >= 1.0 / self.get_parameter('odom_hz').value - 0.005:
             self.odom_zeit = jetzt
             o = Odometry()
-            o.header.stamp = self.get_clock().now().to_msg()
-            o.twist.twist.linear.x, o.twist.twist.linear.y, o.twist.twist.angular.z = ov, oq, ow
-            self.pub_odom.publish(o)
+            o.header.stamp = self._stempel(jetzt)
+            if self.get_parameter('odom_twist').value:
+                o.twist.twist.linear.x, o.twist.twist.linear.y, o.twist.twist.angular.z = ov, oq, ow
+            o.pose.pose.position.x, o.pose.pose.position.y = self.odom_pose[0], self.odom_pose[1]
+            o.pose.pose.orientation.z = math.sin(self.odom_pose[2] / 2)
+            o.pose.pose.orientation.w = math.cos(self.odom_pose[2] / 2)
             imu = Imu()
             imu.header.stamp = o.header.stamp
-            imu.angular_velocity.z = ww * self.imu_skala + 0.003 + float(self.rng.normal(0, 0.01))
-            self.pub_imu.publish(imu)
+            imu.angular_velocity.z = (ww * self.imu_skala * self.get_parameter('imu_vorzeichen').value
+                                      + self.get_parameter('gyro_bias').value + float(self.rng.normal(0, 0.01)))
+            imu.linear_acceleration.z = 9.81
+            stau = self.get_parameter('sensor_stau').value
+            if stau > 0:   # ueberlasteter Roboter: Nachrichten kommen gesammelt an
+                self.stau += [(self.pub_odom, o), (self.pub_imu, imu)]
+                if jetzt - self.stau_zeit >= stau:
+                    for pub, m in self.stau:
+                        pub.publish(m)
+                    self.stau, self.stau_zeit = [], jetzt
+            else:
+                self.pub_odom.publish(o)
+                self.pub_imu.publish(imu)
 
         steht = abs(rv) < 0.005 and abs(rw) < 0.01 and abs(rq) < 0.005
         self.stand_seit = (self.stand_seit or jetzt) if steht else None
@@ -212,7 +276,7 @@ class Simulator(Node):
     def greifer_welt(self):
         """Wo ist die Greiferspitze (Welt, x/y/Hoehe)? None = Arm-Geometrie unbekannt."""
         try:
-            vor, links, hoch = armlib.greifer_position(self.arm)
+            vor, links, hoch = armlib.greifer_position(self.arm, self.arm_geo)
         except Exception:
             return None
         x, y, w = self.pose
@@ -268,29 +332,30 @@ class Simulator(Node):
                 return pose
         return self.verlauf[0][1] if self.verlauf else self.pose
 
+    def _stempel(self, t):
+        """Zeitstempel fuer Nachrichten (Parameter 'stempel': wie zuverlaessig sind die Zeitstempel am Roboter?)"""
+        art = self.get_parameter('stempel').value
+        if art == 'null':
+            t = 0.0
+        elif art == 'versatz':
+            t -= 1000.0          # andere Uhr (z. B. Board ohne Zeitabgleich)
+        from builtin_interfaces.msg import Time
+        return Time(sec=int(t), nanosec=int((t % 1) * 1e9))
+
     def lidar(self):
         verz = self.get_parameter('lidar_verzoegerung').value
         umlauf = self.get_parameter('lidar_umlauf').value
         ende = time.time() - verz                  # letzter Strahl des Scans
         for i, pub in enumerate(self.pub_scan):
-            einbau = self.get_parameter('lidar1_einbau').value if i == 1 else [0.0, 0.0, 0.0]
-
-            def pose_lidar(t):
-                x, y, w = self._pose_zu(t)
-                return [x + einbau[0] * math.cos(w) - einbau[1] * math.sin(w),
-                        y + einbau[0] * math.sin(w) + einbau[1] * math.cos(w), w + math.radians(einbau[2])]
-            if umlauf > 0:
-                # Strahlen in 12 Stuecken, jedes Stueck aus der Pose zu seiner Messzeit (Drehung gegen den Uhrzeigersinn)
-                r, winkel = self.welt.lidar(pose_lidar(ende - umlauf), rng=self.rng)
-                n = len(r)
-                for k in range(1, 12):
-                    a, b = k * n // 12, (k + 1) * n // 12
-                    rk, _ = self.welt.lidar(pose_lidar(ende - umlauf + umlauf * (k + 0.5) / 12), rng=self.rng)
-                    r[a:b] = rk[a:b]
-            else:
-                r, winkel = self.welt.lidar(pose_lidar(ende), rng=self.rng)
+            einbau = self.get_parameter('lidar1_einbau' if i == 1 else 'lidar0_einbau').value
+            # Strahlen nacheinander, jeder aus der Pose zu seiner Messzeit (Drehung gegen den Uhrzeigersinn)
+            r, winkel = self.welt.lidar_umlauf(self._pose_zu, ende, einbau, umlauf,
+                                               n=self.get_parameter('lidar_strahlen').value,
+                                               gespiegelt=self.get_parameter('lidar_gespiegelt').value,
+                                               verdeckt_deg=self.get_parameter('lidar_verdeckt').value,
+                                               rng=self.rng, max_r=8.0)
             msg = LaserScan()
-            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.stamp = self._stempel(time.time())
             msg.header.frame_id = f'laser{i}'
             msg.angle_min, msg.angle_increment = float(winkel[0]), float(winkel[1] - winkel[0])
             msg.angle_max = float(winkel[-1])
@@ -299,6 +364,7 @@ class Simulator(Node):
             msg.time_increment = float(umlauf / len(r)) if umlauf > 0 else 0.0
             msg.ranges = r.tolist()
             pub.publish(msg)
+
 
 def main():
     rclpy.init()

@@ -74,6 +74,9 @@ STANDARD = {
     'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)
     'kontrolle_bereich': 0.45,  # in diesem Abstand (m) darf die Tiefenkamera dann nichts mehr sehen
     'versuche': 2,             # so oft versuchen, dann warten
+    'naeher_max': 0.12,        # reicht der Arm nicht hin: hoechstens so weit blind naeher heranfahren (m)
+    'naeher_tempo': 0.03,      # ... so schnell (m/s)
+    'notbremse_abbruch': 5.0,  # Notbremse waehrend des Wegraeumens laenger als das (s) -> abbrechen
     # Weg lange versperrt (z. B. zwei Roboter stehen sich gegenueber): nach einer ZUFAELLIGEN Wartezeit
     # weicht einer aus (zurueck + wenden). Zufall, damit nicht beide gleichzeitig ausweichen.
     'ausweichen': False,       # AUS im Grundbetrieb (Zieldefinition GB-04: bei versperrtem Weg anhalten, nicht
@@ -88,11 +91,14 @@ STANDARD = {
 
 
 class Entscheider:
-    def __init__(self, cfg=None, arm_erlaubt=False, posen=None, planer=None):
+    def __init__(self, cfg=None, arm_erlaubt=False, posen=None, planer=None, rueckmeldung=None, planer_fehlt=''):
         self.c = dict(STANDARD)
         self.c.update(cfg or {})
         self.arm_freigabe = arm_erlaubt    # Einstellung: KI darf den Arm bewegen (Panel, Seite Arm)
         self.planer = planer               # rechnet die Armbewegung zum Wegraeumen aus (ki/zentrale.py), None = keiner
+        self.rueckmeldung = rueckmeldung   # Ergebnis eines Greifversuchs -> Greif-Lernen (ki/zentrale.py)
+        self.planer_fehlt = planer_fehlt   # warum es keinen Planer gibt (Text fuers Panel)
+        self.notbremse_seit = None
         self.fahrt_aktiv = True            # faehrt das Fahrprogramm gerade? (setzt die Zentrale; TEST/aus = False)
         self.posen = posen or {}
         # Ablaeufe
@@ -257,7 +263,19 @@ class Entscheider:
         # 1. Notbremse
         if d is not None and d < c['notbremse_dist']:
             self.hindernis_bis = jetzt + c['frei_zeit']
+            self.notbremse_seit = self.notbremse_seit or jetzt
+            a = self.ablauf
+            if a is not None and a.name == 'wegraeumen' and jetzt - self.notbremse_seit > c['notbremse_abbruch']:
+                # Wegraeumen pausiert waehrend der Notbremse (kein neuer Arm-Befehl). Dauert es zu lange: abbrechen.
+                # Der Arm faehrt erst nach der Notbremse zurueck (dann ist nichts mehr direkt am Roboter).
+                self._ereignis(jetzt, 'Wegraeumen abgebrochen: Notbremse dauert zu lange', 'stopp')
+                if a.arm_bewegt:
+                    self.arm_zurueck_noetig = True
+                self.ablauf = None
+                self.aufheben_gesperrt = True
+                self.bestaetigt = 'Wegraeumen abgebrochen (Notbremse)'
             return self._b('stopp', f'NOTBREMSE: LiDAR {d * 100:.0f} cm (ohne KI-Pruefung)')
+        self.notbremse_seit = None
         if self.fehler_halt:
             return self._b('stopp', self.fehler_halt + ' -> bitte pruefen, dann STOPP und START')
         # 2. Blind?
@@ -304,7 +322,8 @@ class Entscheider:
                 return self._b('stopp', f'{self.bestaetigt} -> warte, bis der Weg frei ist')
             if not self.geprueft_frei:
                 planer = self.planer if self._darf_arm() else None
-                return self._ablauf_start(jetzt, Wegraeumen(jetzt, c, planer, self._darf_greifen))
+                return self._ablauf_start(jetzt, Wegraeumen(jetzt, c, planer, self._darf_greifen, self.rueckmeldung,
+                                                            self.warum_kein_arm()))
             # Kamera hat hingeschaut und sieht nichts, nur der LiDAR meldet etwas (z. B. Hauskante in der Kurve)
             if d is not None and d < c['lidar_halt']:
                 return self._b('stopp', f'LiDAR: etwas {d * 100:.0f} cm im Weg, Kamera sieht nichts -> halte')
@@ -400,6 +419,18 @@ class Entscheider:
 
     def _darf_arm(self):
         return self.arm_erlaubt and self.planer is not None and not self.aufheben_gesperrt
+
+    def warum_kein_arm(self):
+        """Klartext, warum die KI gerade NICHTS wegraeumen wuerde (leer = sie darf)."""
+        if not self.arm_freigabe:
+            return 'Arm fuer die KI ausgeschaltet (Panel -> Arm -> "KI darf den Arm bewegen")'
+        if not self.fahrt_aktiv:
+            return 'Fahrprogramm faehrt nicht (nur TEST oder STOPP) - Arm nur bei START'
+        if self.planer is None:
+            return self.planer_fehlt or 'keine Kinematik zum Ausrechnen der Armbewegung'
+        if self.aufheben_gesperrt:
+            return 'letzter Versuch hat nicht geklappt, erst wenn der Weg einmal frei war wieder'
+        return ''
 
     def _darf_greifen(self, obj, w):
         """None = darf wegraeumen, sonst der Grund, warum nicht (dann wartet er)."""

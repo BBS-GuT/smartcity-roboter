@@ -4,22 +4,25 @@
 #
 # Start: das Panel startet ihn automatisch mit der KI (scripts/panel.sh)
 #
-# Sensoren -> Karte (Erklaerung der Schichten in lib/karte.py):
+# Sensoren -> Karte (Erklaerung der Schichten in lib/karte.py, Rechnung in lib/kartierer.py):
 #   LiDAR (/scan0, /scan1)        -> Belegung (Waende, Haeuser, Hindernisse) + Scan-Abgleich (Position)
 #   Odometrie (/odom_raw) + IMU   -> Mitrechnen der Position zwischen zwei Scans
 #   Kamera                        -> Bodenfoto (Linien, Zebrastreifen) von oben
 #   Tiefenkamera                  -> 3D-Punkte von allem, was aus dem Boden ragt
 #   KI (/ki/befehl)               -> Marker: Ampel, Stoppschild, Zebrastreifen, Einbahnstrasse, Hindernis
 #                                    + wohin die Kamera gerade schaut (Arm)
+# Hier steht nur das ROS-Drumherum: jede Nachricht wird zu einem dict und geht an den Kartierer. So kann man eine
+# aufgezeichnete Messfahrt am Laptop genau gleich durchrechnen (kartograf/abspielen.py).
 #
 # Dateien (Ordner karten/<name>/, nicht im Repository):
 #   karte.npz   alles zum Weiterbauen bei der naechsten Fahrt
 #   karte.png   2D-Karte (1 Pixel = 1 cm)     karte.json  Infos fuer das Panel (Bereich, Marker, Pfad)
 #   wolke.bin   3D-Punkte fuer das Panel       karte.ply   3D-Karte zum Oeffnen mit MeshLab/CloudCompare
+#   karten/aufnahmen/<name>_<datum>.jsonl.gz   Messfahrten (Panel -> Karte -> "Messfahrt aufzeichnen")
 #
-# Sendet:  /karte/pose  std_msgs/String JSON {x, y, w, status, guete, fahrten}  (5x pro Sekunde)
+# Sendet:  /karte/pose  std_msgs/String JSON {x, y, w, status, guete, fahrten, warnungen, aufnahme ...} (5x pro s)
 #          /ki/kommando 'umschauen' (nur wenn umschauen_auto:=true)
-# Empfaengt: /karte/kommando  'neu' (alte Karte sichern, neu anfangen) | 'speichern'
+# Empfaengt: /karte/kommando  'neu' (alte Karte sichern, neu anfangen) | 'speichern' | 'aufnahme_start' | 'aufnahme_stopp'
 import json
 import math
 import os
@@ -44,11 +47,15 @@ from cv_bridge import CvBridge
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(REPO, 'lib'))
 sys.path.insert(0, os.path.join(REPO, 'line_follower'))
-import karte as K   # noqa: E402
-import lidar        # noqa: E402
-import linie        # noqa: E402
+import aufnahme as A    # noqa: E402
+import karte as K       # noqa: E402
+import kartierer as KR  # noqa: E402
+import linie            # noqa: E402
 
 KAMERA_NAMEN = ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x')
+# diese Einstellungen gehen an den Kartierer (und in den Kopf jeder Aufnahme)
+KARTIERER_NAMEN = ('scan_topics', 'scan_front_deg', 'scan_spiegeln', 'obstacle_min_range', 'lidar_x',
+                   'karte_min_abstand', 'scan_dauer', 'selbst_kalibrieren')
 
 
 def schreibe_atomar(datei, daten):
@@ -59,6 +66,10 @@ def schreibe_atomar(datei, daten):
     os.replace(tmp, datei)
 
 
+def stempel(msg):
+    return KR.zeit_aus_stamp(msg.header.stamp)
+
+
 class Kartograf(Node):
     def __init__(self):
         super().__init__('kartograf')
@@ -67,14 +78,19 @@ class Kartograf(Node):
         dp('ordner', os.path.join(REPO, 'karten'))
         dp('scan_topics', ['/scan0', '/scan1'])
         dp('scan_front_deg', [0.0, 0.0])
+        dp('scan_spiegeln', [False, False])      # LiDAR zaehlt die Winkel andersherum (erkennt er auch selbst)
         dp('obstacle_min_range', 0.08)
         dp('lidar_x', 0.0)                       # LiDAR so weit vor der Robotermitte (m) - nachmessen
         dp('karte_min_abstand', 0.15)            # naeher (m) nicht in die Karte (eigene Teile, Beruehrung)
+        dp('scan_dauer', 0.0)                    # Dauer einer LiDAR-Umdrehung (s), falls nicht im Scan. 0 = aus
+        dp('selbst_kalibrieren', True)           # gelernte Korrekturen (Lagesensor, LiDAR-Einbau) anwenden
+        dp('max_reichweite', 8.0)                # LiDAR-Punkte weiter weg nicht verwenden (m)
         dp('odom_topic', '/odom_raw')
         dp('imu_topic', '/imu/data_raw')
         dp('image_topic', '/camera/color/image_raw')
         dp('depth_topic', '/camera/depth/image_raw')
         dp('kamera_hz', 2.0)                     # so oft Kamera/Tiefe in die Karte eintragen
+        dp('aufnahme_bild_hz', 2.0)              # so oft ein Kamerabild in die Messfahrt-Aufnahme
         dp('arm_basis_x', 0.05)                  # Drehachse von Servo 1 vor der Robotermitte (m) - geschaetzt
         dp('umschauen_auto', False)              # KI bitten, sich umzuschauen, wo die Karte Luecken hat
         dp('umschauen_abstand', 1.5)             # hoechstens alle so viele Meter
@@ -86,15 +102,9 @@ class Kartograf(Node):
 
         self.lock = threading.Lock()
         self.bridge = CvBridge()
-        self.karte = K.Karte(self.ordner)
+        self.karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
         geladen = self.karte.laden()
-        self.lok = K.Lokalisierung(self.karte)
-        self.scans = {}                 # topic -> (zeit, punkte)
-        self.odom_zeit = None
-        self.imu = (0.0, 0.0)           # (zeit, drehrate)
-        self.gyro_bias, self.stand_drehraten = 0.0, []
-        self.dreh = 0.0                 # aktuelle Drehrate (fuer "dreht sich schnell")
-        self.v = 0.0
+        self.kr = KR.Kartierer(self.karte, self.kartierer_cfg())
         self.bild = self.tiefe = None
         self.ki = (0.0, {})
         self.gefahren, self.umschauen_bei = 0.0, 0.0
@@ -102,21 +112,27 @@ class Kartograf(Node):
         self.fehlversuche = 0
         self.scan_karte = None
         self.geaendert = True
-        self.laeuft = True
+        self.aufnahme = None
+        self.arm = None
+        try:
+            import arm as armlib       # hoert mit, wohin der Arm geschickt wird (nur fuer die Aufnahme)
+            self.arm = armlib.ArmBeobachter(self)
+        except Exception as e:
+            self.get_logger().warn(f'Arm wird nicht mit aufgezeichnet: {e}')
+        self.arm_zeit = 0.0
 
         sensor = MutuallyExclusiveCallbackGroup()
         kamera = MutuallyExclusiveCallbackGroup()
         arbeit = MutuallyExclusiveCallbackGroup()
         nur_neuestes = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
                                   history=HistoryPolicy.KEEP_LAST)
-        for i, t in enumerate(self.p('scan_topics')):
-            self.create_subscription(LaserScan, t, lambda m, t=t, i=i: self._scan(m, t, i),
-                                     qos_profile_sensor_data, callback_group=sensor)
+        for t in self.p('scan_topics'):
+            self.create_subscription(LaserScan, t, lambda m, t=t: self._scan(m, t), qos_profile_sensor_data,
+                                     callback_group=sensor)
         self.create_subscription(Odometry, self.p('odom_topic'), self._odom, qos_profile_sensor_data,
                                  callback_group=sensor)
         self.create_subscription(Imu, self.p('imu_topic'), self._imu, qos_profile_sensor_data, callback_group=sensor)
-        self.create_subscription(Image, self.p('image_topic'), lambda m: setattr(self, 'bild', m), nur_neuestes,
-                                 callback_group=kamera)
+        self.create_subscription(Image, self.p('image_topic'), self._bild, nur_neuestes, callback_group=kamera)
         self.create_subscription(Image, self.p('depth_topic'), lambda m: setattr(self, 'tiefe', m), nur_neuestes,
                                  callback_group=kamera)
         self.create_subscription(String, '/ki/befehl', self._ki, 10, callback_group=sensor)
@@ -134,72 +150,69 @@ class Kartograf(Node):
     def p(self, name):
         return self.get_parameter(name).value
 
-    # ---------------- Bewegung ----------------
+    def kartierer_cfg(self):
+        return {n: self.p(n) for n in KARTIERER_NAMEN}
+
+    # ---------------- Sensoren -> Kartierer (+ Aufnahme) ----------------
     def _imu(self, msg):
         jetzt = time.time()
-        letzte = self.imu[0]
-        self.imu = (jetzt, msg.angular_velocity.z)
-        if self.odom_zeit is None or jetzt - self.odom_zeit > 0.5:
-            # keine Odometrie: wenigstens die Drehung vom Lagesensor mitrechnen (Strecke macht der Scan-Abgleich)
-            if letzte and jetzt - letzte < 0.2:
-                with self.lock:
-                    self.lok.bewegen(0.0, 0.0, (msg.angular_velocity.z - self.gyro_bias) * (jetzt - letzte), jetzt)
+        g, a = msg.angular_velocity, msg.linear_acceleration
+        d = {'stamp': stempel(msg), 'g': [g.x, g.y, g.z], 'a': [a.x, a.y, a.z]}
+        with self.lock:
+            self.kr.imu(jetzt, d)
+        self._aufnehmen({'typ': 'imu', 't': jetzt, **d})
 
     def _odom(self, msg):
         jetzt = time.time()
-        if self.odom_zeit is None:
-            self.odom_zeit = jetzt
-            return
-        dt = min(0.2, jetzt - self.odom_zeit)
-        self.odom_zeit = jetzt
-        t = msg.twist.twist
-        vx, vy, wz = t.linear.x, t.linear.y, t.angular.z
-        imu_zeit, imu_w = self.imu
-        if jetzt - imu_zeit < 0.3:
-            # Drehung lieber vom Lagesensor (Mecanum-Raeder rutschen beim Drehen).
-            # Im Stand misst er trotzdem etwas (Nullpunktfehler) -> lernen und abziehen.
-            if abs(vx) < 0.002 and abs(vy) < 0.002 and abs(wz) < 0.005:
-                self.stand_drehraten = (self.stand_drehraten + [imu_w])[-200:]
-                if len(self.stand_drehraten) >= 50:
-                    self.gyro_bias = float(np.median(self.stand_drehraten))
-                wz = 0.0
-            else:
-                wz = imu_w - self.gyro_bias
-        self.dreh, self.v = wz, math.hypot(vx, vy)
+        t, p, q = msg.twist.twist, msg.pose.pose.position, msg.pose.pose.orientation
+        w = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+        d = {'stamp': stempel(msg), 'vx': t.linear.x, 'vy': t.linear.y, 'wz': t.angular.z, 'x': p.x, 'y': p.y, 'w': w}
         with self.lock:
-            self.lok.bewegen(vx * dt, vy * dt, wz * dt, jetzt)
-        self.gefahren += math.hypot(vx, vy) * dt
+            alt = self.kr.roboter
+            self.kr.odom(jetzt, d)
+            self.gefahren += math.hypot(self.kr.roboter[0] - alt[0], self.kr.roboter[1] - alt[1])
+        self._aufnehmen({'typ': 'odom', 't': jetzt, **d})
+
+    def _scan(self, msg, topic):
+        jetzt = time.time()
+        d = {'stamp': stempel(msg), 'amin': msg.angle_min, 'ainc': msg.angle_increment, 'rmin': msg.range_min,
+             'rmax': msg.range_max, 'ti': msg.time_increment, 'st': msg.scan_time,
+             'r': np.asarray(msg.ranges, dtype=np.float32)}
+        with self.lock:
+            self.kr.scan(jetzt, topic, d)
+        if self.aufnahme:
+            self.aufnahme.scan(jetzt, topic, d)
+
+    def _bild(self, msg):
+        self.bild = (time.time(), msg)
+        a = self.aufnahme
+        if a and a.bild_hz > 0 and time.time() - a.letztes_bild >= 1.0 / a.bild_hz:
+            try:
+                a.bild(time.time(), stempel(msg), self.bridge.imgmsg_to_cv2(msg, 'bgr8'))
+            except Exception:
+                pass
+
+    def _aufnehmen(self, eintrag):
+        if self.aufnahme:
+            self.aufnahme.schreiben(eintrag)
 
     # ---------------- LiDAR ----------------
-    def _scan(self, msg, topic, i):
-        fronts = self.p('scan_front_deg')
-        xy = lidar.punkte_xy(msg, fronts[i] if i < len(fronts) else 0.0, self.p('obstacle_min_range'))
-        xy = xy[np.hypot(xy[:, 0], xy[:, 1]) >= self.p('karte_min_abstand')]
-        xy[:, 0] += self.p('lidar_x')
-        self.scans[topic] = (time.time(), xy)
-
     def _scans_verarbeiten(self):
         jetzt = time.time()
-        # Der erste LiDAR (scan_topics[0]) baut die Karte. Die weiteren zaehlen erst mit, wenn ihr genauer
-        # Einbau gelernt ist (siehe lib/karte.py, LidarEinbau). Jeder Scan mit seiner Messzeit.
-        frisch = [(t, self.scans[t]) for t in self.p('scan_topics') if t in self.scans and jetzt - self.scans[t][0] < 0.5]
-        if not frisch:
-            return
-        (_, (zeit, punkte)), weitere = frisch[0], {t: v for t, v in frisch[1:]}
-        if abs(self.dreh) > 1.0:
-            return                   # dreht schnell: Scan ist verzerrt -> nur mitrechnen
         with self.lock:
-            vorher = self.lok.pose
-            self.lok.scan(punkte, jetzt, eintragen=abs(self.dreh) < 0.5, scan_zeit=zeit, weitere=weitere)
-            for t in weitere:
-                self.scans.pop(t, None)          # jeden Scan nur einmal verwenden
-            self.scans.pop(frisch[0][0], None)
-            if self.lok.pose is not None:   # Scan in Kartenkoordinaten fuer die Anzeige (passt so immer zur Karte)
+            vorher = self.kr.lok.pose
+            suchen = self.kr.verarbeiten(jetzt) and not self.suche_laeuft
+            pose = self.kr.lok.pose
+            punkte = self.kr.lok.letzte_punkte
+            if pose is not None and punkte is not None and len(punkte):
+                # Scan in Kartenkoordinaten fuer die Anzeige (passt so immer zur Karte)
                 auswahl = punkte[np.linspace(0, len(punkte) - 1, min(len(punkte), 180)).astype(int)]
-                self.scan_karte = np.round(K.in_karte(self.lok.pose, auswahl), 3).tolist()
-            if vorher is None and self.lok.pose is not None:
-                self.get_logger().info(f'Karte: {self.lok.status}')
-            suchen = self.lok.pose is None and len(self.lok.puffer) >= 3 and not self.suche_laeuft
+                self.scan_karte = np.round(K.in_karte(pose, auswahl), 3).tolist()
+            if vorher is None and pose is not None:
+                self.get_logger().info(f'Karte: {self.kr.lok.status}')
+            meldung, self.kr.meldung = self.kr.meldung, None
+        if meldung:
+            self.get_logger().info(f'Karte: {meldung}')
         self.geaendert = True
         if suchen:
             self.suche_laeuft = True
@@ -210,28 +223,31 @@ class Kartograf(Node):
         """Neue Fahrt mit vorhandener Karte: wo bin ich? (dauert einige Sekunden, eigener Thread)"""
         try:
             with self.lock:
-                if self.lok.pose is not None or not self.lok.puffer:
+                lok = self.kr.lok
+                if lok.pose is not None or not lok.puffer:
                     return
-                odom_scan, punkte = self.lok.puffer[-1]
-                alle = [punkte] + [K.in_karte(K.relativ(odom_scan, o), p) for o, p in self.lok.puffer[-8:-1]]
+                odom_scan, punkte = lok.puffer[-1]
+                alle = [punkte] + [K.in_karte(K.relativ(odom_scan, o), p) for o, p in lok.puffer[-8:-1]]
             pose, guete, eindeutig = self.karte.belegung.global_suchen(np.concatenate(alle))
             with self.lock:
-                self.lok.guete = guete
+                if lok is not self.kr.lok:
+                    return          # inzwischen neue Karte angefangen
+                lok.guete = guete
                 if pose is None or not eindeutig:
                     self.fehlversuche += 1
-                    self.lok.status = (f'suche Position in der Karte ... (beste Uebereinstimmung {guete:.0%}, '
-                                       f'{self.fehlversuche}. Versuch)')
+                    lok.status = (f'suche Position in der Karte ... (beste Uebereinstimmung {guete:.0%}, '
+                                  f'{self.fehlversuche}. Versuch)')
                     if self.fehlversuche >= 3:
-                        self.lok.status += ' - andere Umgebung? Panel -> Karte -> Neue Karte'
+                        lok.status += ' - andere Umgebung? Panel -> Karte -> Neue Karte'
                     return
                 self.fehlversuche = 0
-                self.lok.pose = K.verknuepfen(pose, K.relativ(odom_scan, self.lok.odom))
-                self.lok.status = f'Position in der Karte gefunden ({guete:.0%})'
+                lok.pose = K.verknuepfen(pose, K.relativ(odom_scan, lok.odom))
+                lok.status = f'Position in der Karte gefunden ({guete:.0%})'
                 self.karte.fahrten += 1
-                for o, p in self.lok.puffer:
+                for o, p in lok.puffer:
                     self.karte.belegung.eintragen(K.verknuepfen(pose, K.relativ(odom_scan, o)), p)
-                self.lok.puffer = []
-            self.get_logger().info(self.lok.status)
+                lok.puffer = []
+            self.get_logger().info(lok.status)
         finally:
             # nicht dauernd suchen (kostet viel Rechenzeit, die Linienfolger und KI brauchen):
             # erst alle 5 s, nach mehreren Fehlversuchen nur noch alle 30 s
@@ -240,8 +256,11 @@ class Kartograf(Node):
 
     # ---------------- Kamera + Tiefe ----------------
     def _kamera_verarbeiten(self):
-        bild_msg, tiefe_msg = self.bild, self.tiefe
+        bild, tiefe_msg = self.bild, self.tiefe
         jetzt = time.time()
+        if bild is None:
+            return
+        empfang, bild_msg = bild
         ki_zeit, ki = self.ki
         if ki_zeit and jetzt - ki_zeit < 1.0:
             if ki.get('kamera_ok'):
@@ -251,8 +270,9 @@ class Kartograf(Node):
         else:
             gier = 0.0                           # ohne KI: Arm steht in Fahrstellung (wie nach dem Start)
         with self.lock:
-            pose = self.lok.pose
-        if pose is None or gier is None or bild_msg is None or abs(self.dreh) > 0.4:
+            # Position ZUR AUFNAHMEZEIT des Bildes (Bilder kommen oft spaet an), nur wenn der Abgleich sicher ist
+            pose, _ = self.kr.bild_pose(empfang, stempel(bild_msg))
+        if pose is None or gier is None:
             return
         bild = self.bridge.imgmsg_to_cv2(bild_msg, 'bgr8')
         tiefe = None
@@ -269,6 +289,7 @@ class Kartograf(Node):
             if xyz is not None:
                 self.karte.wolke.eintragen(pose, xyz, farben3)
         self.geaendert = True
+        self.bild = None          # jedes Bild nur einmal
 
     # ---------------- KI ----------------
     def _ki(self, msg):
@@ -276,9 +297,12 @@ class Kartograf(Node):
             ki = json.loads(msg.data)
         except ValueError:
             return
-        self.ki = (time.time(), ki)
+        jetzt = time.time()
+        self.ki = (jetzt, ki)
+        self._aufnehmen({'typ': 'ki', 't': jetzt, 'daten': {'kamera_ok': ki.get('kamera_ok'),
+                                                             'kamera_gier': ki.get('kamera_gier')}})
         with self.lock:
-            pose = self.lok.pose
+            pose = self.kr.roboter_pose_bei()
             fahrt = self.karte.fahrten
         if pose is None or not ki.get('kamera_ok'):
             return
@@ -302,7 +326,7 @@ class Kartograf(Node):
         if not self.p('umschauen_auto') or self.gefahren - self.umschauen_bei < self.p('umschauen_abstand'):
             return
         with self.lock:
-            pose = self.lok.pose
+            pose = self.kr.roboter_pose_bei()
             if pose is None:
                 return
             b = self.karte.boden
@@ -319,13 +343,25 @@ class Kartograf(Node):
 
     # ---------------- Ausgabe ----------------
     def _pose_senden(self):
+        jetzt = time.time()
         with self.lock:
-            pose, status, guete, fahrten = self.lok.pose, self.lok.status, self.lok.guete, self.karte.fahrten
-            einbau = self.lok.einbau_text()
-        aus = {'zeit': time.time(), 'status': status, 'guete': round(guete, 2), 'fahrten': fahrten,
-               'karte': self.p('karte'), 'lidar_einbau': einbau}
-        if pose is not None:
-            aus.update({'x': round(pose[0], 3), 'y': round(pose[1], 3), 'w': round(pose[2], 3), 'scan': self.scan_karte})
+            aus = self.kr.meldung_pose(jetzt)
+        aus['karte'] = self.p('karte')
+        if 'x' in aus:
+            aus['scan'] = self.scan_karte
+        a = self.aufnahme
+        if a is not None:
+            aus['aufnahme'] = a.info()
+            if not a.laeuft:            # von selbst aufgehoert (zu gross / zu lang)
+                self._aufnahme_stopp()
+            else:
+                self._aufnehmen({'typ': 'pose', 't': jetzt, 'daten': {k: v for k, v in aus.items() if k != 'scan'}})
+                if self.arm is not None and self.arm.zeit > self.arm_zeit:
+                    self.arm_zeit = self.arm.zeit
+                    self._aufnehmen({'typ': 'arm', 't': self.arm.zeit, 'winkel': self.arm.winkel,
+                                     'dauer': self.arm.dauer})
+        elif getattr(self, 'letzte_aufnahme', None):
+            aus['aufnahme'] = self.letzte_aufnahme
         self.pub_pose.publish(String(data=json.dumps(aus)))
 
     def _dateien_schreiben(self):
@@ -336,9 +372,9 @@ class Kartograf(Node):
             bild, bereich = self.karte.bild()
             p, f = self.karte.wolke_export()
             info = {'zeit': time.time(), 'karte': self.p('karte'), 'fahrten': self.karte.fahrten,
-                    'bereich': bereich, 'aufloesung': self.karte.boden.aufl, 'status': self.lok.status,
-                    'pose': self.lok.pose, 'pfad': self.lok.pfad[-3000:], 'marker': self.karte.marker.sichere(),
-                    'punkte_3d': int(len(p))}
+                    'bereich': bereich, 'aufloesung': self.karte.boden.aufl, 'status': self.kr.lok.status,
+                    'pose': self.kr.roboter_pose_bei(), 'pfad': self.kr.lok.pfad[-3000:],
+                    'marker': self.karte.marker.sichere(), 'punkte_3d': int(len(p))}
         os.makedirs(self.ordner, exist_ok=True)
         if bild is not None:
             schreibe_atomar(os.path.join(self.ordner, 'karte.png'), cv2.imencode('.png', bild)[1].tobytes())
@@ -348,23 +384,57 @@ class Kartograf(Node):
 
     def _speichern(self):
         with self.lock:
-            self.karte.letzte_pose = self.lok.pose
+            self.karte.letzte_pose = self.kr.lok.pose
+            self.karte.kalibrierung = self.kr.kal.speichern()
             self.karte.speichern()
             ply = self.karte.ply()
         schreibe_atomar(os.path.join(self.ordner, 'karte.ply'), ply)
+
+    # ---------------- Messfahrt aufzeichnen ----------------
+    def _aufnahme_start(self):
+        if self.aufnahme is not None:
+            return 'Aufnahme laeuft schon'
+        ordner = os.path.join(self.p('ordner'), 'aufnahmen')
+        datei = os.path.join(ordner, f"{self.p('karte')}_{time.strftime('%Y%m%d_%H%M%S')}.jsonl.gz")
+        cfg = self.kartierer_cfg()
+        cfg.update(self.k_cfg)
+        cfg['max_reichweite'] = self.p('max_reichweite')
+        name = os.path.expanduser('~/roboter_name')
+        kopf = {'quelle': 'roboter', 'karte': self.p('karte'), 'cfg': cfg,
+                'roboter': open(name).read().strip() if os.path.exists(name) else '',
+                'topics': {'odom': self.p('odom_topic'), 'imu': self.p('imu_topic'), 'bild': self.p('image_topic')},
+                'kalibrierung': self.kr.kal.speichern()}
+        self.aufnahme = A.Aufnahme(datei, kopf, bild_hz=self.p('aufnahme_bild_hz'))
+        self.get_logger().info(f'Messfahrt-Aufnahme: {datei}')
+        return f'Aufnahme laeuft: {datei}'
+
+    def _aufnahme_stopp(self):
+        a, self.aufnahme = self.aufnahme, None
+        if a is None:
+            return 'keine Aufnahme'
+        a.stopp()
+        self.letzte_aufnahme = a.info()
+        self.get_logger().info(f'Messfahrt-Aufnahme beendet: {a.datei} ({a.info()["mb"]} MB)')
+        return f'Aufnahme gespeichert: {a.datei}'
 
     def _kommando(self, msg):
         befehl = msg.data.strip()
         if befehl == 'speichern':
             self._speichern()
             self.get_logger().info('Karte gespeichert')
+        elif befehl == 'aufnahme_start':
+            self._aufnahme_start()
+        elif befehl == 'aufnahme_stopp':
+            self._aufnahme_stopp()
         elif befehl == 'neu':
             with self.lock:
                 if os.path.isdir(self.ordner):
                     # nichts loeschen: alte Karte bleibt als Sicherung liegen
                     shutil.move(self.ordner, self.ordner + time.strftime('_alt_%Y%m%d_%H%M%S'))
-                self.karte = K.Karte(self.ordner)
-                self.lok = K.Lokalisierung(self.karte)
+                kal = self.kr.kal.speichern()      # Gelerntes ueber die Sensoren gilt weiter
+                self.karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
+                self.karte.kalibrierung = kal
+                self.kr = KR.Kartierer(self.karte, self.kartierer_cfg())
             self.geaendert = True
             self.get_logger().info('Neue Karte angefangen (alte als Sicherung umbenannt)')
 
@@ -392,6 +462,7 @@ def main():
         pass
     finally:
         try:
+            node._aufnahme_stopp()
             node._dateien_schreiben()
             node._speichern()
             print('Karte gespeichert.')

@@ -19,7 +19,8 @@
 #   /ki/bild/compressed     Kamerabild mit allem, was die KI sieht (fuer das Panel)
 #   /ki/antwort             std_msgs/String  Antwort auf /ki/kommando
 # Empfaengt:
-#   /ki/kommando            std_msgs/String  'umschauen' (Kartograf/Panel: kurz anhalten, links/rechts schauen)
+#   /ki/kommando            std_msgs/String  'umschauen' (Kartograf/Panel: kurz anhalten, links/rechts schauen),
+#                                            'greifen_zuruecksetzen' (Panel: Gelerntes vergessen)
 #   /arm6_joints            wohin der Arm geschickt wurde (von wem auch immer) -> wohin schaut die Kamera?
 import json
 import os
@@ -47,6 +48,7 @@ import linie          # noqa: E402
 from zebra import finde_zebra  # noqa: E402
 import lidar          # noqa: E402
 import arm as armlib  # noqa: E402
+import greifen        # noqa: E402
 from tiefe import Bodenmodell        # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
 
@@ -111,20 +113,26 @@ class Zentrale(Node):
 
         einst = armlib.lade_einstellungen()
         self.posen = {k: v for k, v in armlib.lade_posen().items() if v}
-        arm_erlaubt = bool(einst.get('ki_darf_arm_bewegen')) and bool(self.posen.get('fahrstellung'))
-        self.arm = armlib.Arm(self) if arm_erlaubt else None
-        # Kinematik zum Wegraeumen: echter Roboter -> Yahbooms Dienst (echtes Armmodell). Die eigene Rechnung
-        # (geschaetzte Masse) nur in der Simulation oder wenn ausdruecklich erlaubt (eigene_kinematik: true).
-        self.eigene_kin = armlib.lade_kinematik()
-        self.eigene_kin_erlaubt = bool(einst.get('eigene_kinematik')) or (self.arm is not None and not self.arm.echt)
+        # Arm: Der Sender ist immer da, OB die KI ihn bewegen darf, entscheidet die Einstellung
+        # ki_darf_arm_bewegen (Panel -> Arm, wird alle 2 s neu gelesen, gilt also sofort).
+        self.arm = armlib.Arm(self) if self.posen.get('fahrstellung') else None
+        # Kinematik zum Wegraeumen: Yahbooms Dienst, wenn er laeuft (echtes Armmodell), sonst eigene Rechnung
+        # (Masse: selbst gemessen > Yahbooms URDF > Standard). Was dabei danebengeht, lernt lib/greifen.py.
+        self.eigene_kin, self.kin_quelle = armlib.lade_kinematik_mit_quelle(urdf_suchen=bool(self.arm and self.arm.echt))
+        self.eigenes_modell = str(einst.get('greif_modell', 'eigene'))     # Simulator: 'sim'
+        self.politik = {}
         self.yahboom_kin = None
         if self.arm is not None and self.arm.echt:
             try:
                 self.yahboom_kin = armlib.YahboomKinematik()
             except Exception as e:
-                self.get_logger().warn(f'Yahboom-Kinematik nicht verfuegbar ({e}) -> KI raeumt nichts weg')
+                self.get_logger().info(f'Yahboom-Kinematik nicht verfuegbar ({e}) -> eigene Rechnung')
+        planer_fehlt = '' if self.arm is not None else 'Pose "fahrstellung" fehlt (Panel -> Arm)'
+        arm_erlaubt = bool(einst.get('ki_darf_arm_bewegen')) and self.arm is not None
         self.entscheider = Entscheider(cfg={n: self.p(n) for n in KI_STANDARD}, arm_erlaubt=arm_erlaubt,
-                                       posen=self.posen, planer=self.planen if arm_erlaubt else None)
+                                       posen=self.posen, planer=self.planen if self.arm is not None else None,
+                                       rueckmeldung=self.greif_ergebnis, planer_fehlt=planer_fehlt)
+        self.create_timer(2.0, self._arm_einstellung)
         self.arm_beobachter = armlib.ArmBeobachter(self)
         self.kamera_cfg = {n: self.p(n) for n in ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x', 'threshold')}
         self.linien_sucher = linie.LinienSucher(self.kamera_cfg)   # Draufsicht fuer den Zebrastreifen
@@ -190,6 +198,44 @@ class Zentrale(Node):
         threading.Thread(target=self._ki_schleife, daemon=True).start()
         backend = self.yolo.backend if self.yolo else 'ohne KI-Modell'
         self.get_logger().info(f'KI-Zentrale laeuft ({backend}), Arm erlaubt: {arm_erlaubt}')
+        pol = self._politik(self.eigenes_modell)
+        st = pol.lernstand()
+        self._sende_ereignis(time.time(), f"Arm: {'KI darf ihn bewegen' if arm_erlaubt else 'fuer die KI AUS'}; "
+                             f"Kinematik: {self.kinematik_text()}; Greif-Lernen: {st['herkunft']}, "
+                             f"{st['versuche']} eigene Versuche", 'info')
+
+    # ---------------- Arm, Greifen, Lernen ----------------
+    def _arm_einstellung(self):
+        """Schalter im Panel (ki_darf_arm_bewegen) gilt sofort, ohne Neustart."""
+        try:
+            darf = bool(armlib.lade_einstellungen().get('ki_darf_arm_bewegen')) and self.arm is not None
+        except Exception:
+            return
+        if darf != self.entscheider.arm_freigabe:
+            self.entscheider.arm_freigabe = darf
+            self._sende_ereignis(time.time(), 'Arm: KI darf ihn jetzt bewegen' if darf else
+                                 'Arm: fuer die KI ausgeschaltet (Panel)', 'info')
+
+    def _politik(self, name):
+        if name not in self.politik:
+            self.politik[name] = greifen.Politik(name)
+        return self.politik[name]
+
+    def kinematik_text(self):
+        if self.yahboom_kin is not None and self.yahboom_kin.bereit():
+            return 'Yahbooms Dienst /get_kinemarics'
+        return f'eigene Rechnung ({self.kin_quelle})'
+
+    def greif_ergebnis(self, plan, erfolg):
+        """Wegraeumen meldet: hat der Greifversuch geklappt? (Weg danach frei = Erfolg). Lernen + speichern."""
+        l = plan['lernen']
+        pol = self._politik(l['modell'])
+        pol.ergebnis(l['obj'], l['a'], erfolg)
+        pol.speichern()
+        q = pol.quote()
+        return (f"Greifversuch {pol.versuche}: {'Erfolg' if erfolg else 'daneben'}, Erfolgsquote "
+                f"{q * 100:.0f} % (letzte {min(20, len(pol.verlauf))}), Korrektur jetzt "
+                f"{pol.W[0, 0] * 100:+.1f} / {pol.W[1, 0] * 100:+.1f} / {pol.W[2, 0] * 100:+.1f} cm")
 
     def p(self, name):
         return self.get_parameter(name).value
@@ -235,6 +281,13 @@ class Zentrale(Node):
             pass
 
     def _kommando(self, msg):
+        if msg.data.strip() == 'greifen_zuruecksetzen':
+            for pol in list(self.politik.values()) or [self._politik(self.eigenes_modell)]:
+                pol.zuruecksetzen()
+            antwort = 'Gelerntes Greifen zurueckgesetzt (zurueck zum Vortraining)'
+            self._sende_ereignis(time.time(), antwort, 'info')
+            self.pub_antwort.publish(String(data=antwort))
+            return
         antwort = self.entscheider.kommando(time.time(), msg.data.strip())
         self.get_logger().info(f'Kommando {msg.data}: {antwort}')
         self.pub_antwort.publish(String(data=antwort))
@@ -423,7 +476,8 @@ class Zentrale(Node):
             lid_obj = None
         w['objekt'] = w.get('tiefe_objekt') or lid_obj
         befehl = self.entscheider.update(jetzt, w)
-        if befehl['arm'] and self.arm is not None:
+        # Arm nur, wenn freigegeben (zurueck in die Fahrstellung darf er immer)
+        if befehl['arm'] and self.arm is not None and (self.entscheider.arm_freigabe or befehl['arm'] == 'fahrstellung'):
             self._arm_befehl(befehl['arm'])
         with self.lock:
             self.befehl = befehl
@@ -442,7 +496,10 @@ class Zentrale(Node):
             'tiefe_hindernis': w['tiefe_hindernis'],
             'objekte': [{'name': o['name'], 'sicher': o['sicher'], 'im_weg': o.get('im_weg', False),
                          'farbe': o.get('farbe')} for o in w['objekte']],
-            'arm_erlaubt': self.arm is not None,
+            'arm_erlaubt': self.entscheider.arm_freigabe,
+            'arm_status': self.entscheider.warum_kein_arm() or 'bereit (KI darf wegraeumen)',
+            'kinematik': self.kinematik_text(),
+            'greifen': self._politik(self.eigenes_modell).lernstand(),
             'zebra': w.get('zebra'), 'einfahrt_verboten': w.get('einfahrt_verboten', False),
             'kamera_ok': kamera_ok, 'kamera_gier': kamera_gier,   # Linienfolger/Kartograf: wohin schaut die Kamera?
             'objekt': w.get('objekt'), 'weg': self.weg_voraus(), 'fahrschlauch': self.p('fahrschlauch_breite'),
@@ -453,28 +510,26 @@ class Zentrale(Node):
 
     def planen(self, obj, seite):
         """Armbewegung zum Wegraeumen ausrechnen (laeuft in einem eigenen Thread, siehe ki/ablaeufe.py).
-        obj: gemessenes Hindernis (Tiefenkamera, Roboter-System), seite: Ablage +1 links / -1 rechts."""
+        obj: gemessenes Hindernis (Tiefenkamera, Roboter-System), seite: Ablage +1 links / -1 rechts.
+        Zielpunkt + gelernte Korrektur (lib/greifen.py), probiert dabei etwas aus (lernt daraus)."""
         fahr = self.posen['fahrstellung']
         auf, zu = armlib.greifer_werte()
-        h = obj['hoehe']
         kin = self.yahboom_kin
         if kin is not None and kin.bereit() and obj.get('pixel') and obj.get('tiefe_m'):
             p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], fahr)
             if p is None:
                 return {'fehler': 'Yahboom-Kinematik antwortet nicht'}
-            # Kamerapunkt liegt auf der Vorderseite/Oberseite -> etwas weiter hinein greifen
-            greif = (p[0] + obj['breite'] / 4, p[1], p[2])
-            boden = p[2] - h / 2
-            plan = armlib.plane_wegraeumen(lambda x, y, z: kin.inverse(x, y, z, aktuell=fahr), greif,
-                                           armlib.ablagestellen(seite, boden + h / 2 + 0.01), h, fahr, auf, zu)
+            # Kamerapunkt liegt auf der Vorderseite/Oberseite -> etwas weiter hinein greifen.
+            # Ist er naeher herangefahren (obj['vor'] kleiner als gemessen), verschiebt sich der Punkt mit.
+            versatz = obj.get('vor_gemessen', obj['vor']) - obj['vor']
+            punkt = (p[0] + obj['breite'] / 4 - versatz, p[1], p[2])
+            boden = p[2] - obj['hoehe'] / 2
+            plan = greifen.plane(obj, seite, lambda x, y, z: kin.inverse(x, y, z, aktuell=fahr), fahr, auf, zu,
+                                 self._politik('yahboom'), punkt=punkt, boden=boden)
             plan['info'] = plan.get('info', '') + ' (Yahboom-Kinematik)'
             return plan
-        if not self.eigene_kin_erlaubt:
-            return {'fehler': 'Yahbooms Kinematik-Dienst laeuft nicht (ros2 run arm_kin kin_srv, startet das Panel)'}
-        greif = (obj['vor'] + obj['breite'] / 2, obj['seite'], max(0.012, h / 2))
-        plan = armlib.plane_wegraeumen(self.eigene_kin.inverse, greif, armlib.ablagestellen(seite, h / 2 + 0.01),
-                                       h, fahr, auf, zu)
-        plan['info'] = plan.get('info', '') + ' (eigene Kinematik)'
+        plan = greifen.plane(obj, seite, self.eigene_kin.inverse, fahr, auf, zu, self._politik(self.eigenes_modell))
+        plan['info'] = plan.get('info', '') + f' (eigene Kinematik, {self.kin_quelle})'
         return plan
 
     def _arm_befehl(self, arm):

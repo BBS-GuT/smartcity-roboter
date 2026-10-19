@@ -31,6 +31,24 @@ Die Simulation nutzt eine **eigene Domain-ID (77)**. Die Roboter nutzen 30. So s
 
 Beenden: **Strg+C** im Terminal.
 
+### Fehler wie am echten Roboter nachstellen (für die Karte)
+
+Der Simulator hat Parameter für Fehler, die es am echten Roboter geben kann. Standard ist immer „kein Fehler“. Beispiel: `SIM_EXTRA="-p lidar0_einbau:=[0.0,0.0,90.0]" scripts/simulation.sh pruefen`.
+
+| Parameter | Beispiel | Bedeutung |
+|---|---|---|
+| `halle`, `halle_rand`, `halle_haeuser` | `true`, `6.0`, `1` | großer Raum: Wände so weit (m) vom Spielfeld, nur so viele Häuser |
+| `lidar0_einbau`, `lidar1_einbau` | `[0.12,0.10,90.0]` | wo der LiDAR sitzt (x, y in m) und wie weit „vorne“ gedreht ist (Grad) |
+| `lidar_gespiegelt` | `true` | LiDAR zählt die Winkel andersherum |
+| `lidar_hz`, `lidar_strahlen`, `lidar_umlauf` | `6.0`, `670`, `0.17` | Umdrehungen je s, Strahlen, Dauer einer Umdrehung (s) |
+| `lidar_verdeckt` | `90.0` | so viel Grad verdeckt der eigene Aufbau je LiDAR |
+| `lidar_verzoegerung` | `0.1` | Scan kommt so viel s später an |
+| `imu_skala`, `imu_vorzeichen`, `gyro_bias` | `1.03`, `-1.0`, `0.03` | Lagesensor misst zu viel, falsch herum, Nullpunktfehler (rad/s) |
+| `odom_twist`, `odom_rauschen` | `false`, `0.1` | `/odom_raw` ohne Geschwindigkeiten; Mecanum-Schlupf |
+| `sensor_stau`, `stempel` | `0.3`, `null` | Odometrie/IMU kommen gesammelt an; Zeitstempel fehlen (`null`) oder andere Uhr (`versatz`) |
+
+Schneller und ohne ROS geht es mit `python3 sim/messfahrt.py fahrt.jsonl.gz lidar0_einbau=0,0,90 imu_skala=1.03` und danach `python3 kartograf/abspielen.py fahrt.jsonl.gz` (siehe [karte.md](karte.md)). Das zeigt dann auch, wie weit die Karte je Runde wegdreht.
+
 Die Logs stehen in `/tmp/sim_*.log` (Prüfen) bzw. `/tmp/panel_*.log` (mit Panel). Die Karte der Simulation liegt in `karten/sim/`.
 
 ## Was die Simulation kann und was nicht

@@ -15,12 +15,14 @@
 #   START/TEST/STOPP -> startet/beendet den Linienfolger (KI-Zentrale muss laufen)
 #   STOPP            -> sendet sofort Stillstand an /cmd_vel UND beendet den Linienfolger
 #   Ansichten        -> KI-Sicht, Linie, LiDAR, Tiefe (Bild fuer Bild, ohne Stau)
-#   Karte            -> startet den Kartografen mit der KI (kartograf/kartograf.py), zeigt seine Dateien
+#   Karte            -> startet den Kartografen mit der KI (kartograf/kartograf.py), zeigt seine Dateien,
+#                       Messfahrt aufzeichnen + herunterladen (zum Auswerten mit kartograf/abspielen.py)
 #   Arm              -> nur auf Knopfdruck, nie waehrend der Fahrt
 import argparse
 import json
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -47,6 +49,7 @@ sys.path.insert(0, os.path.join(REPO, 'lib'))
 sys.path.insert(0, os.path.join(REPO, 'ki'))
 import lidar           # noqa: E402
 import arm as armlib   # noqa: E402
+import greifen         # noqa: E402
 import einstellungen   # noqa: E402
 from entscheider import STANDARD as KI_STANDARD  # noqa: E402
 
@@ -447,6 +450,16 @@ def paket_da(paket):
 _KINEMATIK = None
 
 
+def eigene_kinematik_text():
+    """Was die KI ohne Yahbooms Dienst rechnet (eigene Kinematik): Masse und ein Testpunkt."""
+    kin, quelle = armlib.lade_kinematik_mit_quelle(urdf_suchen=True)
+    fahr = armlib.lade_posen().get('fahrstellung') or [90, 120, 10, 20, 90, 30]
+    (x, y, z), _ = kin.vorwaerts(fahr)
+    test = kin.inverse(0.20, 0.0, 0.02)
+    return (f'Die KI rechnet dann selbst: {quelle}.\nFahrstellung {fahr}: Greifer bei x {x * 100:.1f} / y {y * 100:.1f} / '
+            f'z {z * 100:.1f} cm. Testpunkt 20 cm voraus, 2 cm hoch -> Servos {test or "nicht erreichbar"}')
+
+
 def kinematik_pruefen():
     """Fragt Yahbooms Kinematik-Dienst, wo der Greifer in der Fahrstellung ist (rechnet nur, bewegt nichts)."""
     global _KINEMATIK
@@ -454,13 +467,14 @@ def kinematik_pruefen():
     try:
         kin = _KINEMATIK = _KINEMATIK or armlib.YahboomKinematik()
     except Exception as e:
-        return f'Yahboom-Kinematik nicht installiert ({e}). Ohne sie raeumt die KI auf dem Roboter nichts weg.'
+        return f'Yahboom-Kinematik nicht installiert ({e}).\n' + eigene_kinematik_text()
     for _ in range(20):
         if kin.bereit():
             break
         time.sleep(0.25)
     else:
-        return 'Dienst /get_kinemarics antwortet nicht. Laeuft "ros2 run arm_kin kin_srv"? (startet mit der KI)'
+        return ('Dienst /get_kinemarics antwortet nicht (laeuft "ros2 run arm_kin kin_srv"? startet mit der KI).\n'
+                + eigene_kinematik_text())
     ende = kin.vorwaerts(fahr)
     if ende is None:
         return 'Dienst antwortet nicht (Zeit abgelaufen).'
@@ -468,6 +482,20 @@ def kinematik_pruefen():
     ziel = kin.inverse(0.22, 0.0, 0.03, aktuell=fahr)
     return (f'Kinematik laeuft. Fahrstellung {fahr}: Arm-Ende bei x {x * 100:.1f} cm, y {y * 100:.1f} cm, '
             f'z {z * 100:.1f} cm (base_link).\nTest: Punkt 22 cm voraus, 3 cm hoch -> Servos {ziel or "nicht erreichbar"}')
+
+
+_GREIFEN = {'zeit': 0.0, 'stand': None}
+
+
+def greifen_stand():
+    """Lernstand Greifen (aus den Dateien, hoechstens alle 3 s gelesen)."""
+    if time.time() - _GREIFEN['zeit'] > 3.0:
+        try:
+            _GREIFEN['stand'] = greifen.lernstand_dateien()
+        except Exception as e:
+            _GREIFEN['stand'] = {'fehler': str(e)}
+        _GREIFEN['zeit'] = time.time()
+    return _GREIFEN['stand']
 
 
 def param_setzen(knoten, name, wert):
@@ -546,6 +574,16 @@ def mache_handler(node, prozesse, beenden=None):
         if name == 'karte_neu':
             node.karte_kommando_pub.publish(String(data='neu'))
             return 'Neue Karte angefangen. Die alte liegt als Sicherung in karten/ (nichts geloescht).'
+        if name == 'karte_aufnahme':
+            # Messfahrt aufzeichnen: alle Rohdaten fuer kartograf/abspielen.py (siehe docs/karte.md)
+            if not prozesse.laeuft('karte'):
+                return 'Kartograf laeuft nicht (er nimmt auf). Erst Kartograf starten.'
+            k = node.get('karte', max_alter=2.0) or {}
+            laeuft = bool((k.get('aufnahme') or {}).get('laeuft'))
+            node.karte_kommando_pub.publish(String(data='aufnahme_stopp' if laeuft else 'aufnahme_start'))
+            if laeuft:
+                return 'Aufnahme beendet. Herunterladen: Knopf "Aufnahme herunterladen" (Ordner karten/aufnahmen/)'
+            return ('Aufnahme laeuft. Jetzt 2-3 Runden normal fahren (auch Kurven und Wenden), dann wieder hier stoppen.')
         if name == 'umschauen':
             node.ki_kommando_pub.publish(String(data='umschauen'))
             time.sleep(0.5)
@@ -580,9 +618,19 @@ def mache_handler(node, prozesse, beenden=None):
                 if daten.get('erlaubt') and not armlib.lade_posen().get('fahrstellung'):
                     return 'Erst die Pose "fahrstellung" speichern.'
                 armlib.speichere_einstellung('ki_darf_arm_bewegen', bool(daten.get('erlaubt')))
-                return 'Gespeichert. KI neu starten (KI stoppen + starten), damit es gilt.'
+                return ('Gespeichert. Die KI uebernimmt es in ca. 2 s (kein Neustart noetig).' if daten.get('erlaubt')
+                        else 'Gespeichert: KI bewegt den Arm nicht mehr (gilt in ca. 2 s).')
             if name == 'arm_kinematik':
                 return kinematik_pruefen()
+            if name == 'arm_lernen_zuruecksetzen':
+                # KI vergisst es selbst (sie haelt das Modell im Speicher), sonst die Datei direkt loeschen
+                if node.get('ki', max_alter=2.0) is not None:
+                    node.ki_kommando_pub.publish(String(data='greifen_zuruecksetzen'))
+                    time.sleep(0.5)
+                    return 'KI: ' + (node.get('ki_antwort', max_alter=2.0) or 'keine Antwort (laeuft die KI?)')
+                if os.path.exists(greifen.LOKAL):
+                    os.remove(greifen.LOKAL)
+                return 'Gelerntes Greifen geloescht (config/lokal/greifen.json). Gilt wieder das Vortraining.'
             if name == 'arm_diagnose':
                 return topics_mit(['arm', 'servo', 'joint', 'grip', 'claw'])
         # ---- LiDAR ----
@@ -658,6 +706,7 @@ def mache_handler(node, prozesse, beenden=None):
             'arm': {'grenzen': armlib.GRENZEN, 'namen': armlib.NAMEN, 'posen': posen,
                     'letzte': node.arm.letzte if node.arm else None,
                     'ki_darf': bool(armlib.lade_einstellungen().get('ki_darf_arm_bewegen')),
+                    'lernen': greifen_stand(),
                     'gespeichert': sorted(k for k, v in (armlib.lade_einstellungen().get('posen') or {}).items() if v)},
         }
 
@@ -706,6 +755,24 @@ def mache_handler(node, prozesse, beenden=None):
                     self._senden(200, 'image/jpeg', b)
                 elif pfad == '/bild/tiefe.jpg':
                     self._senden(200, 'image/jpeg', node.jpeg_tiefe())
+                elif pfad == '/karte/aufnahme.jsonl.gz':
+                    # neueste Messfahrt zum Herunterladen
+                    ordner = os.path.join(REPO, 'karten', 'aufnahmen')
+                    try:
+                        dateien = sorted((f for f in os.listdir(ordner) if f.endswith('.jsonl.gz')),
+                                         key=lambda f: os.path.getmtime(os.path.join(ordner, f)))
+                    except FileNotFoundError:
+                        dateien = []
+                    if not dateien:
+                        return self._senden(404, 'text/plain; charset=utf-8', 'Noch keine Aufnahme'.encode())
+                    datei = os.path.join(ordner, dateien[-1])
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/gzip')
+                    self.send_header('Content-Length', str(os.path.getsize(datei)))
+                    self.send_header('Content-Disposition', f'attachment; filename="{dateien[-1]}"')
+                    self.end_headers()
+                    with open(datei, 'rb') as f:      # stueckweise (kann gross sein)
+                        shutil.copyfileobj(f, self.wfile)
                 elif pfad in KARTEN_DATEIEN:
                     datei, typ, herunterladen = KARTEN_DATEIEN[pfad]
                     try:
