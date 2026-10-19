@@ -83,6 +83,10 @@ class LineFollower(Node):
         # auto = Radzaehler (/odom_raw) + Lagesensor (/imu/data_raw), wenn plausibel, sonst die eigenen
         # Fahrbefehle; 'befehl' = immer Fahrbefehle
         dp('bewegung', 'auto')
+        # Selbst einstellen: waehrend der Fahrt messen, wie spaet und wie stark sich der Roboter auf einen Lenkbefehl
+        # dreht (Lagesensor) -> Verzoegerung = 'vorhersage', Drehfaktor = Lenkbefehl entsprechend groesser
+        dp('selbst_einstellen', True)
+        dp('motor_totzeit', 0.1)    # so viel davon steckt in USB + Motorboard (GESCHAETZT) -> wird abgezogen
         dp('obstacle_min_range', 0.08)
 
         self.bridge = CvBridge()
@@ -91,6 +95,7 @@ class LineFollower(Node):
         self.sucher = linie.LinienSucher(cfg)
         self.lenkung = linie.Lenkung(cfg)
         self.gedaechtnis = linie.Gedaechtnis()
+        self.verzoegerung = linie.Verzoegerung(takt=1.0 / self.p('rate'))
         self.linie_gesehen = False
         self.kamera_linie = (None, None)  # Linie nur nach Kamerabild: seitlich (m), Richtung (rad)
         self.bild_zeit = 0.0
@@ -103,6 +108,7 @@ class LineFollower(Node):
         self.letzte_steuerung = time.time()
         self.anzeige = None              # (Bild, Maske) fuer die Fenster (zeigt der Haupt-Thread)
         self.bild_alter = 0.0            # Aufnahme bis Auswertung des letzten Bildes (s)
+        self.linie_breite = None         # wie breit die Linie in der Draufsicht aussieht (m)
         self.stempel_ok = True           # passt die Aufnahmezeit im Bild zur Uhr dieses Rechners?
         self.odom = (0.0, 0.0, 0.0, 0.0)  # (Zeit, vorwaerts, seitwaerts, drehen) gemessen
         self.imu = (0.0, 0.0)            # (Zeit, Drehrate) gemessen
@@ -181,14 +187,25 @@ class LineFollower(Node):
                 quellen.append('Radzaehler')
         iz, iw = self.imu
         if jetzt - iz < 0.3:
-            if abs(dreh) > 0.2:
+            if abs(dreh) > 0.1:
                 self.pruef_imu[0] += iw * dreh
                 self.pruef_imu[1] += 1
-            if self.pruef_imu[1] >= 20 and self.pruef_imu[0] > 0:
+            if self.pruef_imu[1] >= 10 and self.pruef_imu[0] > 0:
                 dreh = iw
                 quellen.append('Lagesensor')
         self.bewegung_quelle = ' + '.join(quellen) or 'Fahrbefehle'
         return lin, quer, dreh
+
+    def vorhersage_zeit(self):
+        """Um wie viele Sekunden hinkt das Linien-Gedaechtnis hinterher? (gemessen oder eingestellt)
+        Nur bei gemessener Bewegung: Mit Fahrbefehlen ist das Gedaechtnis nicht zu spaet, sondern eher zu frueh."""
+        if self.bewegung_quelle == 'Fahrbefehle':
+            return 0.0
+        gemessen = self.verzoegerung.ergebnis
+        if self.p('selbst_einstellen') and gemessen:
+            # gemessen = Motoren (die zaehlen nicht, das Gedaechtnis kennt ja die wahre Bewegung) + Sensoren
+            return max(0.0, min(0.3, gemessen['totzeit'] - self.p('motor_totzeit')))
+        return self.p('vorhersage')
 
     def on_ki(self, msg):
         try:
@@ -243,6 +260,8 @@ class LineFollower(Node):
             self.bild_alter = time.time() - aufnahme
             self.linie_gesehen = erg['gefunden']
             self.kamera_linie = (erg.get('quer'), erg.get('kurs')) if erg['gefunden'] else (None, None)
+            if erg['gefunden'] and erg.get('breite') and erg['breite'][0]:
+                self.linie_breite = erg['breite'][0]   # zum Pruefen der Kamera-Einstellung (docs/linie.md)
             self.bild_zeit = jetzt
             self.bild_zaehler += 1
             if jetzt - self.fps_zeit >= 1.0:
@@ -280,7 +299,12 @@ class LineFollower(Node):
         with self.lock:
             bild_zeit = self.bild_zeit
             ziel = self.gedaechtnis.linie(self.p('vorausschau'))
-            lokal = self.gedaechtnis.lokal()
+            # Die Motoren setzen einen Befehl erst nach ca. 'vorhersage' s um -> Linie dort ansehen,
+            # wo der Roboter dann ist (er faehrt bis dahin ungefaehr wie zuletzt befohlen)
+            lin, quer, dreh = self.letzter_cmd
+            vorher = self.vorhersage_zeit()
+            lokal = self.gedaechtnis.lokal(self.gedaechtnis.vorhersage(lin, quer, dreh, vorher) if vorher > 0 else None)
+            k_voraus = self.gedaechtnis.kruemmung_voraus() if self.p('quer_beschl') > 0 else 0.0
         grund = self.notbremse()
         ki_zeit, ki = self.ki
         manoever = ki.get('manoever') if (ki and ki.get('aktion') == 'manoever' and jetzt - ki_zeit < 0.6) else None
@@ -305,7 +329,11 @@ class LineFollower(Node):
         tempo = self.p('speed') * faktor
         if self.bild_alter > self.p('bild_alter_langsam'):   # Bilder kommen spaet -> langsamer
             tempo *= 0.5
-        v, dreh, status = self.lenkung.berechne(ziel, tempo, jetzt, lokal)
+        v, dreh, status = self.lenkung.berechne(ziel, tempo, jetzt, lokal, k_voraus)
+        gemessen = self.verzoegerung.ergebnis
+        if self.p('selbst_einstellen') and gemessen:
+            # dreht er weniger als befohlen (Mecanum-Rollen rutschen)? -> entsprechend mehr befehlen
+            dreh /= max(0.8, min(1.2, gemessen['faktor']))
         v *= self.p('direction')
         if ki and ki.get('aktion') == 'langsam':
             status += ' (langsam: ' + ki.get('grund', '') + ')'
@@ -333,6 +361,8 @@ class LineFollower(Node):
             t.linear.x, t.linear.y, t.angular.z = lin, quer, dreh
             self.pub.publish(t)
             self.letzter_cmd = (lin, quer, dreh)
+            if 'Lagesensor' in self.bewegung_quelle:     # Verzoegerung Lenkbefehl -> gemessene Drehung lernen
+                self.verzoegerung.hinzu(dreh, self.imu[1])
         else:
             self.letzter_cmd = (0.0, 0.0, 0.0)  # Testmodus: Roboter bewegt sich nicht
         with self.lock:
@@ -345,6 +375,8 @@ class LineFollower(Node):
             'linie_quer': None if lokal is None else round(lokal['quer'], 3),
             'bild_alter': round(self.bild_alter, 3), 'zeitstempel_ok': self.stempel_ok,
             'bewegung_quelle': self.bewegung_quelle,
+            'linie_breite': None if self.linie_breite is None else round(self.linie_breite, 4),
+            'verzoegerung': self.verzoegerung.ergebnis, 'vorhersage': round(self.vorhersage_zeit(), 3),
             'linie_kurs': None if lokal is None else round(lokal['kurs'], 3),
             'kamera_quer': None if self.kamera_linie[0] is None else round(self.kamera_linie[0], 3),
             'kamera_kurs': None if self.kamera_linie[1] is None else round(self.kamera_linie[1], 3),

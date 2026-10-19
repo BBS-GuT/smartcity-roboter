@@ -11,7 +11,10 @@
 #    mitverschieben. So ist die Linie auch direkt UNTER dem Roboter bekannt (die Kamera sieht dort
 #    nichts) -> Abstand, Winkel und Kruemmung der Linie genau am Roboter.
 # 4. Lenken: Kruemmung vorsteuern (wie eng die Kurve ist) + Winkel und Abstand nachregeln.
-#    In Kurven langsamer. Linie weg: zur Seite drehen, wo sie zuletzt war, bis sie wieder da ist.
+#    In Kurven langsamer, schon VOR der Kurve (Fliehkraft-Grenze). Linie weg: zur Seite drehen, wo sie zuletzt war.
+# 5. Verzoegerung: Radzaehler/Lagesensor melden die Bewegung spaet -> Gedaechtnis hinkt hinterher -> beim Lenken
+#    die eigene Lage um diese Zeit vorausrechnen (sonst pendelt er bei hohem Tempo). Die Verzoegerung misst er
+#    waehrend der Fahrt selbst (Klasse Verzoegerung).
 import math
 import time
 from collections import deque
@@ -36,6 +39,11 @@ STANDARD = {
     'regel_abstand': 44.0,    # Nachregeln seitlicher Abstand (1/m^2), 'regel_richtung' ~ 2*Wurzel davon
     'regel_richtung': 13.0,   # Nachregeln Richtung (1/m) -> gedaempft, ohne Schlingern
     'min_tempo': 0.4,         # Kurve: mindestens so viel vom Tempo
+    'quer_beschl': 0.15,      # hoechstens so viel Fliehkraft (m/s^2): vor und in Kurven so langsam, dass
+                              # Tempo^2 x Kruemmung darunter bleibt (weniger Rutschen). 0 = aus
+    'vorhersage': 0.1,        # Radzaehler/Lagesensor melden die Bewegung so viele s zu spaet -> das Gedaechtnis hinkt
+                              # hinterher. Linie dort ansehen, wo er JETZT ist (mit den letzten Befehlen
+                              # vorausgerechnet). Startwert, 'selbst_einstellen' misst ihn waehrend der Fahrt. 0 = aus
     'such_zeit': 0.8,         # Linie weg: so lange (s) vorsichtig zur letzten Seite drehen (ca. 30 Grad), dann Stopp.
                               # Nicht laenger: blindes Drehen kann Aufbauten streifen (Zieldefinition 4.1)
     'such_dreh': 0.7,         # Drehgeschwindigkeit beim Suchen (rad/s)
@@ -123,7 +131,7 @@ class LinienSucher:
         abstand = cv2.distanceTransform(vogel, cv2.DIST_L2, 3)
         ziel = self.erwartung if self.erwartung is not None else (0.3, 0.0)
         zx, zy = self._zu_raster(*ziel)
-        beste, beste_d = None, None
+        kandidaten = []                                          # (Nummer, Abstand zur Erwartung in Pixeln, Groesse)
         for i in range(1, n):
             if stat[i, cv2.CC_STAT_AREA] < c['linie_min_flaeche']:
                 continue
@@ -132,7 +140,14 @@ class LinienSucher:
             if dicke > c['linie_max_breite']:   # zu breit -> Flaeche, keine Linie
                 continue
             ys, xs = np.nonzero(teil)
-            d = np.min(np.hypot(xs - zx, ys - zy))
+            kandidaten.append((i, np.min(np.hypot(xs - zx, ys - zy)), stat[i, cv2.CC_STAT_AREA]))
+        # Kurze Stuecke (weniger als halb so gross wie das groesste, z. B. ein Balken vom Zebrastreifen)
+        # gelten 5 cm weiter weg: Liegt die Erwartung etwas daneben (nach einer engen Kurve), gewinnt die Linie.
+        groesste = max((k[2] for k in kandidaten), default=0)
+        beste, beste_d = None, None
+        for i, d, flaeche in kandidaten:
+            if flaeche < 0.5 * groesste:
+                d += 0.05 / self.RASTER
             if beste_d is None or d < beste_d:
                 beste, beste_d = i, d
         if beste is None:
@@ -143,6 +158,20 @@ class LinienSucher:
         ys, xs = np.nonzero(grat)
         if len(xs) < 3:
             return erg
+        # Breite der Linie in der Draufsicht (zum Pruefen der Kamera-Einstellung: echt sind es 2,5 cm).
+        # Nah = untere Haelfte der Linienpunkte im Bild, fern = obere.
+        # Breite = Flaeche / Laenge (Laenge entlang der Hauptrichtung der Flaeche).
+        fy, fx = np.nonzero(teil)
+
+        def breite_von(auswahl):
+            p = np.stack([fx[auswahl], fy[auswahl]], axis=1).astype(float)
+            if len(p) < 20:
+                return None
+            _, _, vt = np.linalg.svd(p - p.mean(axis=0), full_matrices=False)
+            laenge = np.ptp(p @ vt[0]) + 1
+            return float(len(p) / laenge * self.RASTER)
+        unten = fy >= np.median(fy)
+        erg['breite'] = (breite_von(slice(None)), breite_von(unten), breite_von(~unten))
         schritt = max(1, len(xs) // 60)
         boden = [self._zu_boden(px, py) for px, py in zip(xs[::schritt], ys[::schritt])]
         inv = np.linalg.inv(self.H)
@@ -196,8 +225,8 @@ class Gedaechtnis:
             frueher = pose
         return tuple(frueher)            # aelter als der Verlauf: aelteste bekannte Pose
 
-    def _zu_roboter(self, p):
-        x, y, w = self.pose
+    def _zu_roboter(self, p, pose=None):
+        x, y, w = self.pose if pose is None else pose
         dx, dy = p[:, 0] - x, p[:, 1] - y
         return np.stack([math.cos(w) * dx + math.sin(w) * dy, -math.sin(w) * dx + math.cos(w) * dy], axis=1)
 
@@ -224,16 +253,32 @@ class Gedaechtnis:
             alt = alt[r[:, 0] < naechster_neu]   # naeher als das, was sie gerade sieht
         self.punkte = np.vstack([alt, neu])[-3000:]
 
-    def lokal(self):
+    def vorhersage(self, vor, quer, dreh, zeit):
+        """Wo ist der Roboter in 'zeit' Sekunden, wenn er so weiterfaehrt? (Pose im Mitrechen-System)"""
+        x, y, w = self.pose
+        mitte = w + dreh * zeit / 2               # mittlere Richtung waehrend der Zeit (Bogen)
+        return (x + (vor * math.cos(mitte) - quer * math.sin(mitte)) * zeit,
+                y + (vor * math.sin(mitte) + quer * math.cos(mitte)) * zeit, w + dreh * zeit)
+
+    def lokal(self, pose=None):
         """Linie direkt am Roboter: Abstand, Richtung und Kruemmung, oder None (zu wenig Punkte).
+        pose: statt der jetzigen Position eine vorhergesagte (vorhersage()) -> Linie dort, wo er gleich ist.
 
         Die Punkte um den Roboter werden zuerst entlang ihrer Hauptrichtung ausgerichtet
         (Hauptkomponente), dann wird eine Parabel hineingelegt -> klappt in jeder Lage der Linie.
         """
         if len(self.punkte) < 5:
             return None
-        r = self._zu_roboter(self._frisch())
-        nah = r[(np.hypot(r[:, 0], r[:, 1]) < 0.18) & (r[:, 0] > -0.12)]
+        r = self._zu_roboter(self._frisch(), pose)
+        d = np.hypot(r[:, 0], r[:, 1])
+        nah = r[(d < 0.18) & (r[:, 0] > -0.12)]
+        if (nah[:, 0] > 0.02).sum() < 3:
+            # Luecke vor dem Roboter (Ende einer engen Kurve: dort hat die Kamera die Linie nie gesehen)
+            # -> die naechsten Punkte weiter vorne mitnehmen und die Luecke ueberbruecken
+            vorne = r[(r[:, 0] > 0.02) & (d < 0.5)]
+            if len(vorne):
+                dv = np.hypot(vorne[:, 0], vorne[:, 1])
+                nah = np.vstack([nah, vorne[dv < dv.min() + 0.08]])
         if len(nah) < 5:
             return None
         mitte = nah.mean(axis=0)
@@ -264,6 +309,19 @@ class Gedaechtnis:
                 aus.append((round(float(p[0]), 3), round(float(p[1]), 3)))
         return aus
 
+    def kruemmung_voraus(self, bis=0.45):
+        """Staerkste Kruemmung (1/m) der Linie auf den naechsten 'bis' Metern (0 = gerade oder unbekannt).
+        Gerechnet aus der Richtungsaenderung der Linie ueber je ca. 15 cm -> zum rechtzeitigen Bremsen vor Kurven."""
+        p = np.array(self.weg(bis, 0.05))
+        if len(p) < 5:
+            return 0.0
+        stueck = np.diff(p, axis=0)
+        richtung = np.unwrap(np.arctan2(stueck[:, 1], stueck[:, 0]))
+        laenge = np.hypot(stueck[:, 0], stueck[:, 1])
+        k = [abs(richtung[i + 3] - richtung[i]) / max(laenge[i + 1:i + 4].sum(), 0.05)
+             for i in range(len(richtung) - 3)]
+        return float(max(k, default=0.0))
+
     def linie(self, vorausschau=0.12):
         """Zielpunkt auf der gemerkten Linie, ca. 'vorausschau' Meter vom Roboter entfernt.
         Rueckgabe: dict gefunden, ziel (x, y im Roboter-System), alter (s Fahrzeit)."""
@@ -289,6 +347,64 @@ class Gedaechtnis:
         return {'gefunden': True, 'ziel': (float(ziel[0]), float(ziel[1])), 'alter': alter}
 
 
+class Verzoegerung:
+    """Misst waehrend der Fahrt, wie spaet die gemessene Drehung (Lagesensor) dem Lenkbefehl folgt.
+
+    Idee: Er merkt sich die letzten 15 s Lenkbefehle und gemessene Drehraten. Dann probiert er aus,
+    mit welcher Verzoegerung (Totzeit, s) und Traegheit (s) ein einfaches Motor-Modell die Messung am besten
+    nachmacht. Ergebnis:
+      totzeit   = Motoren reagieren spaet + Lagesensor/Radzaehler melden spaet. Der Sensor-Teil davon ist die Zeit,
+                  um die das Linien-Gedaechtnis hinterherhinkt -> 'vorhersage' (line_follower.py zieht den
+                  geschaetzten Motor-Teil 'motor_totzeit' ab)
+      faktor    = gemessene Drehung / befohlene Drehung (Mecanum-Rollen rutschen: z. B. 0.95)
+    Nur wenn genug gelenkt wurde (Kurven) und das Modell gut passt (guete), gibt es ein Ergebnis.
+    """
+    TOTZEITEN = np.arange(0.0, 0.301, 0.01)
+    TRAEGHEITEN = (0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4)
+
+    def __init__(self, dauer=15.0, takt=0.05):
+        self.takt = takt
+        self.werte = deque(maxlen=int(dauer / takt))   # (Befehl, Messung) im Takt der Fahrbefehle
+        self.ergebnis = None                            # dict totzeit, traegheit, faktor, guete
+        self.zaehler = 0
+
+    def hinzu(self, befehl, gemessen):
+        self.werte.append((befehl, gemessen))
+        self.zaehler += 1
+        if self.zaehler % 40 == 0:                      # alle 2 s neu schaetzen (kostet etwas Rechenzeit)
+            self.schaetzen()
+
+    def schaetzen(self):
+        if len(self.werte) < 6.0 / self.takt:            # erst ab 6 s Fahrt
+            return self.ergebnis
+        w = np.array(self.werte)
+        befehl, gemessen = w[:, 0], w[:, 1]
+        if np.std(befehl) < 0.15:                       # kaum gelenkt -> nichts zu lernen
+            return self.ergebnis
+        t = np.arange(len(befehl)) * self.takt
+        # Befehl um jede moegliche Totzeit verschoben (eine Zeile je Totzeit)
+        spaet = np.array([np.interp(t - z, t, befehl, left=befehl[0]) for z in self.TOTZEITEN])
+        beste = None
+        for traegheit in self.TRAEGHEITEN:
+            a = 1.0 - math.exp(-self.takt / traegheit)
+            modell = np.empty_like(spaet)
+            y = spaet[:, 0].copy()
+            for i in range(spaet.shape[1]):             # Tiefpass = Traegheit der Motoren
+                y += a * (spaet[:, i] - y)
+                modell[:, i] = y
+            faktor = (modell @ gemessen) / np.maximum(np.sum(modell * modell, axis=1), 1e-9)
+            fehler = np.mean((gemessen - faktor[:, None] * modell) ** 2, axis=1)
+            j = int(np.argmin(fehler))
+            if beste is None or fehler[j] < beste[0]:
+                beste = (float(fehler[j]), float(self.TOTZEITEN[j]), traegheit, float(faktor[j]))
+        fehler, totzeit, traegheit, faktor = beste
+        guete = 1.0 - fehler / max(float(np.var(gemessen)), 1e-9)   # 1 = Modell erklaert die Messung ganz
+        if guete > 0.7 and 0.5 < faktor < 1.5:
+            self.ergebnis = {'totzeit': round(float(totzeit), 3), 'traegheit': traegheit,
+                             'faktor': round(faktor, 3), 'guete': round(guete, 3)}
+        return self.ergebnis
+
+
 class Lenkung:
     def __init__(self, cfg=None):
         self.c = dict(STANDARD)
@@ -296,8 +412,19 @@ class Lenkung:
         self.zuletzt_gesehen = 0.0
         self.suche_seite = 0.0   # +1 = Linie war links, -1 = rechts
 
-    def berechne(self, erg, tempo, jetzt=None, lokal=None):
-        """erg: Zielpunkt aus Gedaechtnis.linie(), lokal: Gedaechtnis.lokal() (genauer, falls vorhanden).
+    def _kurven_tempo(self, tempo, k, k_voraus):
+        """Tempo in der Kurve: Kurvenbremse (wie eng ist die Kurve hier) und Grenze fuer die Fliehkraft
+        (Querbeschleunigung = Tempo^2 x Kruemmung), auch schon fuer die Kurve VOR dem Roboter."""
+        c = self.c
+        v = tempo * max(c['min_tempo'], 1.0 / (1.0 + c['kurven_bremse'] * abs(k)))
+        k_max = max(abs(k), k_voraus)
+        if c['quer_beschl'] > 0 and k_max > 0.1:
+            v = min(v, math.sqrt(c['quer_beschl'] / k_max))
+        return v
+
+    def berechne(self, erg, tempo, jetzt=None, lokal=None, k_voraus=0.0):
+        """erg: Zielpunkt aus Gedaechtnis.linie(), lokal: Gedaechtnis.lokal() (genauer, falls vorhanden),
+        k_voraus: staerkste Kruemmung vor dem Roboter (Gedaechtnis.kruemmung_voraus()).
         Rueckgabe: (vorwaerts m/s, drehen rad/s, Text)."""
         jetzt = time.time() if jetzt is None else jetzt
         c = self.c
@@ -310,7 +437,7 @@ class Lenkung:
         if lokal is not None:
             # Linie unter dem Roboter bekannt: Kruemmung vorsteuern, Abstand + Richtung nachregeln
             k = max(-8.0, min(8.0, lokal['kruemmung']))
-            v = tempo * max(c['min_tempo'], 1.0 / (1.0 + c['kurven_bremse'] * abs(k)))
+            v = self._kurven_tempo(tempo, k, k_voraus)
             korrektur = c['regel_richtung'] * lokal['kurs'] + c['regel_abstand'] * lokal['quer']
             dreh = v * (k + korrektur)
             self.suche_seite = 1.0 if (lokal['quer'] + 0.1 * lokal['kurs']) > 0 else -1.0
@@ -318,7 +445,7 @@ class Lenkung:
         else:
             zx, zy = erg['ziel']
             k = 2.0 * zy / max(zx * zx + zy * zy, 0.004)   # Bogen zum Zielpunkt (Pure Pursuit)
-            v = tempo * max(c['min_tempo'], 1.0 / (1.0 + c['kurven_bremse'] * abs(k)))
+            v = self._kurven_tempo(tempo, k, k_voraus)
             dreh = v * k
             self.suche_seite = 1.0 if zy > 0 else -1.0
             text = f'Linie: Ziel {zx * 100:.0f}/{zy * 100:+.0f} cm'

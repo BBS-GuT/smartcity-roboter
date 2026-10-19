@@ -36,6 +36,7 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
 sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 from welt import Welt  # noqa: E402
+from antrieb import Antrieb  # noqa: E402
 import arm as armlib   # noqa: E402
 import greifen         # noqa: E402
 
@@ -76,6 +77,13 @@ class Simulator(Node):
         self.declare_parameter('stempel', 'jetzt')          # Zeitstempel: jetzt | null (fehlt) | versatz (andere Uhr)
         self.stau = []
         self.stau_zeit = 0.0
+        # Antrieb (sim/antrieb.py): 'ideal' = Befehl ist sofort die Geschwindigkeit, 'echt' = Motoren reagieren
+        # spaeter und traeger, Mecanum-Raeder rutschen in Kurven (GESCHAETZT), 'schwer' = noch traeger
+        self.declare_parameter('antrieb', 'ideal')
+        self.declare_parameter('odom_hz', 50.0)       # Radzaehler + Lagesensor so oft pro Sekunde (Yahboom-Board: ca. 10)
+        self.declare_parameter('kamera_hz', 15.0)     # Kamerabilder pro Sekunde
+        self.antrieb = Antrieb(self.get_parameter('antrieb').value)
+        self.odom_zeit = 0.0
         self.verlauf = deque(maxlen=400)          # (Zeit, Pose, Arm) fuer verspaetete Bilder
         self.declare_parameter('halle_rand', 3.0)           # so weit (m) sind die Hallenwaende vom Spielfeld weg
         self.declare_parameter('halle_haeuser', 2)          # so viele Haeuser stehen in der Halle
@@ -121,7 +129,7 @@ class Simulator(Node):
         self.spur = deque(maxlen=1500)
         self.letzte = time.time()
         self.create_timer(0.02, self.physik)
-        self.create_timer(1 / 15, self.kamera)
+        self.create_timer(1 / self.get_parameter('kamera_hz').value, self.kamera)
         self.create_timer(0.1, self.tiefe)
         self.create_timer(1 / self.get_parameter('lidar_hz').value, self.lidar)
         self.create_timer(1.0, lambda: self.pub_akku.publish(Float32(data=12.3)))
@@ -185,45 +193,53 @@ class Simulator(Node):
         self.letzte = jetzt
         if jetzt - self.cmd_zeit > 0.3:           # Watchdog wie beim echten Board
             self.v = self.quer = self.w = 0.0
+            self.antrieb.stopp()
+        # Antrieb: wahre Bewegung (mit Verzoegerung und Rutschen, wenn antrieb != ideal), Raeder = was die Radzaehler sehen
+        self.antrieb.befehl(self.v, self.quer, self.w, jetzt)
+        wv, wq, ww = self.antrieb.schritt(dt, jetzt)
+        rv, rq, rw = self.antrieb.rad
         x, y, w = self.pose
-        x += (self.v * math.cos(w) - self.quer * math.sin(w)) * dt
-        y += (self.v * math.sin(w) + self.quer * math.cos(w)) * dt
-        w += self.w * dt
+        x += (wv * math.cos(w) - wq * math.sin(w)) * dt
+        y += (wv * math.sin(w) + wq * math.cos(w)) * dt
+        w += ww * dt
         self.pose = [x, y, (w + math.pi) % (2 * math.pi) - math.pi]
         self.verlauf.append((jetzt, list(self.pose), self.arm[0]))
-        self.gefahren += math.hypot(self.v, self.quer) * dt
+        self.gefahren += math.hypot(wv, wq) * dt
         # Odometrie mit Fehlern: 3 % zu kurz gemessen, Drehung leicht verfaelscht
-        ov, oq, ow = self.v * 0.97, self.quer * 0.97, self.w * 1.02 + 0.004
+        ov, oq, ow = rv * 0.97, rq * 0.97, rw * 1.02 + 0.004
         rausch = self.get_parameter('odom_rauschen').value
         if rausch > 0:   # Mecanum-Raeder rutschen: mal mehr, mal weniger, auch seitlich
             ov *= 1 + float(self.rng.normal(0, rausch))
-            oq += abs(self.v) * float(self.rng.normal(0, rausch))
+            oq += abs(rv) * float(self.rng.normal(0, rausch))
         ox, oy, oth = self.odom_pose
         self.odom_pose = [ox + (ov * math.cos(oth) - oq * math.sin(oth)) * dt,
                           oy + (ov * math.sin(oth) + oq * math.cos(oth)) * dt, oth + ow * dt]
-        o = Odometry()
-        o.header.stamp = self._stempel(jetzt)
-        if self.get_parameter('odom_twist').value:
-            o.twist.twist.linear.x, o.twist.twist.linear.y, o.twist.twist.angular.z = ov, oq, ow
-        o.pose.pose.position.x, o.pose.pose.position.y = self.odom_pose[0], self.odom_pose[1]
-        o.pose.pose.orientation.z, o.pose.pose.orientation.w = math.sin(self.odom_pose[2] / 2), math.cos(self.odom_pose[2] / 2)
-        imu = Imu()
-        imu.header.stamp = o.header.stamp
-        imu.angular_velocity.z = (self.w * self.imu_skala * self.get_parameter('imu_vorzeichen').value
-                                  + self.get_parameter('gyro_bias').value + float(self.rng.normal(0, 0.01)))
-        imu.linear_acceleration.z = 9.81
-        stau = self.get_parameter('sensor_stau').value
-        if stau > 0:   # ueberlasteter Roboter: Nachrichten kommen gesammelt an
-            self.stau += [(self.pub_odom, o), (self.pub_imu, imu)]
-            if jetzt - self.stau_zeit >= stau:
-                for pub, m in self.stau:
-                    pub.publish(m)
-                self.stau, self.stau_zeit = [], jetzt
-        else:
-            self.pub_odom.publish(o)
-            self.pub_imu.publish(imu)
+        if jetzt - self.odom_zeit >= 1.0 / self.get_parameter('odom_hz').value - 0.005:
+            self.odom_zeit = jetzt
+            o = Odometry()
+            o.header.stamp = self._stempel(jetzt)
+            if self.get_parameter('odom_twist').value:
+                o.twist.twist.linear.x, o.twist.twist.linear.y, o.twist.twist.angular.z = ov, oq, ow
+            o.pose.pose.position.x, o.pose.pose.position.y = self.odom_pose[0], self.odom_pose[1]
+            o.pose.pose.orientation.z = math.sin(self.odom_pose[2] / 2)
+            o.pose.pose.orientation.w = math.cos(self.odom_pose[2] / 2)
+            imu = Imu()
+            imu.header.stamp = o.header.stamp
+            imu.angular_velocity.z = (ww * self.imu_skala * self.get_parameter('imu_vorzeichen').value
+                                      + self.get_parameter('gyro_bias').value + float(self.rng.normal(0, 0.01)))
+            imu.linear_acceleration.z = 9.81
+            stau = self.get_parameter('sensor_stau').value
+            if stau > 0:   # ueberlasteter Roboter: Nachrichten kommen gesammelt an
+                self.stau += [(self.pub_odom, o), (self.pub_imu, imu)]
+                if jetzt - self.stau_zeit >= stau:
+                    for pub, m in self.stau:
+                        pub.publish(m)
+                    self.stau, self.stau_zeit = [], jetzt
+            else:
+                self.pub_odom.publish(o)
+                self.pub_imu.publish(imu)
 
-        steht = abs(self.v) < 0.005 and abs(self.w) < 0.01 and abs(self.quer) < 0.005
+        steht = abs(rv) < 0.005 and abs(rw) < 0.01 and abs(rq) < 0.005
         self.stand_seit = (self.stand_seit or jetzt) if steht else None
         stand = jetzt - self.stand_seit if self.stand_seit else 0.0
         s, seite = self.welt.s_von(x, y)
@@ -249,7 +265,8 @@ class Simulator(Node):
         self.pub_zustand.publish(String(data=json.dumps({
             'zeit': jetzt, 'x': round(x, 3), 'y': round(y, 3), 'w': round(self.pose[2], 3),
             'odom': [round(v, 3) for v in self.odom_pose], 's': round(s, 3), 'seite': round(seite, 3),
-            'vorwaerts': vorwaerts, 'v': round(self.v, 3), 'quer': round(self.quer, 3), 'dreh': round(self.w, 3),
+            'vorwaerts': vorwaerts, 'v': round(rv, 3), 'quer': round(rq, 3), 'dreh': round(rw, 3),
+            'rutschen': round(wq - rq, 4),
             'gefahren': round(self.gefahren, 3), 'ampel': self.welt.ampel, 'fussgaenger': fussgaenger,
             'wuerfel': None if wuerfel is None else [round(wuerfel['x'], 3), round(wuerfel['y'], 3)],
             'haelt': self.haelt is not None,
