@@ -16,12 +16,17 @@
 # Kinematik (wohin muessen die Servos, damit der Greifer an Punkt x, y, z ist?):
 #   Echter Roboter: Yahbooms Dienst /get_kinemarics (Programm arm_kin/kin_srv, rechnet mit dem echten
 #                   Robotermodell/URDF), siehe YahboomKinematik.
-#   Simulation / Ersatz: eigene einfache Rechnung mit den Massen aus config/arm.yaml (geometrie), siehe
-#                   Kinematik. Winkel wie bei Yahboom: Servo 90 = Glied zeigt gerade nach oben, jedes Glied
+#   Ohne Dienst:    eigene einfache Rechnung (Kinematik). Masse in dieser Reihenfolge: selbst nachgemessen
+#                   (config/lokal/arm.yaml, geometrie) > Yahbooms Robotermodell (URDF, lib/urdf.py, falls auf dem
+#                   Roboter vorhanden) > Standard aus config/arm.yaml. Kleine Fehler gleicht das Greif-Lernen aus
+#                   (lib/greifen.py). Winkel wie bei Yahboom: Servo 90 = Glied zeigt gerade nach oben, jedes Glied
 #                   kippt um (90 - Servo) Grad weiter nach vorne (Servo 2, 3, 4 hintereinander).
 import math
 import os
+import sys
 import threading
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # fuer lib/urdf.py
 
 GRENZEN = {1: (0, 180), 2: (0, 180), 3: (0, 180), 4: (0, 180), 5: (0, 270), 6: (0, 180)}
 GREIFER_AUF, GREIFER_ZU = 30, 130     # Standard (Yahboom-Kurse), wird aus config/arm.yaml ueberschrieben
@@ -107,13 +112,18 @@ def speichere_einstellung(name, wert):
 
 # ---------------------------------------------------------------- Kinematik (eigene Rechnung)
 GEOMETRIE_STANDARD = {
-    # Schulter (Servo 2) gegenueber Robotermitte am Boden (m): vorne, links, Hoehe. GESCHAETZT.
-    'schulter': [0.037, 0.0, 0.13],
-    'oberarm': 0.083,          # Servo 2 -> Servo 3 (m)
-    'unterarm': 0.083,         # Servo 3 -> Servo 4 (m)
-    'hand': 0.155,             # Servo 4 -> Mitte zwischen den Greiferbacken (m)
+    # Werte aus einem oeffentlichen Modell des M3 Pro (github.com/robotics-career-coach/mujoco_rosmaster_m3pro,
+    # Masse laut Autor aus Yahbooms CAD). Am echten Arm NICHT nachgemessen.
+    'schulter': [0.0336, 0.0, 0.218],   # Schulter (Servo 2) gegenueber Robotermitte am Boden (m): vorne, links, Hoehe
+    'oberarm': 0.0829,         # Servo 2 -> Servo 3 (m)
+    'unterarm': 0.0828,        # Servo 3 -> Servo 4 (m)
+    'hand': 0.150,             # Servo 4 -> Mitte zwischen den Greiferbacken (m), Greiferteil geschaetzt
     'servo1_links': 1,         # +1: Servo 1 groesser = Arm dreht nach links, -1: nach rechts
+    # Nur fuer Simulation/Training ("so ist der Arm wirklich"): der Planer kennt diese Fehler nicht.
+    'nullpunkte': [0.0, 0.0, 0.0, 0.0],   # Servo 1-4 stehen um so viele Grad anders als befohlen
+    'durchhang': 0.0,          # Arm sackt durch sein Gewicht so viele Grad ab (bei 25 cm Reichweite)
 }
+NEIGUNGEN = (180, 170, 160, 150, 140, 130, 120, 110, 100, 90)
 
 
 class Kinematik:
@@ -127,16 +137,23 @@ class Kinematik:
         """Servowinkel (mind. 4) -> (x, y, z) der Greifermitte und Neigung der Hand (Grad, 90 = waagrecht,
         180 = senkrecht nach unten)."""
         g = self.g
-        dreh = math.radians(winkel[0] - 90) * g['servo1_links']
-        p1 = math.radians(90 - winkel[1])
-        p2 = p1 + math.radians(90 - winkel[2])
-        p3 = p2 + math.radians(90 - winkel[3])
+        n = list(g.get('nullpunkte') or [0, 0, 0, 0]) + [0] * 4
+        w = [winkel[i] + n[i] for i in range(4)]
+        dreh = math.radians(w[0] - 90) * g['servo1_links']
+        p1 = math.radians(90 - w[1])
+        p2 = p1 + math.radians(90 - w[2])
+        p3 = p2 + math.radians(90 - w[3])
+        if g.get('durchhang'):
+            # Durchhaengen: je weiter der Arm nach vorne reicht, desto mehr kippt er nach unten
+            r0 = g['oberarm'] * math.sin(p1) + g['unterarm'] * math.sin(p2) + g['hand'] * math.sin(p3)
+            sack = math.radians(g['durchhang']) * max(0.0, r0) / 0.25
+            p1, p2, p3 = p1 + 0.6 * sack, p2 + sack, p3 + sack
         r = g['oberarm'] * math.sin(p1) + g['unterarm'] * math.sin(p2) + g['hand'] * math.sin(p3)
         z = g['oberarm'] * math.cos(p1) + g['unterarm'] * math.cos(p2) + g['hand'] * math.cos(p3)
         sx, sy, sz = g['schulter']
         return (sx + r * math.cos(dreh), sy + r * math.sin(dreh), sz + z), math.degrees(p3)
 
-    def inverse(self, x, y, z, neigungen=(180, 170, 160, 150, 140, 130, 120)):
+    def inverse(self, x, y, z, neigungen=NEIGUNGEN):
         """Servowinkel [s1..s5] fuer die Greifermitte an (x, y, z) oder None (nicht erreichbar).
         Probiert die Handneigungen der Reihe nach (zuerst senkrecht von oben = am sichersten)."""
         g = self.g
@@ -166,13 +183,48 @@ class Kinematik:
         return None
 
 
-def lade_kinematik():
-    return Kinematik(lade_einstellungen().get('geometrie') or {})
+def lade_kinematik(urdf_suchen=False):
+    """Eigene Kinematik. Ohne urdf_suchen: Masse aus den Arm-Dateien (Simulation, Tests)."""
+    return lade_kinematik_mit_quelle(urdf_suchen)[0]
 
 
-def greifer_position(winkel):
-    """(x, y, z) der Greifermitte fuer diese Servowinkel (eigene Rechnung, z. B. fuer den Simulator)."""
-    return lade_kinematik().vorwaerts(winkel)[0]
+def lade_kinematik_mit_quelle(urdf_suchen=True):
+    """(Kinematik, Text woher die Masse kommen). Reihenfolge: selbst eingetragen (config/lokal/arm.yaml bzw.
+    Simulations-Datei) > Yahbooms URDF auf dem Roboter > Standard (config/arm.yaml)."""
+    e = lade_einstellungen()
+    eigene = (_lies(POSEN_DATEI).get('geometrie') or {})
+    greifpunkt = float(e.get('greifpunkt', 0.075))
+    if eigene:
+        return Kinematik(dict(e.get('geometrie') or {}, **eigene)), f'Masse aus {os.path.basename(POSEN_DATEI)}'
+    if urdf_suchen:
+        try:
+            import urdf
+            datei = urdf.finde_urdf()
+            geo = urdf.arm_geometrie(datei, greifpunkt) if datei else None
+            if geo:
+                basis = dict(e.get('geometrie') or {})
+                basis.update({k: geo[k] for k in ('schulter', 'oberarm', 'unterarm', 'hand')})
+                return Kinematik(basis), f'Masse aus Yahbooms Robotermodell ({datei})'
+        except Exception as ex:      # URDF kaputt/unbekannt -> Standard
+            return Kinematik(e.get('geometrie') or {}), f'Standardmasse (URDF nicht lesbar: {ex})'
+    return Kinematik(e.get('geometrie') or {}), 'Standardmasse (config/arm.yaml, geschaetzt)'
+
+
+def greifer_position(winkel, geo=None):
+    """(x, y, z) der Greifermitte fuer diese Servowinkel (eigene Rechnung, z. B. fuer den Simulator).
+    geo: andere Masse als die des Planers (Simulator: "so ist der Arm wirklich")."""
+    return (Kinematik(geo) if geo else lade_kinematik()).vorwaerts(winkel)[0]
+
+
+def begrenze_tempo(schritte, start, grad_pro_s=60.0):
+    """Bewegungen langsam halten: Dauer jedes Schritts so verlaengern, dass kein Servo schneller als
+    grad_pro_s dreht (Greifer egal). schritte: [(Text, [6 Winkel], Dauer s), ...]."""
+    aus, vorher = [], list(start)
+    for text, winkel, dauer in schritte:
+        weg = max(abs(a - b) for a, b in zip(winkel[:5], vorher[:5]))
+        aus.append((text, winkel, round(max(dauer, weg / grad_pro_s), 2)))
+        vorher = winkel
+    return aus
 
 
 class YahboomKinematik:

@@ -4,6 +4,7 @@
 import math
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ki'))
 from entscheider import Entscheider  # noqa: E402
@@ -27,6 +28,10 @@ class Lauf:
             daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None,
                      'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False}
             daten.update(w)
+            a = self.e.ablauf
+            ende = time.time() + 3.0
+            while a is not None and a.phase == 'planen' and getattr(a, 'plan', 1) is None and time.time() < ende:
+                time.sleep(0.001)      # Planer rechnet in einem eigenen Thread: Testzeit laeuft sonst davon
             befehl = self.e.update(self.t, daten)
         return befehl
 
@@ -103,14 +108,14 @@ POSEN = {'fahrstellung': [90, 120, 10, 20, 90, 30],
          'blick_links': [135, 120, 10, 20, 90, 30], 'blick_rechts': [45, 120, 10, 20, 90, 30]}
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
 import arm as armlib  # noqa: E402
-KIN = armlib.Kinematik()
+import greifen        # noqa: E402
+SIM_GEO = {'schulter': [0.037, 0.0, 0.13], 'oberarm': 0.083, 'unterarm': 0.083, 'hand': 0.155}   # sim/arm_sim.yaml
+KIN = armlib.Kinematik(SIM_GEO)
 
 
-def planer(obj, seite):
-    """wie ki/zentrale.py (eigene Kinematik)"""
-    greif = (obj['vor'] + obj['breite'] / 2, obj['seite'], max(0.012, obj['hoehe'] / 2))
-    return armlib.plane_wegraeumen(KIN.inverse, greif, armlib.ablagestellen(seite, obj['hoehe'] / 2 + 0.01),
-                                   obj['hoehe'], POSEN['fahrstellung'], 30, 130)
+def planer(obj, seite, kin=KIN):
+    """wie ki/zentrale.py (eigene Kinematik, ohne Lernen)"""
+    return greifen.plane(obj, seite, kin.inverse, POSEN['fahrstellung'], 30, 130)
 
 
 def arm_befehle(lauf, n, **w):
@@ -186,13 +191,13 @@ WUERFEL = {'vor': 0.31, 'seite': 0.02, 'breite': 0.045, 'hoehe': 0.045, 'quelle'
 NAH = dict(WUERFEL, vor=0.25)
 
 
-def wegraeumen(lauf, n, objekt_bis_greifen=WUERFEL, danach=None):
+def wegraeumen(lauf, n, objekt_bis_greifen=WUERFEL, danach=None, **w):
     """Simuliert die Welt grob: Wuerfel kommt naeher, wenn der Roboter vorfaehrt; nach dem Greifen weg."""
     obj, arme, gruende, letzter = dict(objekt_bis_greifen), [], [], None
     for _ in range(n):
-        letzter = lauf.schritt(1, objekt=obj)
+        letzter = lauf.schritt(1, objekt=obj, **w)
         m = letzter.get('manoever')
-        if m:
+        if m and obj:
             obj = dict(obj, vor=obj['vor'] - m['lin'] * 0.1, seite=obj['seite'] - m['quer'] * 0.1)
         a = letzter['arm']
         if a and not isinstance(a, str) and a.get('winkel'):
@@ -240,6 +245,84 @@ pruefe('ohne Arm-Freigabe -> Kamera bestaetigt, warten', b, 'stopp', None)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 pruefe('LiDAR 15 cm, Kamera sieht nichts -> etwas zurueck, damit die Kamera es sieht',
        l.schritt(15, lidar=0.15, lidar_hinten=1.0), 'manoever')
+
+# ---------------- Wegraeumen: Arm reicht nicht hin, Lernen, klare Gruende ----------------
+M3PRO = armlib.Kinematik()              # Masse des echten Arms (Standard): reicht nicht bis 27 cm
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lambda o, s: planer(o, s, M3PRO))
+l.schritt(1, objekt=WUERFEL)
+arme, b, gruende = wegraeumen(l, 600, lidar_hinten=1.0)
+ok = (any('naeher heran' in g for g in gruende) and len(arme) == 9 and any('fahre zurueck' in g for g in gruende)
+      and b['aktion'] == 'fahren')
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Arm reicht nicht hin -> blind naeher, greifen ({len(arme)} Bewegungen), "
+      f"wieder zurueck, pruefen, weiter ({b['grund']})")
+
+meldungen = []
+
+
+def merke(plan, erfolg):
+    meldungen.append(erfolg)
+    return f'Greifversuch {len(meldungen)}: {"Erfolg" if erfolg else "daneben"}'
+
+
+def lernplaner(o, s):
+    p = planer(o, s)
+    p['lernen'] = {'modell': 'test', 'a': [0, 0, 0], 'obj': o}
+    return p
+
+
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lernplaner, rueckmeldung=merke)
+l.schritt(1, objekt=WUERFEL)
+wegraeumen(l, 400)
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = meldungen == [True] and any(t.startswith('Greifversuch 1: Erfolg') for t in texte)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Erfolg wird ans Lernen gemeldet und als Ereignis gezeigt: {meldungen}")
+meldungen.clear()
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lernplaner, rueckmeldung=merke)
+l.schritt(1, objekt=NAH)
+wegraeumen(l, 600, NAH, danach=NAH)
+ok = meldungen == [False, False]
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> 2 Fehlversuche ans Lernen gemeldet: {meldungen}")
+
+l = Lauf(arm_erlaubt=False, posen=POSEN, planer=planer)
+b = l.schritt(30, objekt=WUERFEL)
+ok = b['aktion'] == 'stopp' and any('Panel -> Arm' in t for _, t, _ in l.e.ereignisse)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Arm ausgeschaltet -> Ereignis sagt klar warum: "
+      f"{[t for _, t, _ in l.e.ereignisse if 'raeume nicht' in t]}")
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.e.fahrt_aktiv = False
+b = l.schritt(30, objekt=WUERFEL)
+ok = any('nur bei START' in t for _, t, _ in l.e.ereignisse)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} nur TEST -> Grund 'nur bei START' im Ereignis")
+
+# Person taucht waehrend des Greifens auf -> abbrechen, Arm zurueck
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=NAH)
+arme, b, _ = wegraeumen(l, 45, NAH)
+ok_vorher = len(arme) > 0
+b = l.schritt(1, objekt=NAH, objekte=[{'name': 'Person', 'im_weg': False}])
+b2 = l.schritt(1, objekte=[{'name': 'Person', 'im_weg': False}])
+ok = ok_vorher and l.e.ablauf is None and 'fahrstellung' in (b['arm'], b2['arm'])
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Person waehrend des Greifens -> Abbruch, Arm zurueck in Fahrstellung")
+
+# Notbremse waehrend des Greifens: pausieren, nach 5 s abbrechen
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=NAH)
+arme, b, _ = wegraeumen(l, 45, NAH)
+arme2, b, _ = [], l.schritt(30, objekt=NAH, lidar=0.08), None
+ok1 = b['arm'] is None and l.e.ablauf is not None          # 3 s: nur Pause
+b = l.schritt(30, objekt=NAH, lidar=0.08)
+ok2 = l.e.ablauf is None
+b = l.schritt(2, objekt=NAH)
+ok3 = b['arm'] == 'fahrstellung' or l.e.arm_warten_bis > l.t
+ok = ok1 and ok2 and ok3
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Notbremse beim Greifen: erst Pause, nach 5 s Abbruch, danach Arm zurueck")
 
 # ---------------- Umschauen fuer die Karte ----------------
 l = Lauf(arm_erlaubt=True, posen=POSEN)

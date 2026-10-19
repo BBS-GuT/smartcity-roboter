@@ -330,10 +330,19 @@
     <div class="lernen" id="lernen"></div>
     <div class="zeile"><button onclick="armSpeichern(prompt('Name der Pose (klein, ohne Leerzeichen):'))">... als eigene Pose speichern</button></div>
     <div class="zeile schalter"><input type="checkbox" id="arm-ki" onchange="aktion('arm_ki', {erlaubt: this.checked}, 'arm-antwort')">
-      <label for="arm-ki">KI darf den Arm bewegen (nur im Stand): am Zebrastreifen und für die Karte umschauen
-        (Blick links/rechts) und kleine Hindernisse wegräumen. Zum Wegräumen braucht es keine eingelernten Posen:
-        die KI misst das Hindernis und rechnet die Armbewegung aus (Yahbooms Kinematik-Dienst).</label></div>
+      <label for="arm-ki">KI darf den Arm bewegen (Standard: an). Nur im Stand und nur nach START: am Zebrastreifen
+        und für die Karte umschauen und kleine Hindernisse wegräumen. Nie bei Personen, Tieren oder Fahrzeugen.
+        Die KI misst das Hindernis, rechnet die Armbewegung aus und lernt aus jedem Versuch. Gilt sofort.</label></div>
     <pre id="arm-antwort">-</pre>
+    <h2 style="margin-top:16px">Greifen lernen</h2>
+    <p class="hinweis" style="margin-top:0">Die KI zielt auf den gemessenen Punkt plus eine gelernte Korrektur.
+      Nach jedem Wegräumen prüft sie, ob der Weg frei ist (= Erfolg), und lernt daraus.
+      Vortrainiert im Simulator (<code>models/greifen.json</code>), auf diesem Roboter weitergelernt in
+      <code>config/lokal/greifen.json</code>.</p>
+    <pre id="arm-lernen">-</pre>
+    <div class="zeile">
+      <button onclick="if (confirm('Auf diesem Roboter Gelerntes vergessen (zurück zum Vortraining)?')) aktion('arm_lernen_zuruecksetzen', {}, 'arm-antwort')">Gelerntes zurücksetzen</button>
+    </div>
     <div class="zeile">
       <button onclick="aktion('arm_diagnose', {}, 'arm-antwort')">Arm-Topics anzeigen (nur lesen)</button>
       <button onclick="aktion('arm_kinematik', {}, 'arm-antwort')">Kinematik prüfen (nur rechnen, bewegt nichts)</button>
@@ -815,6 +824,26 @@ function armPose(w) {
   if (w) setzeRegler(w);
   aktion('arm_pose', { winkel: regler(), zeit: Number($('armzeit').value) }, 'arm-antwort');
 }
+function zeigeLernen() {
+  const L = S.arm.lernen || {}, ki = S.ki || {}, z = [];
+  z.push('KI und Arm:  ' + (S.ki ? (ki.arm_status || '-') : 'KI läuft nicht'));
+  if (ki.kinematik) z.push('Kinematik:   ' + ki.kinematik);
+  if (L.fehler) z.push('Fehler: ' + L.fehler);
+  (L.modelle || []).forEach(m => {
+    const q = m.quote_letzte_20 == null ? '-' : Math.round(m.quote_letzte_20 * 100) + ' %';
+    z.push(`Modell „${m.modell}“: ${m.herkunft}`);
+    z.push(`  ${m.versuche} Versuche auf diesem Roboter, ${m.erfolge} Erfolge, Erfolgsquote (letzte 20): ${q}`);
+    z.push(`  Korrektur vorne/links/hoch: ${m.korrektur_cm.map(v => fmt(v, 1)).join(' / ')} cm` +
+           `  (Unsicherheit ± ${m.unsicher_cm.map(v => fmt(v, 1)).join(' / ')} cm)`);
+  });
+  if (!L.vortrainiert) z.push('Kein Vortraining gefunden (models/greifen.json fehlt): lernt von null.');
+  const sim = (L.simulator || {}).eigene;
+  if (sim && sim.ohne_lernen != null) z.push(`Im Simulator gemessen (${sim.roboter} neue Roboter): ohne Lernen ` +
+    `${Math.round(sim.ohne_lernen * 100)} %, vortrainiert ${Math.round(sim.vortrainiert * 100)} %, ` +
+    `nach 40 Versuchen ${Math.round(sim.online_40 * 100)} %`);
+  const t = z.join('\n');
+  if ($('arm-lernen').textContent !== t) $('arm-lernen').textContent = t;
+}
 function armSpeichern(name) { if (name) aktion('arm_speichern', { name, winkel: regler() }, 'arm-antwort'); }
 function zeigePosen(posen) {
   const box = $('posen'), sig = JSON.stringify([posen, S && S.arm.gespeichert]);
@@ -956,6 +985,7 @@ async function status() {
     if (seite === 'arm') {
       if (!servosGebaut) baueServos(S.arm);
       zeigePosen(S.arm.posen); $('arm-ki').checked = S.arm.ki_darf;
+      zeigeLernen();
     }
   } catch (e) {
     $('g-aktion').textContent = 'KEINE VERBINDUNG'; $('g-grund').textContent = 'Panel-Programm läuft nicht';

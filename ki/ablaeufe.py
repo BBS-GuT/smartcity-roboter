@@ -216,23 +216,30 @@ class Wegraeumen(Ablauf):
                      wenn die KI langsam ist: es zaehlen BILDER, nicht nur Sekunden). Was ist es, wo genau, wie gross?
       2. abstand     so weit heran/zurueck, dass der Arm es erreicht und die Kamera es noch sieht (geregelt nach
                      dem, was die Kamera misst, nicht nach der Zeit)
-      3. planen      ausrechnen, wie der Arm sich bewegen muss (Kinematik, keine fest eingelernten Posen)
+      3. planen      ausrechnen, wie der Arm sich bewegen muss (Kinematik + gelernte Korrektur, lib/greifen.py)
+                     Reicht der Arm nicht hin: blind ein Stueck naeher heranfahren (Phase 'naeher'), neu planen
       4. ausfuehren  Greifer auf -> ueber das Ding -> runter -> zu -> hoch -> zur Seite -> ablegen -> Fahrstellung
+                     (vorher blind herangefahren? dann wieder so weit zurueck, damit die Kamera den Platz sieht)
       5. kontrolle   Kamera wieder nach vorne, mehrere Bilder lang pruefen: ist der Weg WIRKLICH frei?
+                     Das Ergebnis (frei = Erfolg) bekommt das Greif-Lernen (rueckmeldung).
                      Nein -> noch ein Versuch (ab 1.), danach aufgeben und warten.
-    Ohne Planer (Arm nicht freigegeben) nur 1.: bestaetigt -> warten, bis frei.
+    Sicherheit: Sieht die Kamera waehrenddessen eine Person, ein Tier oder ein Fahrzeug -> sofort abbrechen.
+    Ohne Planer (Arm nicht freigegeben) nur 1.: bestaetigt -> warten, bis frei. Warum, steht in ohne_arm.
     ergebnis: 'frei' (weiter), 'unbestaetigt' (nur LiDAR, Kamera sieht nichts), 'bestaetigt' (da, nicht anfassen),
               'fehler' (Wegraeumen hat nicht geklappt)."""
     name = 'wegraeumen'
     braucht_arm = True
 
-    def __init__(self, jetzt, c, planer=None, darf_greifen=None):
+    def __init__(self, jetzt, c, planer=None, darf_greifen=None, rueckmeldung=None, ohne_arm=''):
         super().__init__(jetzt, c)
         self.planer = planer              # planer(objekt, ablage_seite) -> {'schritte': [...]} | {'fehler': Text}
         self.darf_greifen = darf_greifen  # darf_greifen(objekt, w) -> None (ja) oder Grund (nein)
+        self.rueckmeldung = rueckmeldung  # rueckmeldung(plan, erfolg) -> Text (Greif-Lernen) oder None
+        self.ohne_arm = ohne_arm or 'Arm nicht freigegeben'   # warum es keinen Planer gibt (fuers Panel)
         self.braucht_arm = planer is not None
         self.versuch = 1
         self.zurueck_gefahren = 0.0
+        self.vorgefahren = 0.0            # so weit ist er blind naeher herangefahren (m)
         self.grund = ''
         self._anschauen(jetzt)
 
@@ -254,6 +261,10 @@ class Wegraeumen(Ablauf):
         obj = w.get('objekt') if neu else None
         kamera_obj = obj if obj and obj.get('quelle') == 'tiefe' else None
         lid = w.get('lidar')
+        if self.phase in ('planen', 'naeher', 'ausfuehren', 'rueckweg') and neu:
+            lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE]
+            if lebend:
+                return self._ende('fehler', f'Wegraeumen abgebrochen: {lebend[0]} in Sicht -> Arm zurueck, warte', 'stopp')
         if self.phase == 'anschauen':
             if neu:
                 self.bilder += 1
@@ -286,6 +297,11 @@ class Wegraeumen(Ablauf):
                 if d > 6.0:
                     return self._ende('fehler', 'Wegraeumen: Armbewegung ausrechnen dauert zu lange', 'stopp')
                 return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
+            if self.plan.get('naeher') and self.vorgefahren + self.plan['naeher'] <= c['naeher_max'] + 1e-6:
+                self.naeher_ziel, self.letzte = self.vorgefahren + self.plan['naeher'], jetzt
+                self.ereignisse.append((f"Arm reicht nicht hin -> fahre {self.plan['naeher'] * 100:.0f} cm naeher heran", 'info'))
+                self._phase(jetzt, 'naeher')
+                return befehl('stopp', 'Hindernis: Arm reicht nicht hin, fahre naeher heran')
             if self.plan.get('fehler'):
                 return self._ende('fehler', f"Wegraeumen geht nicht: {self.plan['fehler']} -> warte", 'stopp')
             self.ereignisse.append((f"Armbewegung berechnet: {self.plan.get('info', '')}", 'info'))
@@ -294,11 +310,44 @@ class Wegraeumen(Ablauf):
             self._phase(jetzt, 'ausfuehren')
             self.warte = 0.0
             d = 0.0
+        if self.phase == 'naeher':
+            # blind (Kamera sieht es so nah evtl. nicht mehr): nach Zeit und Tempo, langsam
+            dt, self.letzte = jetzt - self.letzte, jetzt
+            if self.vorgefahren >= self.naeher_ziel - 1e-4:
+                o = dict(self.objekt_plan, vor=self.objekt_plan['vor'] - self.vorgefahren,
+                         vor_gemessen=self.objekt_plan['vor'])
+                self.plan = None
+                self._phase(jetzt, 'planen')
+                threading.Thread(target=self._planen, args=(o, self.seite), daemon=True).start()
+                return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
+            self.vorgefahren += c['naeher_tempo'] * dt
+            return befehl('manoever', f'Hindernis: fahre naeher heran ({self.vorgefahren * 100:.0f} cm)',
+                          manoever={'lin': c['naeher_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'naeher heran'})
+        if self.phase == 'rueckweg':
+            dt, self.letzte = jetzt - self.letzte, jetzt
+            hinten = w.get('lidar_hinten')
+            if self.vorgefahren <= 1e-4 or hinten is None or hinten < c['hinten_frei'] or d > 10.0:
+                if self.vorgefahren > 0.02:
+                    # nicht ganz zurueck (hinten nicht frei): Kamera sieht den Platz evtl. nicht -> nicht lernen
+                    self.kontrolle_unsicher = True
+                    self.ereignisse.append(('Konnte nicht ganz zurueckfahren: Kontrolle unsicher, wird nicht gelernt',
+                                            'info'))
+                self.vorgefahren = 0.0
+                self._phase(jetzt - c['arm_zeit'] * 0.5, 'kontrolle')
+                self.kontrolle_bilder = self.kontrolle_da = 0
+                return befehl('stopp', 'Wegraeumen: pruefe, ob der Weg frei ist')
+            self.vorgefahren -= c['naeher_tempo'] * dt
+            return befehl('manoever', 'Wegraeumen: fahre zurueck, damit die Kamera den Platz sieht',
+                          manoever={'lin': -c['naeher_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'zurueck'})
         if self.phase == 'ausfuehren':
             if d < self.warte:
                 return befehl('stopp', f'Wegraeumen: {self.schritte[self.nr][0]}')
             self.nr += 1
             if self.nr >= len(self.schritte):
+                if self.vorgefahren > 0.005:
+                    self._phase(jetzt, 'rueckweg')
+                    self.letzte = jetzt
+                    return befehl('stopp', 'Wegraeumen: Arm faehrt zurueck, dann fahre ich zurueck und pruefe')
                 self._phase(jetzt, 'kontrolle')
                 self.kontrolle_bilder = self.kontrolle_da = 0
                 return befehl('stopp', 'Wegraeumen: Arm faehrt zurueck, dann pruefe ich den Weg')
@@ -316,6 +365,9 @@ class Wegraeumen(Ablauf):
                     self.kontrolle_da += 1
             if d < c['arm_zeit'] * 0.5 + c['kontrolle_zeit'] or self.kontrolle_bilder < c['anschauen_bilder']:
                 return befehl('stopp', f'Wegraeumen: pruefe, ob der Weg frei ist ({self.kontrolle_bilder} Bilder)')
+            if not getattr(self, 'kontrolle_unsicher', False):
+                self._melden(self.kontrolle_da < 2)
+            self.kontrolle_unsicher = False
             if self.kontrolle_da >= 2:
                 if self.versuch < c['versuche']:
                     self.versuch += 1
@@ -352,7 +404,8 @@ class Wegraeumen(Ablauf):
                                 f"{o['breite'] * 100:.0f} cm breit, {o['hoehe'] * 100:.0f} cm hoch "
                                 f"({len(self.messungen)} von {self.bilder} Bildern)", 'info'))
         if self.planer is None:
-            return self._ende('bestaetigt', 'Hindernis bestaetigt (Kamera), Arm nicht freigegeben -> warte', 'stopp')
+            return self._ende('bestaetigt', f'Hindernis bestaetigt (Kamera), raeume nicht weg: {self.ohne_arm} -> warte',
+                              'stopp')
         nein = self.darf_greifen(o, w) if self.darf_greifen else None
         if nein:
             return self._ende('bestaetigt', f'Hindernis bestaetigt, {nein} -> warte', 'stopp')
@@ -389,8 +442,9 @@ class Wegraeumen(Ablauf):
         if self.ruhig >= 3:
             o = self._mittel()
             self.plan = None
+            self.objekt_plan = o
             self._phase(jetzt, 'planen')
-            seite = self._ablage_seite(self.letztes_w_xy)
+            self.seite = seite = self._ablage_seite(self.letztes_w_xy)
             threading.Thread(target=self._planen, args=(o, seite), daemon=True).start()
             return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
         if self.dauer(jetzt) > 15:
@@ -404,6 +458,19 @@ class Wegraeumen(Ablauf):
                       manoever={'lin': lin, 'quer': quer, 'dreh': 0.0, 'text': 'in Greifweite'})
 
     letztes_w_xy = None
+
+    def _melden(self, erfolg):
+        """Ergebnis des Greifversuchs an das Lernen geben (nur einmal je Versuch)."""
+        plan, self.plan_gemeldet = getattr(self, 'plan', None), True
+        if self.rueckmeldung is None or not plan or not plan.get('lernen') or plan.get('_gemeldet'):
+            return
+        plan['_gemeldet'] = True
+        try:
+            text = self.rueckmeldung(plan, erfolg)
+        except Exception as e:      # Lernen darf den Ablauf nie stoeren
+            text = f'Greif-Lernen: Fehler beim Speichern ({e})'
+        if text:
+            self.ereignisse.append((text, 'info'))
 
     def _planen(self, o, seite):
         try:

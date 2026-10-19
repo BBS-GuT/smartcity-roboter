@@ -42,6 +42,7 @@ if [ "$ROS_DOMAIN_ID" = "30" ]; then echo "Domain-ID 30 = Roboter. Abbruch."; ex
 command -v ros2 >/dev/null || { echo "ROS 2 nicht gefunden -> scripts/simulation.sh einrichten"; exit 1; }
 export SMARTCITY_ARM_YAML=/tmp/smartcity_arm_sim.yaml
 cp "$REPO_DIR/sim/arm_sim.yaml" "$SMARTCITY_ARM_YAML"     # immer frisch: Arm-Geometrie der Simulation
+export SMARTCITY_GREIFEN=${SMARTCITY_GREIFEN:-/tmp/smartcity_greifen_sim.json}   # in der Simulation Gelerntes (nicht config/lokal/)
 if [ "$1" = "pruefen" ]; then
     exec python3 "$REPO_DIR/sim/pruefen.py"
 fi

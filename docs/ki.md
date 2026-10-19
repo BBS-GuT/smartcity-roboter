@@ -51,13 +51,14 @@
 2. **Urteil:**
    - Kamera und LiDAR sehen nichts mehr → weiter (Fehlalarm).
    - Nur der LiDAR sieht etwas → LANGSAM, ab 20 cm STOPP. Ist es näher als 22 cm (zu nah für die Kamera), fährt er bis zu 10 cm zurück und schaut nochmal.
-   - Lebewesen, Fahrzeug, zu groß, am Rand, kurz nach einem Zebrastreifen, Arm nicht freigegeben → **warten**, bis der Weg frei ist.
+   - Lebewesen, Fahrzeug, zu groß, am Rand, kurz nach einem Zebrastreifen, Arm ausgeschaltet, nur TEST → **warten**, bis der Weg frei ist. **Der Grund steht immer im Ereignis**, z. B. „raeume nicht weg: Arm fuer die KI ausgeschaltet (Panel -> Arm …)“.
 3. **In Greifweite fahren:** geregelt nach dem, was die Kamera misst (nicht nach der Zeit), bis die Vorderkante 25 cm vor der Robotermitte liegt.
-4. **Planen:** Die KI rechnet die Servowinkel für jeden Schritt aus (inverse Kinematik). Auf dem Roboter macht das Yahbooms Kinematik-Dienst mit dem echten Armmodell, siehe [greifarm.md](greifarm.md). Erreicht der Arm einen Punkt nicht, wird nichts bewegt und er wartet.
-5. **Ausführen:** Greifer auf → über das Hindernis → runter → zu → anheben → zur Seite (die Seite, auf der der LiDAR weniger sieht, sonst rechts) → absetzen → loslassen → Fahrstellung.
-6. **Prüfen:** Kamera wieder nach vorne, mindestens 1,5 s und 5 Bilder. Sieht sie im Weg noch etwas → 2. Versuch (ab 1.), danach aufgeben und warten. Sonst „Weg ist frei (geprüft)“ → weiter.
+4. **Planen:** Die KI rechnet die Servowinkel für jeden Schritt aus (inverse Kinematik = aus dem Zielpunkt die Servowinkel rückwärts ausrechnen). Mit Yahbooms Kinematik-Dienst, wenn er läuft, sonst mit der eigenen Rechnung (Maße aus Yahbooms URDF oder Standard). Dazu kommt die **gelernte Korrektur** (siehe unten). Reicht der Arm nicht hin, fährt er blind bis zu 12 cm näher heran (3 cm/s) und plant neu. Erreicht er es trotzdem nicht, wird nichts bewegt und er wartet.
+5. **Ausführen:** Greifer auf → über das Hindernis → runter → zu → anheben → zur Seite (die Seite, auf der der LiDAR weniger sieht, sonst rechts) → absetzen → loslassen → Fahrstellung. Höchstens 60° pro Sekunde je Servo. Ist er näher herangefahren, fährt er danach wieder so weit zurück.
+6. **Prüfen:** Kamera wieder nach vorne, mindestens 1,5 s und 5 Bilder. Sieht sie im Weg noch etwas → Fehlversuch, 2. Versuch (ab 1.), danach aufgeben und warten. Sonst „Weg ist frei (geprüft)“ → Erfolg, weiter.
+7. **Lernen:** Das Ergebnis aus 6. ist die Belohnung für das Greif-Lernen (`lib/greifen.py`). Ereignis z. B. „Greifversuch 7: Erfolg, Erfolgsquote 86 % (letzte 7)“. Wie das Lernen funktioniert, wie man im Simulator vortrainiert und was es gebracht hat: [greifarm.md](greifarm.md#greifen-lernen-libgreifenpy).
 
-Der Arm bewegt sich nur, wenn er freigegeben ist (Panel → Arm) und das Fahrprogramm **fährt** (START). Im TEST und nach STOPP bewegt die KI den Arm nie. Ein laufender Ablauf wird abgebrochen. Beim nächsten START fährt der Arm zuerst in die Fahrstellung.
+**Sicherheit:** Die KI darf den Arm standardmäßig bewegen (`ki_darf_arm_bewegen: true`), aber nur, wenn das Fahrprogramm **fährt** (START) und der Roboter steht. Im TEST und nach STOPP bewegt sie den Arm nie, ein laufender Ablauf wird abgebrochen, beim nächsten START fährt der Arm zuerst in die Fahrstellung. Taucht während des Greifens eine Person, ein Tier oder ein Fahrzeug auf → Abbruch, Arm zurück. Notbremse → Pause, nach 5 s Abbruch. Ausschalten: Panel → Arm (gilt nach ca. 2 s, ohne Neustart).
 
 ## Die Sinne
 
@@ -74,9 +75,10 @@ Der Arm bewegt sich nur, wenn er freigegeben ist (Panel → Arm) und das Fahrpro
 ## Getestet (in der VM, nicht auf dem Roboter)
 
 - Entscheidungslogik: `tests/test_entscheider.py`.
+- Greif-Lernen, URDF lesen, Übungswelt: `tests/test_greifen.py`.
 - Komplette Simulation mit ROS 2 Humble (`scripts/simulation.sh pruefen`), alles bestanden:
   - Ampel, Zebrastreifen mit Fußgänger,
-  - Würfel anschauen, Armbewegung berechnen, wegräumen, Weg prüfen,
+  - Würfel anschauen, Armbewegung berechnen, wegräumen, Weg prüfen, Greifversuch lernen (simulierter Arm absichtlich etwas anders gebaut als geplant),
   - Stoppschild, Einbahnstraße (gewendet bei ca. 160°),
   - Karte.
 

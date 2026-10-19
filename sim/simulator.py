@@ -8,7 +8,11 @@
 #   Ampel: wird rot, wenn der Roboter kommt; gruen nach 3 s Stand
 #   Fussgaenger: geht weg, wenn der Roboter 4 s vor dem Zebrastreifen gewartet hat
 #   Wuerfel: kann mit dem Arm gegriffen und abgelegt werden. Ob der Greifer ihn trifft, wird aus den
-#            Servowinkeln ausgerechnet (Arm-Geometrie aus sim/arm_sim.yaml), nicht aus eingelernten Posen.
+#            Servowinkeln ausgerechnet, nicht aus eingelernten Posen. Der Simulator rechnet dabei mit dem
+#            "wirklichen" Arm (sim/arm_sim.yaml, geometrie_simulator: etwas andere Masse, Servo-Nullpunkte,
+#            Durchhaengen), die KI plant mit den Nennmassen (geometrie). Wie beim echten Roboter muss sie den
+#            Unterschied also lernen (lib/greifen.py). Parameter arm_wie_planer:=true schaltet das aus.
+#            wuerfel_zufall:=true legt den Wuerfel zufaellig (Lage entlang/quer zur Strasse, Groesse).
 import json
 import math
 import os
@@ -33,6 +37,7 @@ sys.path.insert(0, HIER)
 sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 from welt import Welt  # noqa: E402
 import arm as armlib   # noqa: E402
+import greifen         # noqa: E402
 
 
 class Simulator(Node):
@@ -53,6 +58,9 @@ class Simulator(Node):
         self.declare_parameter('lidar_umlauf', 0.0)
         # Wo sitzt der zweite LiDAR (scan1) gegenueber dem ersten? [x m, y m, Drehung Grad] (Einbau nicht gleich)
         self.declare_parameter('lidar1_einbau', [0.0, 0.0, 0.0])
+        self.declare_parameter('arm_wie_planer', False)   # true = Arm genau so, wie die KI ihn sich vorstellt
+        self.declare_parameter('wuerfel_zufall', False)   # true = Wuerfel zufaellig legen
+        self.declare_parameter('wuerfel_saat', 0)         # Zufallszahl dafuer (0 = jedes Mal anders)
         self.verlauf = deque(maxlen=400)          # (Zeit, Pose, Arm) fuer verspaetete Bilder
         self.welt = Welt(self.get_parameter('einbahn').value, self.get_parameter('wuerfel').value,
                          self.get_parameter('fussgaenger').value, self.get_parameter('halle').value)
@@ -72,6 +80,13 @@ class Simulator(Node):
         self.haelt = None                     # gegriffener Zylinder
         self.abgelegt = None
         self.posen = armlib.lade_posen()
+        # "So ist der Arm wirklich" (weicht von dem ab, womit die KI plant)
+        einst = armlib.lade_einstellungen()
+        self.arm_geo = None if self.get_parameter('arm_wie_planer').value else einst.get('geometrie_simulator')
+        if self.arm_geo:
+            self.arm_geo = dict(einst.get('geometrie') or {}, **self.arm_geo)
+        if self.get_parameter('wuerfel_zufall').value:
+            self._wuerfel_zufaellig(self.get_parameter('wuerfel_saat').value or None)
         self.gefahren = 0.0
         self.create_subscription(Twist, '/cmd_vel', self.cmd, 10)
         self.create_subscription(String, '/arm6_joints_sim', self.arm_befehl, 10)
@@ -100,6 +115,20 @@ class Simulator(Node):
         self.v, self.quer, self.w = msg.linear.x, msg.linear.y, msg.angular.z
         self.cmd_zeit = time.time()
 
+    def _wuerfel_zufaellig(self, saat):
+        rng = np.random.default_rng(saat)
+        for z in self.welt.zylinder:
+            if z['name'] != 'wuerfel':
+                continue
+            s = self.welt.wuerfel_s + float(rng.uniform(-0.10, 0.10))
+            quer = float(rng.uniform(-0.035, 0.035))
+            x, y, w = self.welt.pose_bei(s)
+            z['x'], z['y'] = x - quer * math.sin(w), y + quer * math.cos(w)
+            z['r'] = float(rng.uniform(0.018, 0.025))
+            z['h'] = 2 * z['r'] * float(rng.uniform(0.9, 1.0))
+            self.get_logger().info(f"Wuerfel zufaellig: {s - self.welt.wuerfel_s:+.2f} m entlang, {quer * 100:+.1f} cm "
+                                   f"quer, {z['r'] * 200:.1f} cm breit, {z['h'] * 100:.1f} cm hoch")
+
     def arm_befehl(self, msg):
         m = re.match(r'\[([^\]]*)\]', msg.data)
         if not m:
@@ -116,14 +145,13 @@ class Simulator(Node):
             for z in self.welt.zylinder:
                 if z['name'] != 'wuerfel':
                     continue
-                daneben = math.hypot(z['x'] - g[0], z['y'] - g[1])
-                if daneben < 0.02 and g[2] < z['h'] - 0.005:
+                ok, grund = greifen.trifft(g, (z['x'], z['y']), 2 * z['r'], z['h'])   # gleiche Regel wie im Training
+                if ok:
                     self.haelt = z
                     self.welt.zylinder.remove(z)
-                    self.get_logger().info(f'Wuerfel gegriffen ({daneben * 100:.1f} cm neben der Mitte)')
+                    self.get_logger().info(f'Wuerfel gegriffen ({grund})')
                 else:
-                    self.get_logger().info(f'Greifen daneben: {daneben * 100:.1f} cm neben dem Wuerfel, '
-                                           f'Greifer {g[2] * 100:.1f} cm hoch')
+                    self.get_logger().info(f'Greifen daneben: {grund}')
         if oeffnet and self.haelt is not None:
             if g is not None:
                 self.haelt['x'], self.haelt['y'] = g[0], g[1]   # faellt senkrecht nach unten
@@ -196,7 +224,7 @@ class Simulator(Node):
     def greifer_welt(self):
         """Wo ist die Greiferspitze (Welt, x/y/Hoehe)? None = Arm-Geometrie unbekannt."""
         try:
-            vor, links, hoch = armlib.greifer_position(self.arm)
+            vor, links, hoch = armlib.greifer_position(self.arm, self.arm_geo)
         except Exception:
             return None
         x, y, w = self.pose

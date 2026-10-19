@@ -4,16 +4,27 @@
 #                    Einschalten automatisch angefahren wird -> damit lief unser Linienfolger.
 #   yahboom_linie  = Stellung von Yahboms eigenem Linienfolger (largemodel_arm/follow_line.py)
 # Zum Wegraeumen braucht die KI KEINE eingelernten Greif-Posen: Sie misst das Hindernis mit der
-# Tiefenkamera und laesst Yahbooms Kinematik-Dienst (ros2 run arm_kin kin_srv, startet das Panel mit)
-# die Servowinkel ausrechnen. Erst nach Yahbooms Arm-Kalibrierung benutzen (docs/greifarm.md).
-# ki_darf_arm_bewegen: true = KI darf den Arm bewegen (Zebrastreifen umschauen, Hindernis wegraeumen),
-#   immer nur im Stand und nur, solange das Fahrprogramm faehrt.
+# Tiefenkamera und rechnet die Servowinkel aus (Yahbooms Kinematik-Dienst, wenn er laeuft, sonst eigene
+# Rechnung mit den Massen unten). Was dabei danebengeht, lernt sie selbst nach (lib/greifen.py).
+# ki_darf_arm_bewegen: true = KI darf den Arm selbst bewegen (Zebrastreifen umschauen, Hindernis wegraeumen).
+#   Sicherheitsregeln: nur im Stand, nur solange das Fahrprogramm faehrt (START), nie bei Personen/Tieren/
+#   Fahrzeugen, langsam, Abbruch bei STOPP. Ausschalten: Panel -> Arm (gilt sofort).
 posen:
   fahrstellung: [90, 120, 10, 20, 90, 30]
   yahboom_linie: [90, 90, 12, 20, 90, 30]
-ki_darf_arm_bewegen: false
+ki_darf_arm_bewegen: true
 # Greifer (Servo 6). Yahboom-Kurse: 30 = offen, 120-130 = zugegriffen, 180 = ganz zu.
 # Im Panel (Seite Arm) mit "Greifer auf/zu" pruefen und bei Bedarf in config/lokal/arm.yaml aendern.
 greifer_auf: 30
 greifer_zu: 130
-# eigene_kinematik: true  -> NUR wenn Yahbooms Dienst fehlt und die Masse unter "geometrie" nachgemessen sind
+# Masse fuer die eigene Rechnung (nur wenn Yahbooms Kinematik-Dienst nicht laeuft).
+# Findet die KI Yahbooms Robotermodell (URDF, Paket yahboom_M3Pro_description), nimmt sie die Masse von dort.
+# Selbst nachgemessene Masse in config/lokal/arm.yaml unter "geometrie:" gelten vor beidem.
+# Standard: oeffentliches M3-Pro-Modell (Masse laut Autor aus Yahbooms CAD), am Arm NICHT nachgemessen.
+geometrie:
+  schulter: [0.0336, 0.0, 0.218]   # Servo 2 gegenueber Robotermitte am Boden (m): vorne, links, Hoehe
+  oberarm: 0.0829
+  unterarm: 0.0828
+  hand: 0.150                      # Servo 4 bis Mitte zwischen den Greiferbacken
+  servo1_links: 1                  # UNGEPRUEFT: dreht Servo 1 > 90 den Arm nach links?
+greifpunkt: 0.075                  # Servo 5 bis Mitte zwischen den Backen (m), fuer Masse aus der URDF
