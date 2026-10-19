@@ -53,9 +53,27 @@ class Simulator(Node):
         self.declare_parameter('lidar_umlauf', 0.0)
         # Wo sitzt der zweite LiDAR (scan1) gegenueber dem ersten? [x m, y m, Drehung Grad] (Einbau nicht gleich)
         self.declare_parameter('lidar1_einbau', [0.0, 0.0, 0.0])
+        # Weitere Fehler, die es am echten Roboter geben kann (alle Standardwerte = wie bisher, kein Fehler):
+        # lidar0_einbau: auch der erste LiDAR sitzt nicht in der Mitte / "vorne" ist gedreht (z. B. 90 oder 180 Grad)
+        self.declare_parameter('lidar0_einbau', [0.0, 0.0, 0.0])
+        self.declare_parameter('lidar_gespiegelt', False)   # LiDAR zaehlt die Winkel andersherum
+        self.declare_parameter('lidar_hz', 7.0)             # Umdrehungen je Sekunde (T-mini Plus: 6)
+        self.declare_parameter('lidar_strahlen', 360)       # Strahlen je Umdrehung (T-mini Plus: ca. 670)
+        self.declare_parameter('lidar_verdeckt', 0.0)       # so viel Grad verdeckt der Roboteraufbau je LiDAR
+        self.declare_parameter('odom_twist', True)          # False: /odom_raw ohne Geschwindigkeiten (nur Position)
+        self.declare_parameter('imu_vorzeichen', 1.0)       # -1: Lagesensor falsch herum eingebaut
+        self.declare_parameter('gyro_bias', 0.003)          # Nullpunktfehler des Lagesensors (rad/s)
+        self.declare_parameter('odom_rauschen', 0.0)        # Mecanum-Raeder rutschen zufaellig (Anteil der Geschw.)
+        self.declare_parameter('sensor_stau', 0.0)          # Odometrie/IMU kommen gesammelt alle so viele s an
+        self.declare_parameter('stempel', 'jetzt')          # Zeitstempel: jetzt | null (fehlt) | versatz (andere Uhr)
+        self.stau = []
+        self.stau_zeit = 0.0
         self.verlauf = deque(maxlen=400)          # (Zeit, Pose, Arm) fuer verspaetete Bilder
+        self.declare_parameter('halle_rand', 3.0)           # so weit (m) sind die Hallenwaende vom Spielfeld weg
+        self.declare_parameter('halle_haeuser', 2)          # so viele Haeuser stehen in der Halle
         self.welt = Welt(self.get_parameter('einbahn').value, self.get_parameter('wuerfel').value,
-                         self.get_parameter('fussgaenger').value, self.get_parameter('halle').value)
+                         self.get_parameter('fussgaenger').value, self.get_parameter('halle').value,
+                         self.get_parameter('halle_rand').value, self.get_parameter('halle_haeuser').value)
         self.imu_skala = self.get_parameter('imu_skala').value
         if self.get_parameter('gegner').value:
             x, y, _ = self.welt.pose_bei(1.75)
@@ -90,7 +108,7 @@ class Simulator(Node):
         self.create_timer(0.02, self.physik)
         self.create_timer(1 / 15, self.kamera)
         self.create_timer(0.1, self.tiefe)
-        self.create_timer(1 / 7, self.lidar)
+        self.create_timer(1 / self.get_parameter('lidar_hz').value, self.lidar)
         self.create_timer(1.0, lambda: self.pub_akku.publish(Float32(data=12.3)))
         self.create_timer(0.2, self.draufsicht)
         self.get_logger().info(f'Simulator laeuft, Strecke {self.welt.laenge:.2f} m')
@@ -148,17 +166,34 @@ class Simulator(Node):
         self.gefahren += math.hypot(self.v, self.quer) * dt
         # Odometrie mit Fehlern: 3 % zu kurz gemessen, Drehung leicht verfaelscht
         ov, oq, ow = self.v * 0.97, self.quer * 0.97, self.w * 1.02 + 0.004
+        rausch = self.get_parameter('odom_rauschen').value
+        if rausch > 0:   # Mecanum-Raeder rutschen: mal mehr, mal weniger, auch seitlich
+            ov *= 1 + float(self.rng.normal(0, rausch))
+            oq += abs(self.v) * float(self.rng.normal(0, rausch))
         ox, oy, oth = self.odom_pose
         self.odom_pose = [ox + (ov * math.cos(oth) - oq * math.sin(oth)) * dt,
                           oy + (ov * math.sin(oth) + oq * math.cos(oth)) * dt, oth + ow * dt]
         o = Odometry()
-        o.header.stamp = self.get_clock().now().to_msg()
-        o.twist.twist.linear.x, o.twist.twist.linear.y, o.twist.twist.angular.z = ov, oq, ow
-        self.pub_odom.publish(o)
+        o.header.stamp = self._stempel(jetzt)
+        if self.get_parameter('odom_twist').value:
+            o.twist.twist.linear.x, o.twist.twist.linear.y, o.twist.twist.angular.z = ov, oq, ow
+        o.pose.pose.position.x, o.pose.pose.position.y = self.odom_pose[0], self.odom_pose[1]
+        o.pose.pose.orientation.z, o.pose.pose.orientation.w = math.sin(self.odom_pose[2] / 2), math.cos(self.odom_pose[2] / 2)
         imu = Imu()
         imu.header.stamp = o.header.stamp
-        imu.angular_velocity.z = self.w * self.imu_skala + 0.003 + float(self.rng.normal(0, 0.01))
-        self.pub_imu.publish(imu)
+        imu.angular_velocity.z = (self.w * self.imu_skala * self.get_parameter('imu_vorzeichen').value
+                                  + self.get_parameter('gyro_bias').value + float(self.rng.normal(0, 0.01)))
+        imu.linear_acceleration.z = 9.81
+        stau = self.get_parameter('sensor_stau').value
+        if stau > 0:   # ueberlasteter Roboter: Nachrichten kommen gesammelt an
+            self.stau += [(self.pub_odom, o), (self.pub_imu, imu)]
+            if jetzt - self.stau_zeit >= stau:
+                for pub, m in self.stau:
+                    pub.publish(m)
+                self.stau, self.stau_zeit = [], jetzt
+        else:
+            self.pub_odom.publish(o)
+            self.pub_imu.publish(imu)
 
         steht = abs(self.v) < 0.005 and abs(self.w) < 0.01 and abs(self.quer) < 0.005
         self.stand_seit = (self.stand_seit or jetzt) if steht else None
@@ -252,29 +287,30 @@ class Simulator(Node):
                 return pose
         return self.verlauf[0][1] if self.verlauf else self.pose
 
+    def _stempel(self, t):
+        """Zeitstempel fuer Nachrichten (Parameter 'stempel': wie zuverlaessig sind die Zeitstempel am Roboter?)"""
+        art = self.get_parameter('stempel').value
+        if art == 'null':
+            t = 0.0
+        elif art == 'versatz':
+            t -= 1000.0          # andere Uhr (z. B. Board ohne Zeitabgleich)
+        from builtin_interfaces.msg import Time
+        return Time(sec=int(t), nanosec=int((t % 1) * 1e9))
+
     def lidar(self):
         verz = self.get_parameter('lidar_verzoegerung').value
         umlauf = self.get_parameter('lidar_umlauf').value
         ende = time.time() - verz                  # letzter Strahl des Scans
         for i, pub in enumerate(self.pub_scan):
-            einbau = self.get_parameter('lidar1_einbau').value if i == 1 else [0.0, 0.0, 0.0]
-
-            def pose_lidar(t):
-                x, y, w = self._pose_zu(t)
-                return [x + einbau[0] * math.cos(w) - einbau[1] * math.sin(w),
-                        y + einbau[0] * math.sin(w) + einbau[1] * math.cos(w), w + math.radians(einbau[2])]
-            if umlauf > 0:
-                # Strahlen in 12 Stuecken, jedes Stueck aus der Pose zu seiner Messzeit (Drehung gegen den Uhrzeigersinn)
-                r, winkel = self.welt.lidar(pose_lidar(ende - umlauf), rng=self.rng)
-                n = len(r)
-                for k in range(1, 12):
-                    a, b = k * n // 12, (k + 1) * n // 12
-                    rk, _ = self.welt.lidar(pose_lidar(ende - umlauf + umlauf * (k + 0.5) / 12), rng=self.rng)
-                    r[a:b] = rk[a:b]
-            else:
-                r, winkel = self.welt.lidar(pose_lidar(ende), rng=self.rng)
+            einbau = self.get_parameter('lidar1_einbau' if i == 1 else 'lidar0_einbau').value
+            # Strahlen nacheinander, jeder aus der Pose zu seiner Messzeit (Drehung gegen den Uhrzeigersinn)
+            r, winkel = self.welt.lidar_umlauf(self._pose_zu, ende, einbau, umlauf,
+                                               n=self.get_parameter('lidar_strahlen').value,
+                                               gespiegelt=self.get_parameter('lidar_gespiegelt').value,
+                                               verdeckt_deg=self.get_parameter('lidar_verdeckt').value,
+                                               rng=self.rng, max_r=8.0)
             msg = LaserScan()
-            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.stamp = self._stempel(time.time())
             msg.header.frame_id = f'laser{i}'
             msg.angle_min, msg.angle_increment = float(winkel[0]), float(winkel[1] - winkel[0])
             msg.angle_max = float(winkel[-1])
@@ -283,6 +319,7 @@ class Simulator(Node):
             msg.time_increment = float(umlauf / len(r)) if umlauf > 0 else 0.0
             msg.ranges = r.tolist()
             pub.publish(msg)
+
 
 def main():
     rclpy.init()
