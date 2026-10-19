@@ -109,6 +109,8 @@ class LineFollower(Node):
         self.anzeige = None              # (Bild, Maske) fuer die Fenster (zeigt der Haupt-Thread)
         self.bild_alter = 0.0            # Aufnahme bis Auswertung des letzten Bildes (s)
         self.linie_breite = None         # wie breit die Linie in der Draufsicht aussieht (m)
+        self.kamera_weg_bis = 0.0        # zuletzt schaute die Kamera (Arm) woanders hin (Zeit)
+        self.gyro_null = 0.0             # Nullpunktfehler des Lagesensors (rad/s), im Stand gelernt
         self.stempel_ok = True           # passt die Aufnahmezeit im Bild zur Uhr dieses Rechners?
         self.odom = (0.0, 0.0, 0.0, 0.0)  # (Zeit, vorwaerts, seitwaerts, drehen) gemessen
         self.imu = (0.0, 0.0)            # (Zeit, Drehrate) gemessen
@@ -186,6 +188,11 @@ class LineFollower(Node):
                 lin, quer = ov, oq
                 quellen.append('Radzaehler')
         iz, iw = self.imu
+        if jetzt - iz < 0.3 and not any(self.letzter_cmd) and abs(iw - self.gyro_null) < 0.05:
+            # Stand (keine Fahrbefehle): was der Lagesensor jetzt misst, ist sein Nullpunktfehler. Sonst wuerde
+            # sich das Linien-Gedaechtnis im Stand langsam verdrehen (z. B. 11 s x 0,003 rad/s = 2 Grad).
+            self.gyro_null += 0.02 * (iw - self.gyro_null)
+        iw -= self.gyro_null
         if jetzt - iz < 0.3:
             if abs(dreh) > 0.1:
                 self.pruef_imu[0] += iw * dreh
@@ -211,7 +218,9 @@ class LineFollower(Node):
         try:
             self.ki = (time.time(), json.loads(msg.data))
         except ValueError:
-            pass
+            return
+        if self.ki[1].get('kamera_ok') is False:
+            self.kamera_weg_bis = self.ki[0]      # bis hierhin schaute die Kamera woanders hin
 
     def on_tempo(self, msg):
         # Geschwindigkeit vom Panel (Regler). Begrenzt auf 0..0,5 m/s.
@@ -248,6 +257,10 @@ class LineFollower(Node):
         # Umrechnung auf den Boden nicht -> Bild nicht ins Linien-Gedaechtnis (Roboter steht dabei).
         ki_zeit, ki = self.ki
         kamera_weg = bool(ki) and jetzt - ki_zeit < 1.0 and ki.get('kamera_ok') is False
+        # Auch Bilder, die kurz nach dem Zurueckdrehen ankommen, wurden evtl. noch mit gedrehter Kamera
+        # aufgenommen (Bilder kommen verspaetet an, Arm braucht etwas bis zur Ruhe) -> 0,5 s Sicherheit
+        if aufnahme < self.kamera_weg_bis + 0.5:
+            kamera_weg = True
         with self.lock:
             ziel = self.gedaechtnis.linie(0.3)
             self.sucher.erwartung = ziel['ziel'] if ziel['gefunden'] else None

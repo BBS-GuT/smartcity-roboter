@@ -23,6 +23,7 @@
 #   v Kurve          mittleres Tempo in den Kurven, Runde = Zeit fuer eine Runde
 #   gelernt          Totzeit, die der Linienfolger selbst gemessen hat (Lenkbefehl -> Lagesensor)
 import argparse
+import json
 import math
 import os
 import sys
@@ -69,7 +70,8 @@ def antrieb_aus_text(text):
 
 
 def fahrt(tempo, antrieb='echt', kamera_hz=15.0, latenz=0.1, runden=1.0, einstellungen=None, aufzeichnen=False,
-          messfehler=True, stempel_fehler=0.0, mess_verz=0.05, mess_hz=10.0, saat=0, kamera_wahr=None):
+          messfehler=True, stempel_fehler=0.0, mess_verz=0.05, mess_hz=10.0, saat=0, kamera_wahr=None,
+          halt=None):
     uhr = Uhr()
     lf.time = types.SimpleNamespace(time=uhr.time, sleep=lambda s: None)
     # kamera_wahr: wo die Kamera WIRKLICH sitzt, z. B. {'hoehe': 0.31} (der Linienfolger glaubt seine Einstellung)
@@ -99,6 +101,11 @@ def fahrt(tempo, antrieb='echt', kamera_hz=15.0, latenz=0.1, runden=1.0, einstel
     gefahren, daten, quelle = 0.0, [], []
     ende = uhr.t + runden * welt.laenge / tempo * 2.5 + 5
     letzter_s = 0.0
+    halt_ab = None
+    arm = 0.0                        # Drehung des Arms (Kamera) gegenueber der Fahrstellung (Grad)
+    naechste_ki = uhr.t
+    if halt:
+        node._p['ki_pflicht'] = True
     while uhr.t < ende:
         uhr.t += SCHRITT
         t = uhr.t
@@ -111,10 +118,10 @@ def fahrt(tempo, antrieb='echt', kamera_hz=15.0, latenz=0.1, runden=1.0, einstel
         # --- Kamera: Bild aufnehmen, kommt 'latenz' s spaeter beim Linienfolger an ---
         if t >= naechstes_bild:
             naechstes_bild += 1.0 / kamera_hz
-            unterwegs.append((t + latenz, t, tuple(pose)))
+            unterwegs.append((t + latenz, t, tuple(pose), arm))
         while unterwegs and unterwegs[0][0] <= t:
-            _, aufnahme, p = unterwegs.pop(0)
-            bild, _ = welt.kamera(p)
+            _, aufnahme, p, arm_bild = unterwegs.pop(0)
+            bild, _ = welt.kamera(p, arm_bild)
             aufnahme += stempel_fehler   # Zeitstempel zu spaet (Kameratreiber stempelt erst beim Empfang)
             msg = types.SimpleNamespace(img=bild, header=types.SimpleNamespace(
                 stamp=types.SimpleNamespace(sec=int(aufnahme), nanosec=int((aufnahme % 1) * 1e9))))
@@ -156,6 +163,20 @@ def fahrt(tempo, antrieb='echt', kamera_hz=15.0, latenz=0.1, runden=1.0, einstel
                 if runden <= 1e-6:
                     break
             letzter_s = s
+        # --- KI: halt=(s, Dauer) -> dort anhalten und mit dem Arm umschauen (Kamera zeigt weg, wie am Zebrastreifen) ---
+        if halt:
+            if halt_ab is None and gefahren > 0.5 and abs(letzter_s - halt[0]) < 0.02:
+                halt_ab = t
+            steht = halt_ab is not None and t - halt_ab < halt[1]
+            # Arm (= Kamera) schaut 1 s nach dem Anhalten abwechselnd 45 Grad links/rechts, 1 s vor dem Weiterfahren
+            # wieder geradeaus. Die KI meldet kamera_ok erst, wenn der Arm zurueck ist.
+            schaut = steht and 1.0 < t - halt_ab < halt[1] - 1.0
+            arm = (45.0 if int((t - halt_ab) / 2.0) % 2 else -45.0) if schaut else 0.0
+            if t >= naechste_ki:
+                naechste_ki += 0.1
+                node.on_ki(types.SimpleNamespace(data=json.dumps(
+                    {'aktion': 'stopp', 'grund': 'Zebrastreifen: schaue', 'kamera_ok': not schaut} if steht
+                    else {'aktion': 'fahren', 'faktor': 1.0})))
         # --- Linienfolger: 20 Fahrbefehle pro Sekunde ---
         if t >= naechster_befehl:
             naechster_befehl += 1.0 / node.p('rate')

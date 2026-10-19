@@ -68,6 +68,11 @@ Damit ließ sich das Pendeln nachstellen (alter Linienfolger, Antrieb `echt`, 0,
 5. **Zebrastreifen direkt nach der Kurve.** In der engen Kurve sieht die Kamera die Linie nicht. Danach lag die Erwartung etwas daneben, und ein Balken vom Zebrastreifen wurde für die Linie gehalten (bis 8 cm daneben). Jetzt gelten kleine Stücke (weniger als halb so groß wie das größte) als 5 cm weiter weg → die lange Linie gewinnt.
 6. **Lücke nach der Kurve.** Sieht die Kamera die Linie erst wieder weiter vorne, überbrückt die Linien-Rechnung am Roboter die Lücke (vorher: keine Linie am Roboter → grobe Notlösung).
 
+7. **Anhalten und Umschauen (Zebrastreifen).** Zwei Dinge können das Gedächtnis im Stand verfälschen:
+   - Bilder, die mit noch gedrehter Kamera aufgenommen wurden, aber erst nach dem Zurückdrehen ankommen. Jetzt werden Bilder, die bis 0,5 s nach dem letzten „Kamera schaut weg“ der KI aufgenommen wurden, nicht ins Gedächtnis übernommen.
+   - Der Nullpunktfehler des Lagesensors: Im Stand hat sich das Gedächtnis langsam verdreht (z. B. 11 s × 0,003 rad/s = 2°). Jetzt lernt er den Nullpunkt im Stand (keine Fahrbefehle) und zieht ihn ab.
+   - Messung (`linie_messen.py` mit Halt bei s = 2,13 m für 11 s, Kamera schaut ±45°, Antrieb `echt`, 0,15 m/s): vorher bis 8,3 cm daneben, jetzt 3,4 cm.
+
 **Ausprobiert und wieder verworfen (Messung zeigte keinen Vorteil):** schwächeres Nachregeln bei hohem Tempo (Verstärkung ~ 1/Tempo) und Vorausrechnen um die Motor-Trägheit (`vorhersage` 0,2 s, obwohl die Sensoren pünktlich sind: dann bis 12 cm daneben). Eine Seitwärtskomponente (Mecanum) wird beim Linienfolgen weiterhin **nicht** benutzt.
 
 ### 3. Messung (nur Simulation, `sim/linie_messen.py`, eine Runde, schlimmste von 3 Fahrten)
@@ -95,7 +100,9 @@ Weitere Fälle (Antrieb `echt`, schlimmste von 3 Fahrten, vorher → nachher):
 | Kamera sitzt wirklich 31 cm hoch, eingestellt 22 cm | 4,8 / 1,01 → 3,3 / 0,96 | 7,6 / 1,96 → 3,8 / 0,86 |
 | Kamera wirklich 36° geneigt, eingestellt 32° | 6,9 / 1,14 → 5,4 / 0,98 | 14,7 / 2,98 → 6,1 / 1,01 |
 
-Komplette ROS-Simulation (`sim/pruefen.py`, mit KI, Kartograf, Arm):
+Komplette ROS-Simulation nach dem Zusammenführen mit Arm und Karte (`main`): Die Linie war in 4 Läufen immer OK (größte Abweichung 2,9 / 1,1 / 0,8 / 2,4 cm). Ein Lauf war komplett grün. In den anderen blieb der Roboter am Zebrastreifen stehen („etwas am Zebrastreifen, 22–35 cm rechts“), obwohl der Fußgänger weg war. Grund: Die KI merkt sich die Linie voraus (`weg`) nur einmal beim Anhalten. Hält er direkt nach der engen Kurve, ist diese Linie im Gedächtnis noch bis ca. 10° verdreht (die Kamera sah sie in der Kurve nicht). Wenige Bilder später ist sie richtig, aber die KI prüft weiter den alten, falschen Bereich. Vorschlag für die KI (`ki/ablaeufe.py`): `weg` bei jedem Schritt neu nehmen.
+
+Komplette ROS-Simulation vor dem Zusammenführen (`sim/pruefen.py`, mit KI, Kartograf, Arm):
 - Standard (Antrieb `ideal`, 0,15 m/s): alle Prüfungen grün, größte Abweichung 2,6 cm, Mittel 0,6 cm (ein erster Lauf bei stark ausgelastetem Rechner hat das Schild „Einfahrt verboten“ übersehen; Linie trotzdem 2,9 cm / 0,6 cm).
 - `SIM_ANTRIEB=echt SIM_TEMPO=0.35`: Linie OK (größte Abweichung 3,2 cm, Mittel 0,7 cm, nie verloren). **Aber:** Bei 0,35 m/s fährt er auf den Holzwürfel auf, und Stoppschild/Einbahnstraße klappen nicht mehr. Das liegt an der KI (erkennt/stoppt zu spät für dieses Tempo), nicht an der Linie. Für die Aufgaben mit Hindernis und Schildern also weiter langsam fahren.
 

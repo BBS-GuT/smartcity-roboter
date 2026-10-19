@@ -140,6 +140,22 @@ ok = ok and n.vorhersage_zeit() == 0.0
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Vorhersage = gemessene Totzeit - Motor-Anteil, ohne Messung keine Vorhersage")
 
+# ---- Stand: Nullpunktfehler des Lagesensors lernen (sonst verdreht sich das Gedaechtnis im Stand) ----
+n = neu()
+n.pruef_imu = [10.0, 20]                     # Lagesensor gilt schon als plausibel
+n.letzter_cmd = (0.0, 0.0, 0.0)
+for _ in range(300):
+    n.imu = (time.time(), 0.003)
+    _, _, dreh = n.bewegung(0.05)
+ok = abs(n.gyro_null - 0.003) < 0.0005 and abs(dreh) < 0.0005
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Stand: Nullpunkt des Lagesensors gelernt ({n.gyro_null:.4f} rad/s)")
+n = neu()
+n.on_ki(types.SimpleNamespace(data='{"aktion": "stopp", "kamera_ok": false}'))
+ok = time.time() - n.kamera_weg_bis < 1.0
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Kamera schaut weg (Arm): gemerkt, Bilder bis 0,5 s danach zaehlen nicht")
+
 # ---- Kurve voraus: Gerade 20 cm, dann Kurve mit 25 cm Radius -> bremst schon vorher ----
 g = lf.linie.Gedaechtnis()
 punkte = [(0.01 * k, 0.0) for k in range(20)]
