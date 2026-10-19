@@ -56,6 +56,7 @@ class Bodenmodell:
         schritt = max(1, w0 // self.breite)
         t = tiefe_m[::schritt, ::schritt].astype(np.float32)
         t = np.where(t > 0.03, t, np.nan)
+        self._t = t
         self._vorbereiten(*t.shape)
         rx, ry, rz = self.strahlen
         x = self.k['kamera_x'] + t * rx
@@ -102,6 +103,12 @@ class Bodenmodell:
         objekt = {'vor': naechster, 'seite': float(np.median(ys[vorne])),
                   'breite': float(np.percentile(ys[vorne], 95) - np.percentile(ys[vorne], 5)),
                   'hoehe': float(np.percentile(zs, 95)), 'punkte': n}
+        # Mitte im Bild (Anteil 0..1 von Breite/Hoehe) und Tiefe dort: damit rechnet Yahbooms Kinematik
+        # den Punkt mit dem echten Armmodell in Arm-Koordinaten um (lib/arm.py, YahboomKinematik)
+        zeilen, spalten = np.nonzero(treffer)
+        hz, wz = treffer.shape
+        objekt['pixel'] = [float((np.median(spalten) + 0.5) / wz), float((np.median(zeilen) + 0.5) / hz)]
+        objekt['tiefe_m'] = float(np.median(self._t[treffer]))
         if quer_karte is not None:   # wie weit neben der Linie (Mitte des Fahrwegs) liegt es?
             objekt['quer'] = float(np.median(quer_karte[treffer][vorne]))
         return True, objekt

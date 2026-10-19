@@ -1,36 +1,53 @@
 # Greifarm
 
-## Auf RM02 geprüft (scripts/arm_suchen.sh)
+## Auf RM02 geprüft
 
-- `/arm6_joints` gibt es, Typ `arm_msgs/msg/ArmJoints` mit `joint1`–`joint6` und `time` (alles `int16`). Subscriber = Motorboard (über den micro-ROS-Agent).
+- `/arm6_joints` gibt es, Typ `arm_msgs/msg/ArmJoints` mit `joint1`–`joint6` und `time` (alles `int16`). Subscriber = Motorboard (über den micro-ROS-Agent). Prüfen: Panel → Arm → „Arm-Topics anzeigen“ (nur lesen).
 - Die Gamepad-Steuerung (`yahboomcar_ctrl/yahboom_joy_M3Pro.py`, startet automatisch) sendet ebenfalls auf `/arm6_joints` und `/arm_joint`. **Gamepad und Panel nicht gleichzeitig am Arm benutzen.**
 - Startstellung der Gamepad-Steuerung: **90, 120, 10, 20, 90, 0**. Damit lief unser Linienfolger → in `config/arm.yaml` als `fahrstellung` (Greifer 30 statt 0).
 - Yahbooms eigener Linienfolger (`largemodel_arm/follow_line.py`): **90, 90, 12, 20, 90, 0** → als `yahboom_linie`. Achtung: Dort wird Servo 1 als `180 - Wert` geschickt (bei 90 egal).
-- Weitere Yahboom-Topics: `set_joint5`, `set_joint6`, `Curjoints` (`arm_interface/CurJoints`).
+- Beim Greifer waren „zugreifen“ und „öffnen“ vertauscht (siehe unten, jetzt nach Yahboom eingestellt).
 
-## Schnittstelle (Quelle)
+## Was in Yahbooms Unterlagen steht
 
-Quelle: ein öffentlicher Treiber für den M3 Pro ([strands-labs/robots, Pull Request 3941](https://github.com/strands-labs/robots/pull/3941), Datei `strands_robots/drivers/yahboom_m3pro_wire.py`). Dessen Autor schreibt selbst, dass er keinen M3 Pro auf dem Tisch hatte. Die Werte stammen aus den Yahboom-Programmen.
+Quelle: [Yahboom ROSMASTER M3 Pro, Kursunterlagen](https://github.com/YahboomTechnology/ROSMASTER-M3PRO) (Kapitel „Robotic Arm and 3D Space Gripping“, „Configuration and Operation Guide“).
 
-| Topic | Typ | Inhalt |
-|---|---|---|
-| `/arm6_joints` | `arm_msgs/msg/ArmJoints` | alle 6 Servos: `joint1` … `joint6` in **ganzen Grad**, `time` = Dauer in ms |
-| `/arm_joint` | `arm_msgs/msg/ArmJoint` | ein Servo: `id` (1–6), `joint` (Grad), `time` (ms) |
+| Was | Wert |
+|---|---|
+| Alle Servos | `/arm6_joints` (`arm_msgs/msg/ArmJoints`): `joint1`…`joint6` in ganzen Grad, `time` in ms |
+| Ein Servo | `/arm_joint` (`arm_msgs/msg/ArmJoint`): `id`, `joint`, `time` |
+| Winkel | Servo **90** = Glied zeigt gerade nach oben. Alle auf 90 = Arm senkrecht |
+| Greifer (Servo 6) | **30 = offen**, 120–130 = zugegriffen, 180 = ganz zu (größer = fester). Eine andere Yahboom-Anleitung sagt das Gegenteil → **am Roboter prüfen** |
+| Kinematik | Dienst `/get_kinemarics` (`arm_interface/srv/ArmKinemarics`), Programm `ros2 run arm_kin kin_srv`. Rechnet mit dem echten Robotermodell (URDF): Zielpunkt → Servowinkel (`ik`) und Servowinkel → Punkt (`fk`) |
+| Kamera | sitzt am Arm-Ende („eye-in-hand“). Umrechnung Kamerapunkt → Arm mit einer festen Matrix und der Vorwärtsrechnung |
+| Kalibrierung | 1. Mittelstellung (`calibrate_arm.py`), 2. Versatz mit einem 4-cm-Würfel (`arm_offset`) → `~/yahboomcar_ws/src/arm_kin/param/offset_value.yaml` |
 
-| Servo | Aufgabe | Bereich |
-|---|---|---|
-| 1 | Drehen unten | 0–180° |
-| 2 | Schulter | 0–180° |
-| 3 | Ellbogen | 0–180° |
-| 4 | Handgelenk kippen | 0–180° |
-| 5 | Handgelenk drehen | 0–270° |
-| 6 | Greifer | 30° = zu, 180° = auf |
+**Vorsicht bei Servo 1:** Yahboom schickt Servo 1 als `180 - joint1` aus der Kinematik. Das übernimmt unser Code genauso.
 
-- Yahboom-Grundstellung zum Greifen: 90 / 120 / 0 / 0 / 90, Greifer auf.
-- Das Board meldet die aktuelle Armstellung **nicht** zurück. Man weiß nur, was man zuletzt geschickt hat.
-- Das Board hält eine Stellung, eine Nachricht reicht. Bei `/cmd_vel` ist das anders: Dort stoppt das Board nach 0,3 s ohne neuen Befehl.
+## Hindernis wegräumen: so rechnet die KI die Armbewegung aus
 
-**Zuerst prüfen** (nur lesen, bewegt nichts): `scripts/arm_suchen.sh > arm.txt`. Dort muss `/arm6_joints` mit Typ `arm_msgs/msg/ArmJoints` stehen und ein Subscriber (das Board).
+Es gibt **keine eingelernten Greif-Posen** mehr. Die KI misst das Hindernis und rechnet aus, wie die Servos stehen müssen (Ablauf: [ki.md](ki.md), „Hindernis wegräumen“).
+
+1. Die Tiefenkamera liefert, wo das Hindernis im Bild ist (Bildpunkt) und wie weit weg (Tiefe).
+2. **Echter Roboter:** Yahbooms Kinematik-Dienst rechnet daraus den Punkt im Arm-System (wie in Yahbooms `grasp_desktop.py`: Kamerapunkt → Arm-Ende → `base_link`, plus Versatz aus `offset_value.yaml`). Dann fragt die KI für jeden Schritt (über dem Hindernis, unten, angehoben, an der Ablagestelle) die Servowinkel ab.
+3. **Simulation:** eigene, einfache Rechnung (`lib/arm.py`, `Kinematik`) mit ausgedachten Maßen aus `sim/arm_sim.yaml`. Der Simulator rechnet aus den Servowinkeln nach, wo der Greifer wirklich ist. Daneben gegriffen = nicht gegriffen.
+4. Erreicht der Arm einen Punkt nicht, bewegt sich nichts. Der Roboter wartet.
+
+Die eigene Rechnung benutzt die KI auf dem echten Roboter **nicht**, die Maße sind nur geschätzt. Ausnahme: `eigene_kinematik: true` in `config/lokal/arm.yaml`, und nur, wenn die Maße unter `geometrie:` nachgemessen sind.
+
+## Vor dem ersten echten Versuch (in dieser Reihenfolge)
+
+1. **Greifer prüfen:** Panel → Arm → „Greifer auf“ / „Greifer zu“. Ist es falsch herum, in `config/lokal/arm.yaml` eintragen:
+   ```yaml
+   greifer_auf: 130
+   greifer_zu: 30
+   ```
+2. **Yahbooms Arm-Kalibrierung** machen (Mittelstellung und Versatz, siehe oben). Ohne sie greift die Kinematik daneben.
+3. **Kinematik prüfen:** Panel → Arm → „Kinematik prüfen“. Das bewegt nichts. Es zeigt, wo laut Yahboom-Modell das Arm-Ende in der Fahrstellung ist, und rechnet einen Testpunkt 22 cm vor dem Roboter. Kommt „nicht installiert“ oder „antwortet nicht“, räumt die KI nichts weg, sie hält nur an und wartet.
+4. **„KI darf den Arm bewegen“** einschalten (Panel → Arm), KI neu starten (Panel → System).
+5. Ersten Versuch mit kleinem Tempo machen, eine Hand am STOPP. Würfel mittig auf die Linie legen.
+
+**Ungeprüft auf dem Roboter:** Der Kinematik-Dienst, die Umrechnung Kamerapunkt → Arm und die Greifer-Werte sind aus Yahbooms Unterlagen übernommen, aber noch nie auf unserem Roboter gelaufen. Der LiDAR könnte den Arm sehen, wenn er vorne bis zum Boden greift. Dann greift die Notbremse (unter 12 cm), und der Ablauf wartet, bis sie vorbei ist.
 
 ## Im Panel (Seite "Arm")
 
@@ -42,37 +59,14 @@ Quelle: ein öffentlicher Treiber für den M3 Pro ([strands-labs/robots, Pull Re
 | Pose | Wofür | Hinweis |
 |---|---|---|
 | **fahrstellung** | Linienfolgen. **Als Erstes!** | Startstellung der Gamepad-Steuerung ist voreingestellt. Kameramaße danach nachmessen (`docs/linie.md`) |
-| pruefblick | KI schaut bei unklarer LiDAR-Meldung genauer hin | ohne diese Pose schaut die KI nicht genauer hin |
 | blick_links / blick_rechts | Zebrastreifen und Karte: umschauen | ohne eigene Pose: Fahrstellung mit Servo 1 um ±45° gedreht. **Richtung ungeprüft**: zeigt "links" nach rechts, beide neu einlernen |
-| greifen | Arm unten vor dem Roboter, Greifer offen um den Gegenstand | Gegenstand mittig, Abstand zur Robotermitte messen → `greif_abstand` (Standard 20 cm) |
-| greifen_hoch | Gegenstand angehoben | |
-| ablegen | seitlich neben der Straße, dort wird losgelassen | weit genug weg, damit er nicht wieder im Weg liegt |
 
-- Schalter **"KI darf den Arm bewegen"**. Was die KI dann tut, hängt davon ab, welche Posen da sind:
-  - Prüfblick: genauer hinschauen,
-  - Blick links/rechts: am Zebrastreifen und für die Karte umschauen,
-  - Greifen, Greifen hoch, Ablegen: aufheben.
-
-  Immer nur **im Stand** und nur, solange das Fahrprogramm **fährt** (nicht im TEST, nicht nach STOPP).
-
-**Abstand zum Greifen einstellen:** In der Pose "Greifen" Würfel von Hand mittig zwischen die Backen legen, Abstand Robotermitte → Würfelmitte messen und eintragen in `config/lokal/roboter.yaml` (Datei anlegen, falls es sie nicht gibt):
+Alle Werte aus `ki/entscheider.py` (`STANDARD`) lassen sich einstellen, z. B. `greif_vor` (wie weit vor der Robotermitte er zum Greifen hält). Eintragen in `config/lokal/roboter.yaml`:
 
 ```yaml
 ki_zentrale:
   ros__parameters:
-    greif_abstand: 0.22
+    greif_vor: 0.24
 ```
 
-Genauso lassen sich alle Werte aus `ki/entscheider.py` (`STANDARD`) einstellen, z. B. `ausricht_abstand`, `anfahr_tempo` oder `zebra_halt`. Danach die KI neu starten.
-
-## Aufheben (KI, ki/ablaeufe.py)
-
-1. Tiefenkamera (oder LiDAR + Tiefenkamera) meldet etwas Kleines **mitten auf der Fahrbahn**.
-2. Seitlich ausrichten, bis es mittig 30 cm vor dem Roboter liegt (Mecanum-Räder fahren seitwärts, max. 4 cm/s).
-3. Langsam heranfahren (3 cm/s), bis es zwischen den Greiferbacken liegt (`greif_abstand`).
-4. Greifer auf → zu → Arm hoch → zur Seite (ablegen) → loslassen → Fahrstellung.
-5. Prüfen: Liegt es noch da, nicht nochmal versuchen, sondern warten.
-
-**Nie aufgehoben wird:** Lebewesen und Fahrzeuge. Ebenso alles, was breiter als 8 cm, höher als 12 cm oder mehr als 8 cm neben der Linie liegt, und alles in den ersten 3 s nach einem Zebrastreifen (dort stehen Fußgänger). Dann wartet der Roboter.
-
-In der Simulation klappt das mit dem Holzwürfel. Mit dem echten Arm ist es **ungetestet**. Vor dem ersten echten Versuch die Posen einzeln im Panel anfahren und prüfen, ob der Greifer den Würfel wirklich umschließt. Würfel dazu von Hand an die Greifstelle legen. Den ersten echten Versuch mit kleinem Tempo machen, eine Hand am STOPP.
+Danach die KI neu starten.

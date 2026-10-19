@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # Werkzeug zum Einstellen der Ampel-Erkennung. FAEHRT NICHT (sendet nichts an /cmd_vel).
 #
-# Live mit Kamera (Kamera muss laufen: scripts/kamera.sh):
-#     scripts/ampel_kalibrieren.sh
+# Live mit Kamera: Panel -> System -> "Ampel einstellen" (Fenster geht am Roboter-Bildschirm auf)
 # Mit gespeicherten Fotos (ohne Roboter, auch auf dem Laptop):
 #     python3 line_follower/ampel_kalibrieren.py --bilder ampel_bilder
 #
 # Tasten (Fenster "Ampel" muss angeklickt sein):
 #   s = aktuelles Bild in ampel_bilder/ speichern
-#   w = Werte in config/ampel.yaml speichern (gilt dann fuer test.sh und fahren.sh)
+#   w = Werte in config/ampel.yaml speichern (gilt nach Neustart von KI/Linienfolger)
 #   n / b = naechstes / vorheriges Foto (nur mit --bilder)
 #   q oder Esc = beenden
 # Maus ueber dem Bild: Lupe + Farbwerte (H, S, V) des Pixels unter der Maus.
@@ -54,7 +53,7 @@ def lade_yaml():
 def speichere_yaml(werte):
     os.makedirs(os.path.dirname(YAML), exist_ok=True)
     zeilen = ['# Ampel-Einstellungen, erzeugt mit ampel_kalibrieren.py am ' + time.strftime('%d.%m.%Y %H:%M'),
-              '# Wird von scripts/test.sh und scripts/fahren.sh automatisch geladen.',
+              '# Wird von Panel, KI und Linienfolger automatisch geladen.',
               'line_follower:', '  ros__parameters:']
     for name, std in ampel.STANDARD.items():
         w = werte[name]

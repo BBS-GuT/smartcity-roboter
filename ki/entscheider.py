@@ -10,28 +10,24 @@
 # Rangfolge (wichtigstes zuerst):
 #   1. LiDAR sehr nah (Notbremse)      -> stopp, OHNE KI-Pruefung (Eigenschutz geht vor)
 #   2. KI bekommt keine Bilder / kein LiDAR -> stopp (wer nichts sieht, faehrt nicht)
-#   3. LiDAR meldet etwas im Pruefbereich -> KI prueft mit Kamera-KI und Tiefenkamera:
-#        bestaetigt -> stopp, bis der Weg wieder frei ist
-#        nicht bestaetigt -> langsam (ggf. vorher mit dem Arm genauer hinschauen),
-#                            naeher als lidar_halt -> trotzdem stopp
+#   3. Hindernis: LiDAR (im Pruefbereich) und/oder Tiefenkamera melden etwas im Weg -> ANHALTEN und
+#      WEGRAEUMEN (ki/ablaeufe.py): Kamera schaut genau hin (mehrere Bilder, auch laenger, wenn die KI
+#      langsam ist), dann:
+#        Kamera sieht nichts, LiDAR auch nicht mehr -> weiter
+#        nur LiDAR (Kamera sieht nichts)            -> langsam, naeher als lidar_halt -> stopp
+#        Lebewesen/Fahrzeug, zu gross, am Rand, am Zebrastreifen, Arm nicht freigegeben -> warten, bis frei
+#        sonst: Armbewegung ausrechnen (Kinematik), wegraeumen, PRUEFEN ob frei, erst dann weiter
 #      Der LiDAR prueft nur den FAHRSCHLAUCH (Streifen entlang der Linie, siehe ki/zentrale.py).
-#      Ist es klein, liegt mitten auf der Strasse, kein Lebewesen/Fahrzeug, kein Zebrastreifen in der Naehe
-#      und der Arm freigegeben: AUFHEBEN und beiseitelegen
-#   4. Tiefenkamera allein sieht etwas im Weg (z. B. Wuerfel unter der LiDAR-Ebene) -> stopp
-#      bzw. aufheben (wie bei 3.)
-#      KI sieht Person/Auto/... im Weg  -> stopp
+#   4. KI sieht Person/Auto/... im Weg  -> stopp
 #   5. Schild "Einfahrt verboten" (Einbahnstrasse) -> WENDEN
 #   6. Zebrastreifen -> anhalten, umschauen, warten bis frei
 #   7. Ampel rot/gelb -> stopp, bis gruen (oder Ampel nicht mehr zu sehen)
 #   8. Stoppschild -> kurz halten, dann weiter
-# Im Szenario "einsatz" (RTW) werden 7 und 8 uebergangen, alles andere gilt weiter.
-# Mehrschrittige Ablaeufe (Zebrastreifen, Wenden, Aufheben) stehen in ki/ablaeufe.py.
+# Mehrschrittige Ablaeufe (Zebrastreifen, Wenden, Wegraeumen) stehen in ki/ablaeufe.py.
 
 import random
 
-from ablaeufe import Zebrastreifen, Wenden, Aufheben, Umschauen, Ausweichen, LEBEWESEN
-
-FAHRZEUGE = {'Auto', 'Bus', 'LKW', 'Motorrad', 'Fahrrad', 'Zug'}
+from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen
 
 STANDARD = {
     'notbremse_dist': 0.12,    # LiDAR naeher (m) -> sofort Stopp, ohne Rueckfrage
@@ -40,7 +36,6 @@ STANDARD = {
     'lidar_pflicht': True,     # ohne LiDAR-Daten nicht fahren
     'frei_zeit': 1.0,          # so lange muss der Weg frei sein, bis ein Hindernis-Stopp endet (s)
     'langsam_faktor': 0.5,     # Geschwindigkeit bei "langsam"
-    'einsatz_faktor': 1.3,     # Geschwindigkeit im RTW-Einsatz
     'ki_max_alter': 1.5,       # aelteres KI-Bild = KI sieht nichts -> stopp (s)
     'ampel_bilder': 2,         # so viele KI-Bilder hintereinander dieselbe Farbe, bis sie gilt
     'ampel_timeout': 4.0,      # Rot/Gelb so lange nicht mehr gesehen -> weiter (falls Gruen unerkannt)
@@ -48,7 +43,6 @@ STANDARD = {
     'schild_warten': 3.0,      # am Stoppschild so lange halten (s)
     'schild_weg': 2.0,         # nach dem Halten: Schild erst wieder beachten, wenn es so lange
                                # nicht mehr zu sehen war (sonst haelt er beim Vorbeifahren nochmal)
-    'umschauen_nach': 1.5,     # LiDAR-Meldung so lange unbestaetigt -> mit dem Arm genauer schauen
     'arm_zeit': 1.5,           # so lange braucht der Arm fuer eine Bewegung (s)
     # Zebrastreifen
     'zebra_halt': 0.33,        # Zebrastreifen naeher als das (m, ab Robotermitte) -> anhalten
@@ -62,15 +56,24 @@ STANDARD = {
     'einfahrt_bilder': 2,      # so viele Bilder hintereinander "Einfahrt verboten" -> wenden
     'wenden_dreh': 0.8,        # Drehgeschwindigkeit beim Wenden (rad/s, + = links herum)
     'wenden_max_zeit': 7.0,    # laenger -> abbrechen und anhalten (180 Grad dauern bei 0,8 rad/s ca. 4 s)
-    # Hindernis aufheben (Posen 'greifen', 'greifen_hoch', 'ablegen' im Panel einlernen!)
-    'tiefe_halt': 0.35,        # Tiefenkamera sieht etwas im Weg naeher als das (m) -> stopp
+    # Hindernis wegraeumen (Arm, Kinematik - keine eingelernten Greif-Posen noetig)
+    'tiefe_halt': 0.35,        # Tiefenkamera sieht etwas im Weg naeher als das (m) -> anhalten, anschauen
+    'anschauen_min': 1.0,      # so lange mindestens hinschauen (s) ...
+    'anschauen_bilder': 5,     # ... und mindestens so viele neue KI-Bilder (langsame KI -> dauert laenger)
+    'anschauen_max': 8.0,      # laenger nie (s)
+    'kamera_min_sicht': 0.22,  # LiDAR meldet etwas naeher als das, Kamera sieht nichts -> etwas zurueck
+    'sicht_zurueck': 0.10,     # ... hoechstens so weit (m)
     'aufheben_max_breite': 0.08,
     'aufheben_max_hoehe': 0.12,
-    'aufheben_max_quer': 0.08,  # nur aufheben, was so nah an der Linie liegt (m) - am Rand steht vielleicht jemand
-    'zebra_kein_aufheben': 3.0,  # so lange nach einem gesehenen Zebrastreifen nichts aufheben (s): Fussgaenger!
-    'ausricht_abstand': 0.30,  # so weit vor dem Gegenstand seitlich ausrichten (Kamera sieht ihn noch)
-    'greif_abstand': 0.20,     # Robotermitte bis Mitte Gegenstand in der Pose 'greifen' (am Roboter messen!)
-    'anfahr_tempo': 0.03,      # m/s beim letzten Stueck
+    'aufheben_max_quer': 0.08,  # nur wegraeumen, was so nah an der Linie liegt (m) - am Rand steht vielleicht jemand
+    'zebra_kein_aufheben': 3.0,  # so lange nach einem gesehenen Zebrastreifen nichts anfassen (s): Fussgaenger!
+    'greif_vor': 0.25,         # so weit vor der Robotermitte soll die Vorderkante liegen (m): Arm erreicht es,
+                               # Kamera sieht es noch
+    'greif_toleranz': 0.02,    # +- so genau (m)
+    'greif_seite': 0.06,       # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm)
+    'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)
+    'kontrolle_bereich': 0.45,  # in diesem Abstand (m) darf die Tiefenkamera dann nichts mehr sehen
+    'versuche': 2,             # so oft versuchen, dann warten
     # Weg lange versperrt (z. B. zwei Roboter stehen sich gegenueber): nach einer ZUFAELLIGEN Wartezeit
     # weicht einer aus (zurueck + wenden). Zufall, damit nicht beide gleichzeitig ausweichen.
     'ausweichen': False,       # AUS im Grundbetrieb (Zieldefinition GB-04: bei versperrtem Weg anhalten, nicht
@@ -82,14 +85,14 @@ STANDARD = {
     'hinten_frei': 0.25,       # LiDAR hinten mindestens so weit frei (m), sonst nicht zurueck
 }
 
-GREIF_POSEN = ('fahrstellung', 'greifen', 'greifen_hoch', 'ablegen')
 
 
 class Entscheider:
-    def __init__(self, cfg=None, arm_erlaubt=False, posen=None):
+    def __init__(self, cfg=None, arm_erlaubt=False, posen=None, planer=None):
         self.c = dict(STANDARD)
         self.c.update(cfg or {})
         self.arm_freigabe = arm_erlaubt    # Einstellung: KI darf den Arm bewegen (Panel, Seite Arm)
+        self.planer = planer               # rechnet die Armbewegung zum Wegraeumen aus (ki/zentrale.py), None = keiner
         self.fahrt_aktiv = True            # faehrt das Fahrprogramm gerade? (setzt die Zentrale; TEST/aus = False)
         self.posen = posen or {}
         # Ablaeufe
@@ -114,11 +117,9 @@ class Entscheider:
         # LiDAR / Hindernis
         self.hindernis_bis = 0.0
         self.meldung_seit = None      # seit wann meldet der LiDAR etwas im Pruefbereich
-        self.geprueft_frei = False    # Arm hat genauer geschaut: nichts da
+        self.geprueft_frei = False    # Kamera hat genau hingeschaut: sieht nichts (nur LiDAR meldet etwas)
+        self.bestaetigt = None        # Kamera hat es gesehen, wird nicht angefasst (Grund) -> warten bis frei
         # Arm
-        self.arm_phase = None         # None | hin | schauen | zurueck
-        self.arm_phase_seit = 0.0
-        self.arm_bestaetigt = False
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
         self.arm_warten_bis = 0.0
         self.letzte_aktion = None
@@ -147,7 +148,7 @@ class Entscheider:
         self.ereignisse.append((jetzt, text, art))
 
     # ------------------------------------------------------------------ #
-    def update(self, jetzt, w, szenario='normal'):
+    def update(self, jetzt, w):
         """w = Wahrnehmung (dict):
           bild_nr, bild_zeit   Nummer/Zeit des zuletzt von der KI ausgewerteten Bildes
           objekte              [{name, sicher, im_weg}, ...] (Kamera-KI)
@@ -161,7 +162,6 @@ class Entscheider:
           gier                 aufsummierte Drehung (rad, IMU) ; linie {kamera, quer} vom Linienfolger
         Rueckgabe: {'aktion', 'faktor', 'grund', 'arm', 'manoever'}
         """
-        einsatz = szenario == 'einsatz'
         self.jetzt = jetzt
         if not self.fahrt_aktiv:
             self.fehler_halt = None     # STOPP/TEST quittiert einen Manoever-Fehler
@@ -169,11 +169,9 @@ class Entscheider:
             # Der Arm bleibt, wo er ist; beim naechsten START faehrt er zuerst in die Fahrstellung.
             if self.ablauf is not None and self.ablauf.braucht_arm:
                 self._ereignis(jetzt, f'{self.ablauf.name}: abgebrochen (Fahrprogramm aus)', 'info')
-                if self.ablauf.arm_bewegt or self.ablauf.name == 'aufheben':
+                if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
                     self.arm_zurueck_noetig = True
                 self.ablauf = None
-            if self.arm_phase is not None:
-                self._arm_abbrechen()
         neues_bild = w.get('bild_nr', -1) != self.letzte_bild_nr
         if neues_bild:
             self.letzte_bild_nr = w.get('bild_nr', -1)
@@ -191,7 +189,7 @@ class Entscheider:
         self._ampel_zeit(jetzt)
         w = dict(w, neues_bild=neues_bild)
 
-        befehl = self._entscheide(jetzt, w, einsatz)
+        befehl = self._entscheide(jetzt, w)
         befehl = self._blockade(jetzt, w, befehl)
         # Arm zuerst zurueck in Fahrstellung, bevor wieder gefahren wird
         # (nicht waehrend einer Notbremse: dann ist etwas sehr nah am Roboter)
@@ -250,16 +248,14 @@ class Entscheider:
             self._ereignis(jetzt, f"Stoppschild erkannt ({w.get('schild_quelle') or 'KI'})", 'stopp')
 
     # ------------------------------------------------------------------ #
-    def _entscheide(self, jetzt, w, einsatz):
+    def _entscheide(self, jetzt, w):
         c = self.c
-        fahrfaktor = c['einsatz_faktor'] if einsatz else 1.0
         d = w.get('lidar')
         ki_frisch = jetzt - w.get('bild_zeit', 0.0) <= c['ki_max_alter']
         im_weg = [o['name'] for o in w.get('objekte', []) if o.get('im_weg')]
 
         # 1. Notbremse
         if d is not None and d < c['notbremse_dist']:
-            self._arm_abbrechen()
             self.hindernis_bis = jetzt + c['frei_zeit']
             return self._b('stopp', f'NOTBREMSE: LiDAR {d * 100:.0f} cm (ohne KI-Pruefung)')
         if self.fehler_halt:
@@ -270,7 +266,7 @@ class Entscheider:
         if not ki_frisch:
             return self._b('stopp', 'KI bekommt keine Kamerabilder')
 
-        # Laufender Ablauf (Zebrastreifen, Wenden, Aufheben) hat Vorrang
+        # Laufender Ablauf (Zebrastreifen, Wenden, Wegraeumen) hat Vorrang
         if self.ablauf is not None:
             b = self.ablauf.schritt(jetzt, w)
             for text, art in self.ablauf.ereignisse:
@@ -282,66 +278,40 @@ class Entscheider:
 
         obj = w.get('objekt')
         tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < c['tiefe_halt']
-        if obj is None and (d is None or d >= c['pruef_dist']):
+        im_pruefbereich = d is not None and d < c['pruef_dist']
+        if not (tiefe_im_weg or im_pruefbereich):
             self.weg_frei_seit = self.weg_frei_seit or jetzt
+            if jetzt - self.weg_frei_seit > c['frei_zeit']:
+                if self.meldung_seit is not None or self.bestaetigt:
+                    self._ereignis(jetzt, 'Weg ist wieder frei', 'fahren')
+                self.meldung_seit, self.geprueft_frei, self.bestaetigt = None, False, None
             if jetzt - self.weg_frei_seit > 2.0:
                 self.aufheben_gesperrt = False
         else:
             self.weg_frei_seit = None
 
-        # 3. LiDAR-Meldung pruefen
-        im_pruefbereich = d is not None and d < c['pruef_dist']
-        if im_pruefbereich:
+        # 3. Hindernis (LiDAR und/oder Tiefenkamera): anhalten, Kamera schaut genau hin, ggf. wegraeumen
+        if tiefe_im_weg or im_pruefbereich:
             if self.meldung_seit is None:
                 self.meldung_seit = jetzt
-                self._ereignis(jetzt, f'LiDAR meldet etwas in {d * 100:.0f} cm -> KI prueft', 'info')
-            beweise = []
+                wer = ' + '.join(n for n, an in (('LiDAR', im_pruefbereich), ('Tiefenkamera', tiefe_im_weg)) if an)
+                abst = d if im_pruefbereich else obj['vor']
+                self._ereignis(jetzt, f'{wer}: etwas {abst * 100:.0f} cm voraus -> anhalten, Kamera prueft', 'stopp')
             if im_weg:
-                beweise.append('Kamera-KI: ' + ', '.join(im_weg))
-            if w.get('tiefe_hindernis'):
-                beweise.append('Tiefenkamera')
-            if self.arm_phase is not None:
-                return self._arm_schritt(jetzt, d, beweise)
-            if beweise:
-                if jetzt >= self.hindernis_bis:
-                    self._ereignis(jetzt, f"Hindernis bestaetigt ({' + '.join(beweise)})", 'stopp')
                 self.hindernis_bis = jetzt + c['frei_zeit']
-                if self._aufhebbar(w):
-                    return self._ablauf_start(jetzt, Aufheben(jetzt, c, obj))
-                return self._b('stopp', f"Hindernis {d * 100:.0f} cm, bestaetigt durch {' + '.join(beweise)}")
-            if jetzt < self.hindernis_bis:
-                return self._b('stopp', 'Hindernis war bestaetigt -> warte, bis der Weg frei ist')
-            if w.get('bild_zeit', 0.0) < self.meldung_seit:
-                return self._b('langsam', 'LiDAR meldet etwas -> KI schaut nach ...', c['langsam_faktor'])
-            if (self.arm_erlaubt and self.posen.get('pruefblick') and not self.geprueft_frei
-                    and jetzt - self.meldung_seit >= c['umschauen_nach']):
-                return self._arm_starten(jetzt)
-            if d < c['lidar_halt']:
-                # Der LiDAR schaut nur in den Fahrschlauch: so nah = wuerde gleich anstossen
+                return self._b('stopp', 'KI sieht im Weg: ' + ', '.join(im_weg))
+            if self.bestaetigt:
+                return self._b('stopp', f'{self.bestaetigt} -> warte, bis der Weg frei ist')
+            if not self.geprueft_frei:
+                planer = self.planer if self._darf_arm() else None
+                return self._ablauf_start(jetzt, Wegraeumen(jetzt, c, planer, self._darf_greifen))
+            # Kamera hat hingeschaut und sieht nichts, nur der LiDAR meldet etwas (z. B. Hauskante in der Kurve)
+            if d is not None and d < c['lidar_halt']:
                 return self._b('stopp', f'LiDAR: etwas {d * 100:.0f} cm im Weg, Kamera sieht nichts -> halte')
-            grund = 'LiDAR-Meldung nicht bestaetigt -> langsam'
-            if self.geprueft_frei:
-                grund = 'Arm hat nachgeschaut: nichts im Weg -> langsam'
-            return self._b('langsam', grund, c['langsam_faktor'])
-
-        # LiDAR frei
-        if self.meldung_seit is not None:
-            self.meldung_seit = None
-            self.geprueft_frei = False
-            self._arm_abbrechen()
-        # Tiefenkamera allein: etwas unter der LiDAR-Ebene im Weg (z. B. Holzwuerfel)
-        if tiefe_im_weg:
-            if jetzt >= self.hindernis_bis:
-                self._ereignis(jetzt, f"Tiefenkamera: Hindernis {obj['vor'] * 100:.0f} cm voraus, "
-                                      f"{obj['hoehe'] * 100:.0f} cm hoch (unter der LiDAR-Ebene)", 'stopp')
-            self.hindernis_bis = jetzt + c['frei_zeit']
-            if self._aufhebbar(w):
-                return self._ablauf_start(jetzt, Aufheben(jetzt, c, obj))
-            grund = ' (Aufheben hat nicht geklappt)' if self.aufheben_gesperrt else ''
-            return self._b('stopp', f"Hindernis {obj['vor'] * 100:.0f} cm (Tiefenkamera) -> warte{grund}")
+            return self._b('langsam', 'LiDAR-Meldung, Kamera sieht nichts -> langsam', c['langsam_faktor'])
 
         if jetzt < self.hindernis_bis:
-            return self._b('stopp', 'Hindernis war bestaetigt -> warte, bis der Weg frei ist')
+            return self._b('stopp', 'Hindernis war im Weg -> warte, bis der Weg frei ist')
 
         # 4. KI sieht etwas im Weg (auch ohne LiDAR, z. B. weiter weg oder unter der LiDAR-Scheibe)
         if im_weg:
@@ -367,16 +337,12 @@ class Entscheider:
                 self.umschauen_wunsch = None
         # 5./6. Verkehrsregeln
         if self.ampel_halt:
-            if einsatz:
-                return self._b('fahren', 'EINSATZ: rote Ampel wird ueberfahren (Sonderrechte)', fahrfaktor)
             return self._b('stopp', 'Rote Ampel -> warte auf Gruen')
         if jetzt < self.schild_bis:
-            if einsatz:
-                return self._b('fahren', 'EINSATZ: Stoppschild wird uebergangen', fahrfaktor)
             return self._b('stopp', f'Stoppschild -> halte noch {self.schild_bis - jetzt:.0f} s')
-        return self._b('fahren', 'EINSATZFAHRT, Weg frei' if einsatz else 'Weg frei', fahrfaktor)
+        return self._b('fahren', 'Weg frei')
 
-    BLOCKADE_GRUENDE = ('NOTBREMSE', 'Hindernis', 'LiDAR: etwas', 'KI sieht im Weg')
+    BLOCKADE_GRUENDE = ('NOTBREMSE', 'Hindernis', 'LiDAR: etwas', 'KI sieht im Weg', 'Wegraeumen hat nicht')
 
     def _blockade(self, jetzt, w, befehl):
         """Steht er schon lange vor einem Hindernis, weicht er nach zufaelliger Zeit aus."""
@@ -420,24 +386,30 @@ class Entscheider:
             if a.ergebnis != 'ok':
                 # NICHT einfach weiterfahren (sonst in die Einbahnstrasse oder ins Hindernis)
                 self.fehler_halt = 'Wenden hat nicht geklappt'
-        elif a.name == 'aufheben':
+        elif a.name == 'wegraeumen':
             self.hindernis_bis = 0.0
-            if a.ergebnis != 'ok':
+            if a.ergebnis == 'unbestaetigt':
+                self.geprueft_frei = True
+            elif a.ergebnis == 'bestaetigt':
+                self.bestaetigt = 'Hindernis'
+            elif a.ergebnis == 'fehler':
                 self.aufheben_gesperrt = True
+                self.bestaetigt = 'Wegraeumen hat nicht geklappt'
+            else:                        # frei: Fehlalarm oder weggeraeumt UND geprueft
+                self.meldung_seit = None
 
-    def _aufhebbar(self, w):
-        obj = w.get('objekt')
-        if not (self.arm_erlaubt and obj and not self.aufheben_gesperrt):
-            return False
-        if not all(self.posen.get(p) for p in GREIF_POSEN):
-            return False
-        if any(o['name'] in LEBEWESEN | FAHRZEUGE for o in w.get('objekte', [])):
-            return False   # Lebewesen und Fahrzeuge werden nie angefasst
+    def _darf_arm(self):
+        return self.arm_erlaubt and self.planer is not None and not self.aufheben_gesperrt
+
+    def _darf_greifen(self, obj, w):
+        """None = darf wegraeumen, sonst der Grund, warum nicht (dann wartet er)."""
         if self.zebra_gesperrt or self.jetzt - self.zebra_zuletzt < self.c['zebra_kein_aufheben']:
-            return False   # am Zebrastreifen stehen Fussgaenger -> nichts anfassen, nur warten
+            return 'am Zebrastreifen (Fussgaenger!) nichts anfassen'
         if obj.get('quer') is not None and obj['quer'] > self.c['aufheben_max_quer']:
-            return False   # liegt am Rand, nicht mitten auf der Strasse
-        return obj['breite'] <= self.c['aufheben_max_breite'] and obj.get('hoehe', 0) <= self.c['aufheben_max_hoehe']
+            return f"liegt am Rand ({obj['quer'] * 100:.0f} cm neben der Linie)"
+        if obj['breite'] > self.c['aufheben_max_breite'] or obj.get('hoehe', 0) > self.c['aufheben_max_hoehe']:
+            return 'zu gross fuer den Greifer'
+        return None
 
     @staticmethod
     def _mit_faktor(b):
@@ -445,50 +417,11 @@ class Entscheider:
         b.setdefault('faktor', 0.0)
         return b
 
-    # ------------------------------------------------------------------ #
-    # Arm: bei unklarer LiDAR-Meldung im Stand genauer hinschauen
-    def _arm_starten(self, jetzt):
-        self.arm_phase, self.arm_phase_seit, self.arm_bestaetigt = 'hin', jetzt, False
-        self._ereignis(jetzt, 'Unklar -> KI dreht die Kamera (Arm), um genauer zu schauen', 'info')
-        return self._b('stopp', 'KI schaut mit dem Arm genauer hin ...', arm='pruefblick')
-
-    def _arm_schritt(self, jetzt, d, beweise):
-        dauer = jetzt - self.arm_phase_seit
-        if beweise:
-            self.arm_bestaetigt = True
-        if self.arm_phase == 'hin':
-            if dauer >= self.c['arm_zeit']:
-                self.arm_phase, self.arm_phase_seit = 'schauen', jetzt
-            return self._b('stopp', 'KI schaut mit dem Arm genauer hin ...')
-        if self.arm_phase == 'schauen':
-            if dauer >= 1.0 or self.arm_bestaetigt:
-                self.arm_phase, self.arm_phase_seit = 'zurueck', jetzt
-                return self._b('stopp', 'Arm faehrt zurueck in Fahrstellung', arm='fahrstellung')
-            return self._b('stopp', 'KI schaut mit dem Arm genauer hin ...')
-        # zurueck
-        if dauer < self.c['arm_zeit']:
-            return self._b('stopp', 'Arm faehrt zurueck in Fahrstellung')
-        self.arm_phase = None
-        if self.arm_bestaetigt:
-            self._ereignis(jetzt, 'Arm-Blick: Hindernis bestaetigt', 'stopp')
-            self.hindernis_bis = jetzt + self.c['frei_zeit']
-            return self._b('stopp', 'Hindernis bestaetigt (Arm-Blick)')
-        self.geprueft_frei = True
-        self._ereignis(jetzt, 'Arm-Blick: nichts im Weg -> langsam weiter', 'fahren')
-        return self._b('langsam', 'Arm hat nachgeschaut: nichts im Weg -> langsam', self.c['langsam_faktor'])
-
-    def _arm_abbrechen(self):
-        # Bei Notbremse oder wenn der Weg frei wird: Arm-Ablauf beenden.
-        # Stand der Arm gerade nicht in Fahrstellung, schickt die Zentrale ihn zurueck.
-        if self.arm_phase in ('hin', 'schauen'):
-            self.arm_zurueck_noetig = True
-        self.arm_phase = None
-
     @property
     def arm_in_fahrstellung(self):
         """Schaut die Kamera (am Arm) normal nach vorne? Nur dann stimmen Draufsicht, Linie und
         Tiefenkamera-Bodenmodell. Waehrend der Arm zurueckfaehrt (arm_warten_bis) noch nicht."""
-        return (self.arm_phase is None and not self.arm_zurueck_noetig and self.jetzt >= self.arm_warten_bis
+        return (not self.arm_zurueck_noetig and self.jetzt >= self.arm_warten_bis
                 and not (self.ablauf is not None and self.ablauf.arm_bewegt))
 
     @staticmethod

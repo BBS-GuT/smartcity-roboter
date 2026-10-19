@@ -7,7 +7,8 @@
 # Holzwuerfel auf der Fahrbahn, Stoppschild, Einbahnstrasse, Haeuser).
 #   Ampel: wird rot, wenn der Roboter kommt; gruen nach 3 s Stand
 #   Fussgaenger: geht weg, wenn der Roboter 4 s vor dem Zebrastreifen gewartet hat
-#   Wuerfel: kann mit dem Arm gegriffen und abgelegt werden (Posen aus config/arm.yaml)
+#   Wuerfel: kann mit dem Arm gegriffen und abgelegt werden. Ob der Greifer ihn trifft, wird aus den
+#            Servowinkeln ausgerechnet (Arm-Geometrie aus sim/arm_sim.yaml), nicht aus eingelernten Posen.
 import json
 import math
 import os
@@ -16,11 +17,12 @@ import sys
 import time
 from collections import deque
 
+import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import Image, LaserScan, CameraInfo, Imu
+from sensor_msgs.msg import Image, LaserScan, CameraInfo, Imu, CompressedImage
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32, String
@@ -32,8 +34,6 @@ sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 from welt import Welt  # noqa: E402
 import arm as armlib   # noqa: E402
 
-GREIF_WEITE = 0.20      # so weit vor der Robotermitte greift der Arm in der Pose "greifen"
-
 
 class Simulator(Node):
     def __init__(self):
@@ -44,9 +44,19 @@ class Simulator(Node):
         self.declare_parameter('gegner', False)   # anderer Roboter steht auf der Linie (blockiert)
         # Kamerabild kommt so viele Sekunden verspaetet an (wie auf einem ueberlasteten Roboter)
         self.declare_parameter('kamera_verzoegerung', 0.0)
+        # wie in echt: grosser Raum statt Waende direkt am Spielfeld, Lagesensor misst Drehungen etwas falsch
+        self.declare_parameter('halle', False)
+        self.declare_parameter('imu_skala', 1.0)      # z. B. 1.03 = misst 3 % zu viel Drehung
+        self.declare_parameter('lidar_verzoegerung', 0.0)   # Scan kommt so viele s spaeter an (ueberlasteter Roboter)
+        # Ein echter LiDAR misst nicht alles gleichzeitig, sondern dreht sich (ca. 0,1 s je Umdrehung).
+        # Faehrt der Roboter dabei eine Kurve, ist der Scan leicht verzerrt. 0 = alles gleichzeitig.
+        self.declare_parameter('lidar_umlauf', 0.0)
+        # Wo sitzt der zweite LiDAR (scan1) gegenueber dem ersten? [x m, y m, Drehung Grad] (Einbau nicht gleich)
+        self.declare_parameter('lidar1_einbau', [0.0, 0.0, 0.0])
         self.verlauf = deque(maxlen=400)          # (Zeit, Pose, Arm) fuer verspaetete Bilder
         self.welt = Welt(self.get_parameter('einbahn').value, self.get_parameter('wuerfel').value,
-                         self.get_parameter('fussgaenger').value)
+                         self.get_parameter('fussgaenger').value, self.get_parameter('halle').value)
+        self.imu_skala = self.get_parameter('imu_skala').value
         if self.get_parameter('gegner').value:
             x, y, _ = self.welt.pose_bei(1.75)
             self.welt.zylinder.append({'x': x, 'y': y, 'r': 0.12, 'h': 0.2, 'farbe': (90, 90, 90), 'name': 'gegner'})
@@ -74,12 +84,15 @@ class Simulator(Node):
         self.pub_imu = self.create_publisher(Imu, '/imu/data_raw', 10)
         self.pub_odom = self.create_publisher(Odometry, '/odom_raw', 10)
         self.pub_zustand = self.create_publisher(String, '/sim/zustand', 10)
+        self.pub_draufsicht = self.create_publisher(CompressedImage, '/sim/bild/compressed', 1)   # fuers Panel
+        self.spur = deque(maxlen=1500)
         self.letzte = time.time()
         self.create_timer(0.02, self.physik)
         self.create_timer(1 / 15, self.kamera)
         self.create_timer(0.1, self.tiefe)
         self.create_timer(1 / 7, self.lidar)
         self.create_timer(1.0, lambda: self.pub_akku.publish(Float32(data=12.3)))
+        self.create_timer(0.2, self.draufsicht)
         self.get_logger().info(f'Simulator laeuft, Strecke {self.welt.laenge:.2f} m')
 
     # ---------------- Befehle ----------------
@@ -94,27 +107,26 @@ class Simulator(Node):
         neu = [int(v) for v in m.group(1).split(',')]
         alt = self.arm
         self.arm = neu
-        greifer_zu = alt[5] > 100 and neu[5] < 60
-        greifer_auf = alt[5] < 60 and neu[5] > 100
-        aehnlich = lambda pose: pose and all(abs(a - b) <= 5 for a, b in zip(neu[:5], pose[:5]))
-        if greifer_zu and self.haelt is None and aehnlich(self.posen.get('greifen')):
-            x, y, w = self.pose
+        auf, zu = armlib.greifer_werte()
+        mitte = (auf + zu) / 2
+        schliesst = (alt[5] - mitte) * (zu - mitte) < 0 and (neu[5] - mitte) * (zu - mitte) > 0
+        oeffnet = (alt[5] - mitte) * (zu - mitte) > 0 and (neu[5] - mitte) * (zu - mitte) < 0
+        g = self.greifer_welt()           # Greifermitte laut Servowinkeln (Arm-Geometrie aus der Arm-Datei)
+        if schliesst and self.haelt is None and g is not None:
             for z in self.welt.zylinder:
                 if z['name'] != 'wuerfel':
                     continue
-                dx, dy = z['x'] - x, z['y'] - y
-                vor, seite = math.cos(w) * dx + math.sin(w) * dy, -math.sin(w) * dx + math.cos(w) * dy
-                if abs(vor - GREIF_WEITE) < 0.04 and abs(seite) < 0.03:
+                daneben = math.hypot(z['x'] - g[0], z['y'] - g[1])
+                if daneben < 0.02 and g[2] < z['h'] - 0.005:
                     self.haelt = z
                     self.welt.zylinder.remove(z)
-                    self.get_logger().info('Wuerfel gegriffen')
+                    self.get_logger().info(f'Wuerfel gegriffen ({daneben * 100:.1f} cm neben der Mitte)')
                 else:
-                    self.get_logger().info(f'Greifen daneben: vor {vor:.3f} m, seitlich {seite:.3f} m')
-        if greifer_auf and self.haelt is not None:
-            x, y, w = self.pose
-            a = w + math.radians(neu[0] - 90)
-            self.haelt['x'] = x + 0.05 * math.cos(w) + 0.2 * math.cos(a)
-            self.haelt['y'] = y + 0.05 * math.sin(w) + 0.2 * math.sin(a)
+                    self.get_logger().info(f'Greifen daneben: {daneben * 100:.1f} cm neben dem Wuerfel, '
+                                           f'Greifer {g[2] * 100:.1f} cm hoch')
+        if oeffnet and self.haelt is not None:
+            if g is not None:
+                self.haelt['x'], self.haelt['y'] = g[0], g[1]   # faellt senkrecht nach unten
             self.welt.zylinder.append(self.haelt)
             self.abgelegt = self.haelt
             self.haelt = None
@@ -145,7 +157,7 @@ class Simulator(Node):
         self.pub_odom.publish(o)
         imu = Imu()
         imu.header.stamp = o.header.stamp
-        imu.angular_velocity.z = self.w + 0.003 + float(self.rng.normal(0, 0.01))
+        imu.angular_velocity.z = self.w * self.imu_skala + 0.003 + float(self.rng.normal(0, 0.01))
         self.pub_imu.publish(imu)
 
         steht = abs(self.v) < 0.005 and abs(self.w) < 0.01 and abs(self.quer) < 0.005
@@ -181,10 +193,31 @@ class Simulator(Node):
             'abgelegt': None if self.abgelegt is None else [round(self.abgelegt['x'], 3), round(self.abgelegt['y'], 3)],
             'arm': self.arm})))
 
+    def greifer_welt(self):
+        """Wo ist die Greiferspitze (Welt, x/y/Hoehe)? None = Arm-Geometrie unbekannt."""
+        try:
+            vor, links, hoch = armlib.greifer_position(self.arm)
+        except Exception:
+            return None
+        x, y, w = self.pose
+        return (x + vor * math.cos(w) - links * math.sin(w), y + vor * math.sin(w) + links * math.cos(w), hoch)
+
+    def draufsicht(self):
+        """Bild der Simulation von oben (Panel: Kamera -> Simulation)."""
+        x, y, _ = self.pose
+        if not self.spur or math.hypot(self.spur[-1][0] - x, self.spur[-1][1] - y) > 0.02:
+            self.spur.append((x, y))
+        g = self.greifer_welt()
+        bild = self.welt.draufsicht(self.pose, self.arm[0] - 90, g[:2] if g else None, self.haelt is not None,
+                                    list(self.spur))
+        ok, jpg = cv2.imencode('.jpg', bild, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        if ok:
+            self.pub_draufsicht.publish(CompressedImage(format='jpeg', data=jpg.tobytes()))
+
     # ---------------- Sensoren ----------------
-    def _frueher(self):
+    def _frueher(self, name='kamera_verzoegerung'):
         """(Zeit, Pose, Arm) vor 'kamera_verzoegerung' Sekunden: so alt ist das Bild, wenn es ankommt."""
-        verz = self.get_parameter('kamera_verzoegerung').value
+        verz = self.get_parameter(name).value
         jetzt = time.time()
         if verz <= 0 or not self.verlauf:
             return jetzt, self.pose, self.arm[0]
@@ -212,18 +245,44 @@ class Simulator(Node):
         self.pub_tiefe.publish(msg)
         self.pub_info_d.publish(CameraInfo(header=msg.header, width=d.shape[1], height=d.shape[0]))
 
+    def _pose_zu(self, t):
+        """Wahre Pose zur Zeit t (aus dem Verlauf, sonst die aktuelle)."""
+        for zeit, pose, _ in reversed(self.verlauf):
+            if zeit <= t:
+                return pose
+        return self.verlauf[0][1] if self.verlauf else self.pose
+
     def lidar(self):
+        verz = self.get_parameter('lidar_verzoegerung').value
+        umlauf = self.get_parameter('lidar_umlauf').value
+        ende = time.time() - verz                  # letzter Strahl des Scans
         for i, pub in enumerate(self.pub_scan):
-            r, winkel = self.welt.lidar(self.pose, rng=self.rng)
+            einbau = self.get_parameter('lidar1_einbau').value if i == 1 else [0.0, 0.0, 0.0]
+
+            def pose_lidar(t):
+                x, y, w = self._pose_zu(t)
+                return [x + einbau[0] * math.cos(w) - einbau[1] * math.sin(w),
+                        y + einbau[0] * math.sin(w) + einbau[1] * math.cos(w), w + math.radians(einbau[2])]
+            if umlauf > 0:
+                # Strahlen in 12 Stuecken, jedes Stueck aus der Pose zu seiner Messzeit (Drehung gegen den Uhrzeigersinn)
+                r, winkel = self.welt.lidar(pose_lidar(ende - umlauf), rng=self.rng)
+                n = len(r)
+                for k in range(1, 12):
+                    a, b = k * n // 12, (k + 1) * n // 12
+                    rk, _ = self.welt.lidar(pose_lidar(ende - umlauf + umlauf * (k + 0.5) / 12), rng=self.rng)
+                    r[a:b] = rk[a:b]
+            else:
+                r, winkel = self.welt.lidar(pose_lidar(ende), rng=self.rng)
             msg = LaserScan()
             msg.header.stamp = self.get_clock().now().to_msg()
             msg.header.frame_id = f'laser{i}'
             msg.angle_min, msg.angle_increment = float(winkel[0]), float(winkel[1] - winkel[0])
             msg.angle_max = float(winkel[-1])
             msg.range_min, msg.range_max = 0.05, 8.0
+            msg.scan_time = float(umlauf)
+            msg.time_increment = float(umlauf / len(r)) if umlauf > 0 else 0.0
             msg.ranges = r.tolist()
             pub.publish(msg)
-
 
 def main():
     rclpy.init()

@@ -1,10 +1,16 @@
-# Arm-Posen NUR fuer die Simulation (scripts/simulation.sh). Der echte Roboter nutzt config/arm.yaml.
-# Die Werte fuer greifen/greifen_hoch/ablegen sind ausgedacht - am echten Arm im Panel einlernen!
+# Arm NUR fuer die Simulation (scripts/simulation.sh). Der echte Roboter nutzt config/arm.yaml.
+# Zum Wegraeumen braucht die KI keine eingelernten Greif-Posen: sie rechnet die Servowinkel aus
+# (eigene Kinematik mit den Massen unter "geometrie"; am echten Roboter rechnet Yahbooms Kinematik-Dienst).
 posen:
   fahrstellung: [90, 120, 10, 20, 90, 30]
   blick_links: [135, 120, 10, 20, 90, 30]
   blick_rechts: [45, 120, 10, 20, 90, 30]
-  greifen: [90, 40, 60, 40, 90, 180]
-  greifen_hoch: [90, 100, 30, 30, 90, 30]
-  ablegen: [180, 60, 50, 40, 90, 30]
+greifer_auf: 30
+greifer_zu: 130
+geometrie:              # ausgedacht (aehnlich DOFBOT), am echten Arm NICHT benutzen
+  schulter: [0.037, 0.0, 0.13]
+  oberarm: 0.083
+  unterarm: 0.083
+  hand: 0.155
+  servo1_links: 1
 ki_darf_arm_bewegen: true

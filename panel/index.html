@@ -217,7 +217,7 @@
     <div class="widget" id="w-kamera">
       <div class="kz">
         <b>Kamera</b>
-        <button data-ansicht="ki" class="aktiv">KI-Sicht</button><button data-ansicht="linie">Linie</button><button data-ansicht="tiefe">Tiefe</button>
+        <button data-ansicht="ki" class="aktiv">KI-Sicht</button><button data-ansicht="linie">Linie</button><button data-ansicht="tiefe">Tiefe</button><button data-ansicht="sim" id="b-sim" hidden>Simulation</button>
       </div>
       <div class="flaeche"><img id="live" alt="Live-Bild"></div>
     </div>
@@ -240,7 +240,6 @@
         <button class="k-test" onclick="aktion('test')">TEST</button>
         <button class="k-stopp" onclick="aktion('stopp')">STOPP</button>
       </div>
-      <div class="segmente" id="szenarien"></div>
       <div class="tempo">
         <span>Tempo</span>
         <input type="range" id="tempo" min="0.05" max="0.4" step="0.01" value="0.15">
@@ -331,11 +330,14 @@
     <div class="lernen" id="lernen"></div>
     <div class="zeile"><button onclick="armSpeichern(prompt('Name der Pose (klein, ohne Leerzeichen):'))">... als eigene Pose speichern</button></div>
     <div class="zeile schalter"><input type="checkbox" id="arm-ki" onchange="aktion('arm_ki', {erlaubt: this.checked}, 'arm-antwort')">
-      <label for="arm-ki">KI darf den Arm bewegen (nur im Stand): genauer hinschauen (Prüfblick), am Zebrastreifen und für die Karte
-        umschauen (Blick links/rechts), kleine Hindernisse aufheben und beiseitelegen (Greifen, Greifen hoch, Ablegen).
-        Fehlt eine Pose, macht die KI das jeweilige einfach nicht.</label></div>
+      <label for="arm-ki">KI darf den Arm bewegen (nur im Stand): am Zebrastreifen und für die Karte umschauen
+        (Blick links/rechts) und kleine Hindernisse wegräumen. Zum Wegräumen braucht es keine eingelernten Posen:
+        die KI misst das Hindernis und rechnet die Armbewegung aus (Yahbooms Kinematik-Dienst).</label></div>
     <pre id="arm-antwort">-</pre>
-    <button onclick="aktion('arm_diagnose', {}, 'arm-antwort')">Arm-Topics anzeigen (nur lesen)</button>
+    <div class="zeile">
+      <button onclick="aktion('arm_diagnose', {}, 'arm-antwort')">Arm-Topics anzeigen (nur lesen)</button>
+      <button onclick="aktion('arm_kinematik', {}, 'arm-antwort')">Kinematik prüfen (nur rechnen, bewegt nichts)</button>
+    </div>
   </div>
 </section>
 
@@ -367,7 +369,7 @@
     <h2>Vom Laptop öffnen</h2>
     <div id="adressen">...</div>
     <div class="zeile schalter"><input type="checkbox" id="netz" onchange="aktion('netz', {erlaubt: this.checked}, 'sys-antwort')">
-      <label for="netz">Laptop-Zugriff erlauben (nur am Roboter umschaltbar). Dann kann jeder im Netz, der die Adresse kennt, den Roboter steuern.</label></div>
+      <label for="netz">Laptop-Zugriff erlauben (Standard: an, nur am Roboter umschaltbar). Solange an, kann jeder im Netz, der die Adresse kennt, den Roboter steuern.</label></div>
     <p class="hinweis">Die Adresse wird bei jedem Neuladen neu ermittelt (ändert sich z. B., wenn die VLANs umgestellt werden).</p>
   </div>
   <div class="karte">
@@ -378,6 +380,8 @@
       <button onclick="aktion('ki_stopp', {}, 'sys-antwort')">KI-Zentrale stoppen</button>
       <button onclick="aktion('karte_start', {}, 'sys-antwort')">Kartograf starten</button>
       <button onclick="aktion('karte_stopp', {}, 'sys-antwort')">Kartograf stoppen</button>
+      <button onclick="aktion('ampel_kalibrieren', {}, 'sys-antwort')">Ampel einstellen (Fenster am Roboter-Bildschirm)</button>
+      <button onclick="aktion('system_info', {}, 'sys-antwort')">Systemcheck (nur lesen)</button>
       <button onclick="aktion('update', {}, 'sys-antwort')">Neueste Version holen</button>
       <button onclick="if (confirm('Panel beenden? Roboter hält an.')) aktion('beenden', {}, 'sys-antwort')">Panel beenden</button>
     </div>
@@ -399,6 +403,7 @@ const KAMERA_HINWEIS = {
   ki: 'KI-Sicht: Kästen = erkannte Dinge (rot = im Weg), farbige Ringe = leuchtende Ampel-LED, weiß = Einfahrt verboten, oben die Entscheidung.',
   linie: 'Linienfolger: grün = erkannte Linie, rechts oben die Draufsicht (so rechnet er). Läuft nur nach START oder TEST.',
   tiefe: 'Tiefenkamera: Farbe = Abstand (rot nah, blau fern, schwarz = keine Messung).',
+  sim: 'Simulation von oben: grün = Roboter (Pfeil = vorne), orange = Arm/Greifer (rot = hält etwas), blau = gefahrene Spur.',
 };
 const fmt = (x, n = 2) => Number(x).toFixed(n).replace('.', ',');
 const sichtbar = el => el && el.offsetParent !== null;
@@ -442,7 +447,7 @@ $('kamera-hinweis').textContent = KAMERA_HINWEIS.ki;
 function bildSchleife() {
   const img = $('live');
   if (!sichtbar(img)) { setTimeout(bildSchleife, 300); return; }
-  const quelle = { ki: '/bild/ki.jpg', linie: '/bild/linie.jpg', tiefe: '/bild/tiefe.jpg' }[ansicht];
+  const quelle = { ki: '/bild/ki.jpg', linie: '/bild/linie.jpg', tiefe: '/bild/tiefe.jpg', sim: '/bild/sim.jpg' }[ansicht];
   const neu = new Image();
   neu.onload = () => { img.src = neu.src; setTimeout(bildSchleife, seite === 'kamera' ? 50 : 90); };
   neu.onerror = () => setTimeout(bildSchleife, 800);
@@ -774,6 +779,7 @@ function zeigeKarteInfo() {
   if (k) t += `${k.status} · Fahrt ${k.fahrten}` + (k.guete ? ` · Übereinstimmung ${Math.round(k.guete * 100)} %` : '');
   else if (S.kartograf) t += 'Kartograf startet ...';
   if (info && info.punkte_3d) t += ` · ${info.punkte_3d.toLocaleString('de-DE')} 3D-Punkte`;
+  if (k && k.lidar_einbau) t += ` · LiDAR ${k.lidar_einbau}`;
   $('k-info').textContent = t || 'keine Karte';
   $('k-prozess').textContent = S.kartograf ? 'Kartograf stoppen' : 'Kartograf starten';
   karteNeuZeichnen = true;
@@ -782,12 +788,8 @@ function zeigeKarteInfo() {
 // ================= ARM =================
 const LERN_POSEN = [
   ['fahrstellung', 'Fahrstellung', 'Kamera schaut auf die Linie. Damit fährt der Roboter.'],
-  ['pruefblick', 'Prüfblick', 'KI schaut bei unklarer LiDAR-Meldung genauer hin.'],
   ['blick_links', 'Blick links', 'Zebrastreifen/Karte: nach links schauen (ohne eigene Pose: Fahrstellung um 45° gedreht).'],
   ['blick_rechts', 'Blick rechts', 'Zebrastreifen/Karte: nach rechts schauen.'],
-  ['greifen', 'Greifen', 'Arm unten vor dem Roboter, Greifer um den Gegenstand.'],
-  ['greifen_hoch', 'Greifen hoch', 'Gegenstand angehoben (Greifer zu).'],
-  ['ablegen', 'Ablegen', 'Seitlich neben der Straße, dort wird losgelassen.'],
 ];
 let servosGebaut = false;
 function baueServos(arm) {
@@ -836,20 +838,6 @@ function zeigePosen(posen) {
 }
 
 // ================= Status =================
-let szenarienSig = '';
-function baueSzenarien() {
-  const sig = S.szenario + Object.keys(S.szenarien).join();
-  if (sig === szenarienSig) return; szenarienSig = sig;
-  const box = $('szenarien'); box.innerHTML = '';
-  for (const [k, v] of Object.entries(S.szenarien)) {
-    const b = document.createElement('button');
-    b.className = k === S.szenario ? 'aktiv' : '';
-    b.innerHTML = '<b></b><small></small>';
-    b.querySelector('b').textContent = v.titel; b.querySelector('small').textContent = v.text; b.title = v.text;
-    b.onclick = () => aktion('szenario', { szenario: k });
-    box.appendChild(b);
-  }
-}
 function chip(box, text, art) { const c = document.createElement('span'); c.className = 'chip' + (art ? ' ' + art : ''); c.textContent = text; box.appendChild(c); }
 const ABLAUF_NAME = { zebra: 'Zebrastreifen', wenden: 'Wenden', aufheben: 'Aufheben', umschauen: 'Umschauen' };
 function zeigeDashboard() {
@@ -864,7 +852,7 @@ function zeigeDashboard() {
   $('g-aktion').textContent = titel; $('g-grund').textContent = grund;
   const meta = [];
   if (S.fahren) meta.push(S.modus);
-  if (ki) meta.push('Szenario ' + (S.szenarien[ki.szenario] || {}).titel, 'KI ' + ki.ki + (ki.ki_ms ? ` (${ki.ki_ms} ms/Bild)` : ''));
+  if (ki) meta.push('KI ' + ki.ki + (ki.ki_ms ? ` (${ki.ki_ms} ms/Bild)` : ''));
   if (lf) meta.push(`Linienfolger ${fmt(lf.fps, 0)} Bilder/s, ${fmt(Math.abs(lf.linear))} m/s`);
   $('g-meta').textContent = meta.join(' · ');
   // Wahrnehmung als Chips
@@ -955,7 +943,8 @@ function zeigeSystem() {
 async function status() {
   try {
     S = await (await fetch('/api/status')).json();
-    baueSzenarien(); zeigeKopf();
+    zeigeKopf();
+    $('b-sim').hidden = !S.simulation;
     if (document.activeElement !== $('tempo')) { $('tempo').value = S.tempo; $('tempo-wert').textContent = fmt(S.tempo) + ' m/s'; }
     if (seite === 'dashboard') zeigeDashboard();
     if (sichtbar($('w-karte'))) zeigeKarteInfo();

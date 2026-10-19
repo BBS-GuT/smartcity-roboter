@@ -3,7 +3,8 @@
 # ob sich der simulierte Roboter richtig verhaelt.
 # Aufruf: scripts/simulation.sh pruefen     (setzt eine eigene ROS_DOMAIN_ID, NICHT 30)
 #   SIM_DAUER=150        so viele Sekunden fahren
-#   SIM_SZENARIO=einsatz RTW-Einsatz (ueber Rot, Stoppschild auslassen)
+#   SIM_SCHWER=1         wie in echt: grosser Raum, zweiter LiDAR versetzt eingebaut, Lagesensor 3 % daneben,
+#                        Scans kommen spaeter an (prueft, ob die Karte trotzdem nicht wegdreht)
 #   SIM_KARTE_ORDNER=... Kartenordner (Standard: neu in den Logs). Zweimal mit demselben Ordner
 #                        starten -> prueft, ob der Roboter sich in der vorhandenen Karte wiederfindet.
 import json
@@ -25,11 +26,12 @@ sys.path.insert(0, os.path.join(REPO, 'lib'))
 import karte as K      # noqa: E402
 
 DAUER = float(os.environ.get('SIM_DAUER', 150))
-SZENARIO = os.environ.get('SIM_SZENARIO', 'normal')   # normal | einsatz
 LOGS = os.environ.get('SIM_LOGS', '/tmp')
 VERZ = float(os.environ.get('SIM_VERZOEGERUNG', 0.0))   # Kamerabild kommt so viele s zu spaet (Ueberlast)
 GEGNER = bool(os.environ.get('SIM_GEGNER'))   # anderer Roboter blockiert die Linie -> muss ausweichen
 KARTEN = os.environ.get('SIM_KARTE_ORDNER', os.path.join(LOGS, 'sim_karten'))
+SCHWER = ['-p', 'halle:=true', '-p', 'imu_skala:=1.03', '-p', 'lidar_umlauf:=0.12', '-p', 'lidar_verzoegerung:=0.1',
+          '-p', 'lidar1_einbau:=[-0.12,0.0,4.0]'] if os.environ.get('SIM_SCHWER') else []
 
 
 def starte(befehl, name, env):
@@ -45,7 +47,7 @@ def main():
     cfg = ['--params-file', os.path.join(REPO, 'config', 'roboter.yaml')]
     prozesse = [
         starte([sys.executable, os.path.join(REPO, 'sim', 'simulator.py')]
-               + ['--ros-args', '-p', f'gegner:={str(GEGNER).lower()}', '-p', f'kamera_verzoegerung:={VERZ}'],
+               + ['--ros-args', '-p', f'gegner:={str(GEGNER).lower()}', '-p', f'kamera_verzoegerung:={VERZ}'] + SCHWER,
                'simulator', env),
         starte([sys.executable, os.path.join(REPO, 'ki', 'zentrale.py'), '--ros-args'] + cfg, 'ki', env),
         starte([sys.executable, os.path.join(REPO, 'line_follower', 'line_follower.py'), '--ros-args'] + cfg +
@@ -60,9 +62,7 @@ def main():
     node.create_subscription(String, '/ki/ereignis', lambda m: ereignisse.append(json.loads(m.data)), 50)
     node.create_subscription(String, '/ki/befehl', lambda m: befehle.append(json.loads(m.data)), 50)
     node.create_subscription(String, '/karte/pose', lambda m: karte.append(json.loads(m.data)), 50)
-    pub = node.create_publisher(String, '/ki/szenario', 10)
-    node.create_timer(1.0, lambda: pub.publish(String(data=SZENARIO)))
-    print(f'Simulation laeuft {DAUER:.0f} s, Szenario {SZENARIO} ... (Logs: {LOGS}/sim_*.log)')
+    print(f'Simulation laeuft {DAUER:.0f} s ... (Logs: {LOGS}/sim_*.log)')
     ende = time.time() + DAUER
     try:
         while time.time() < ende:
@@ -121,8 +121,7 @@ def auswerten(zustaende, ereignisse, karte=()):
     fahrt = [z for z in zustaende if z['v'] > 0.05 and abs(z['quer']) < 1e-3
              and not (welt.wuerfel_s - 0.4 < z['s'] < welt.wuerfel_s + 0.3)]
     schnell = max((z['v'] for z in zustaende), default=0)
-    erwartet = (0.17, 0.25) if SZENARIO == 'einsatz' else (0.12, 0.17)
-    check('Geschwindigkeit (normal 0,15 m/s, Einsatz x1,3)', erwartet[0] <= schnell <= erwartet[1],
+    check('Geschwindigkeit (0,15 m/s)', 0.12 <= schnell <= 0.17,
           f'(max {schnell:.2f} m/s)')
     abw = max((z['seite'] for z in fahrt), default=1.0)
     mittel = sum(z['seite'] for z in fahrt) / max(1, len(fahrt))
@@ -141,10 +140,7 @@ def auswerten(zustaende, ereignisse, karte=()):
 
     # Ampel
     rot_vor = [vor(z, welt.ampel_s) for z in hin if z['ampel'] == 'rot']
-    if SZENARIO == 'einsatz':
-        check('EINSATZ: bei Rot durchgefahren', any(z['ampel'] == 'rot' and z['v'] > 0 for z in hin)
-              and not any(z['ampel'] == 'rot' and z['v'] == 0 and vor(z, welt.ampel_s) < 0.4 for z in hin))
-    elif rot_vor:
+    if rot_vor:
         ueber = [z for z in hin if z['ampel'] == 'rot' and vor(z, welt.ampel_s) > L - 0.5]
         check('bei Rot nicht ueber die Ampel gefahren', not ueber)
         halt = [vor(z, welt.ampel_s) for z in hin if z['ampel'] == 'rot' and z['v'] == 0]
@@ -177,12 +173,17 @@ def auswerten(zustaende, ereignisse, karte=()):
     gegriffen = any(z['haelt'] for z in zustaende)
     check('Wuerfel nicht angefahren', min(nah, default=9) > 0.12,
           f'(naechster Abstand vorne {min(nah, default=9) * 100:.0f} cm)')
+    texte = [e['text'] for e in ereignisse]
+    check('Hindernis erst genau angeschaut (Kamera)', any(t.startswith('Hindernis gesehen') for t in texte))
+    check('Armbewegung selbst berechnet (keine eingelernten Greif-Posen)',
+          any(t.startswith('Armbewegung berechnet') for t in texte))
     check('Wuerfel gegriffen', gegriffen)
     abgelegt = zustaende[-1]['abgelegt']
     if abgelegt:
         _, seite = welt.s_von(*abgelegt)
         check('Wuerfel neben die Strasse gelegt', seite > 0.1, f'({seite * 100:.0f} cm neben der Linie)')
-        check('nach dem Aufheben weitergefahren', any(z['s'] > welt.wuerfel_s + 0.2 for z in hin))
+        check('nach dem Wegraeumen geprueft, ob der Weg frei ist', any(t.startswith('Weg ist frei (geprueft)') for t in texte))
+        check('erst dann weitergefahren', any(z['s'] > welt.wuerfel_s + 0.2 for z in hin))
     else:
         check('Wuerfel abgelegt', False)
     print(f'      (Wuerfel lag bei x={w0[0]:.2f}, y={w0[1]:.2f})')
@@ -190,9 +191,7 @@ def auswerten(zustaende, ereignisse, karte=()):
     # Stoppschild
     am_schild = [z for z in hin if 0 < vor(z, welt.schild_s) < 0.8 and z['v'] == 0]
     stand = (am_schild[-1]['zeit'] - am_schild[0]['zeit']) if am_schild else 0
-    if SZENARIO == 'einsatz':
-        check('EINSATZ: am Stoppschild nicht gehalten', stand < 0.5, f'({stand:.1f} s)')
-    elif any(z['s'] > welt.schild_s + 0.1 for z in hin):
+    if any(z['s'] > welt.schild_s + 0.1 for z in hin):
         check('am Stoppschild gehalten (ca. 3 s)', 2.0 <= stand <= 6.0, f'({stand:.1f} s)')
     else:
         check('Stoppschild erreicht', False, '(Simulation zu kurz?)')

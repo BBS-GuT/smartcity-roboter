@@ -29,7 +29,7 @@ scripts/installieren.sh          # Panel-Symbol ins Dock, Roboter-Name, KI-Bibli
 3. **START**: Er fährt. **STOPP**: Er hält sofort an. Der STOPP-Knopf ist auf jeder Seite oben rechts.
 4. Panel-Fenster schließen = Roboter hält an, alle Programme werden beendet.
 
-**Vom Laptop:** Panel → System → „Laptop-Zugriff erlauben“, dann die angezeigte Adresse öffnen, z. B. `http://10.0.12.62:8080`.
+**Vom Laptop:** Laptop-Zugriff ist standardmäßig **an**. Einfach die angezeigte Adresse öffnen, z. B. `http://10.0.12.62:8080`. Ausschalten: Panel → System (oder `scripts/panel.sh --kein-netz`).
 **Not-Aus von außen:** `scripts/stopp.sh`
 
 | Karte (2D) | Karte (3D) |
@@ -45,9 +45,10 @@ Das Dashboard passt auch auf den 7-Zoll-Bildschirm des Roboters (1024×600) und 
 | Was | Wo |
 |---|---|
 | LiDAR-Richtung „vorne“ | Panel → LiDAR, mit den Pfeilen drehen, Speichern |
-| Arm-Stellungen (Fahrstellung zuerst) | Panel → Arm |
+| Arm: Fahrstellung, Greifer auf/zu prüfen, Kinematik prüfen | Panel → Arm, siehe [docs/greifarm.md](docs/greifarm.md) |
 | Kamera-Neigung und -Höhe nachmessen | `config/lokal/roboter.yaml`, siehe [docs/linie.md](docs/linie.md) |
-| Ampel-LED-Farben | `scripts/ampel_kalibrieren.sh` |
+| Ampel-LED-Farben | Panel → System → „Ampel einstellen“ |
+| Systemcheck (Name, Netz, Version, Agent) | Panel → System → „Systemcheck“; Sensoren: Panel → Sensoren |
 
 ## Was steckt wo?
 
@@ -58,16 +59,20 @@ Das Dashboard passt auch auf den 7-Zoll-Bildschirm des Roboters (1024×600) und 
 | `kartograf/`, `lib/karte.py` | Karte 2D/3D |
 | `panel/` | Bedienoberfläche (Webseite) |
 | `sim/` | Simulation ohne Roboter |
-| `scripts/` | Start-, Test- und Hilfsskripte |
+| `scripts/` | Start- und Hilfsskripte (Panel, Simulation, Update, Not-Aus). Tests der Sensoren gehen über das Panel |
 | `config/` | Standardeinstellungen; eigene Werte in `config/lokal/` (nicht im Repository) |
-| `docs/` | Doku: [Projekt](docs/projekt.md), [KI](docs/ki.md), [Linie](docs/linie.md), [Karte](docs/karte.md), [Greifarm](docs/greifarm.md), [Roboter](docs/roboter.md), [Browser](docs/browser.md) |
+| `docs/` | Doku: [Projekt](docs/projekt.md), [KI](docs/ki.md), [Linie](docs/linie.md), [Karte](docs/karte.md), [Greifarm](docs/greifarm.md), [Roboter](docs/roboter.md), [Simulation](docs/simulation.md), [Browser](docs/browser.md) |
 
 ## Testen ohne Roboter
 
+Die Simulation läuft auch in einer Linux-VM auf dem Laptop: Anleitung **[docs/simulation.md](docs/simulation.md)**.
+
 ```bash
+scripts/simulation.sh einrichten    # einmalig: ROS 2 Humble installieren (Ubuntu 22.04)
+scripts/simulation.sh               # Simulation + Panel zum Zuschauen (Kamera → „Simulation“)
+scripts/simulation.sh pruefen       # komplette Fahrt, prüft alles automatisch
 python3 tests/test_entscheider.py   # Regeln der KI
 python3 tests/test_karte.py         # Karte
-scripts/simulation.sh pruefen       # komplette Fahrt in der Simulation (braucht ROS 2)
 python3 tests/panel_demo.py         # Panel mit Beispieldaten, http://localhost:8099
 ```
 
@@ -77,13 +82,14 @@ python3 tests/panel_demo.py         # Panel mit Beispieldaten, http://localhost:
 - Kreuzungen und Abbiegen nach Stadtplan (K1–K8), Wegwahl, „fahr zu X“
 - Abblendlicht an der LED-Leiste und Blinker beim Abbiegen
 - MQTT für die Leitzentrale
-- Objekte wegräumen: Die Arm-Bewegungen soll die KI selbst erlernen statt fest vorprogrammiert
+- RTW-Einsatz (Sonderrechte) ist vorerst entfernt und kommt später wieder
 - Alle vier Roboter gleichzeitig: Dafür braucht jeder eine eigene Domain-ID ([docs/roboter.md](docs/roboter.md))
 
-**Bekannte Fehler:**
-- Die Kartierung funktioniert manchmal nicht richtig.
-- Beim Greifer sind „zugreifen“ und „öffnen“ vertauscht.
-- Teilweise KI-Aussetzer (unter 2 s).
+**Bekannte Fehler / ungeprüft:**
+- Karte: Die Drift durch den zweiten, versetzt eingebauten LiDAR ist behoben (in der Simulation nachgestellt und geprüft). Auf dem Roboter noch **nicht** getestet.
+- Greifer: Werte jetzt nach Yahboom (30 = offen, 130 = zu). Auf dem Roboter im Panel prüfen.
+- Wegräumen nutzt auf dem Roboter Yahbooms Kinematik-Dienst. Auf dem Roboter **noch nie gelaufen** (siehe [docs/greifarm.md](docs/greifarm.md)).
+- Teilweise KI-Aussetzer (unter 2 s). Die KI rechnet jetzt auf der Grafikkarte, wenn möglich. Auf dem Roboter noch ungeprüft.
 - Die Objekterkennung ist teilweise fehlerhaft, Ampeln werden noch nicht sauber erkannt.
 
 Alles Neue ist zuerst in der Simulation getestet. Gerätetests auf RM02 laufen.

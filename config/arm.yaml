@@ -1,12 +1,19 @@
 # Arm-Posen (Grad je Servo 1-6). Weitere ueber das Panel (Seite Arm) speichern.
-# Werte aus den Yahboom-Programmen auf dem Roboter (Greifer dort 0, hier 30 = kleinster erlaubter Wert):
+# Werte aus den Yahboom-Programmen auf dem Roboter (Greifer dort 0, hier 30 = offen):
 #   fahrstellung   = Startstellung der Gamepad-Steuerung (yahboom_joy_M3Pro.py), die nach dem
 #                    Einschalten automatisch angefahren wird -> damit lief unser Linienfolger.
 #   yahboom_linie  = Stellung von Yahboms eigenem Linienfolger (largemodel_arm/follow_line.py)
-#   pruefblick     = noch nicht festgelegt -> im Panel einstellen und speichern
-# ki_darf_arm_bewegen: true = KI darf bei unklarer LiDAR-Meldung im STAND kurz in den
-#   "pruefblick" schauen und danach zurueck in die "fahrstellung" (erst wenn beide Posen da sind).
+# Zum Wegraeumen braucht die KI KEINE eingelernten Greif-Posen: Sie misst das Hindernis mit der
+# Tiefenkamera und laesst Yahbooms Kinematik-Dienst (ros2 run arm_kin kin_srv, startet das Panel mit)
+# die Servowinkel ausrechnen. Erst nach Yahbooms Arm-Kalibrierung benutzen (docs/greifarm.md).
+# ki_darf_arm_bewegen: true = KI darf den Arm bewegen (Zebrastreifen umschauen, Hindernis wegraeumen),
+#   immer nur im Stand und nur, solange das Fahrprogramm faehrt.
 posen:
   fahrstellung: [90, 120, 10, 20, 90, 30]
   yahboom_linie: [90, 90, 12, 20, 90, 30]
 ki_darf_arm_bewegen: false
+# Greifer (Servo 6). Yahboom-Kurse: 30 = offen, 120-130 = zugegriffen, 180 = ganz zu.
+# Im Panel (Seite Arm) mit "Greifer auf/zu" pruefen und bei Bedarf in config/lokal/arm.yaml aendern.
+greifer_auf: 30
+greifer_zu: 130
+# eigene_kinematik: true  -> NUR wenn Yahbooms Dienst fehlt und die Masse unter "geometrie" nachgemessen sind

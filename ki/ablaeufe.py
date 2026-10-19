@@ -2,15 +2,16 @@
 # Ablaeufe der KI, die mehrere Schritte brauchen (ohne ROS, damit testbar):
 #   Zebrastreifen  - anhalten, umschauen (Arm links/rechts), warten bis frei, weiter
 #   Wenden         - Einbahnstrasse von der falschen Seite: auf der Stelle umdrehen
-#   Aufheben       - kleines Hindernis greifen und neben die Strasse legen
+#   Wegraeumen     - Hindernis genau anschauen, Armbewegung ausrechnen, wegraeumen, pruefen ob frei
 #
 # Jeder Ablauf hat schritt(jetzt, w) -> Befehl (dict) oder None (= fertig, Ergebnis in .ergebnis).
-# Befehl: {'aktion': 'stopp' | 'manoever', 'grund': Text, 'arm': None | {'pose', 'greifer'},
+# Befehl: {'aktion': 'stopp' | 'manoever', 'grund': Text, 'arm': None | {'pose', 'greifer'} | {'winkel', 'zeit_ms'},
 #          'manoever': {'lin', 'quer', 'dreh', 'text'}}
 # w = Wahrnehmung (siehe ki/entscheider.py).
 import math
 import os
 import sys
+import threading
 
 import numpy as np
 
@@ -18,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from lidar import abstand_zum_weg  # noqa: E402
 
 LEBEWESEN = {'Person', 'Hund', 'Katze', 'Pferd', 'Vogel', 'Schaf', 'Kuh', 'Teddy'}
+FAHRZEUGE = {'Auto', 'Bus', 'LKW', 'Motorrad', 'Fahrrad', 'Zug'}
 
 
 def befehl(aktion, grund, arm=None, manoever=None):
@@ -208,82 +210,217 @@ class Wenden(Ablauf):
                       manoever={'lin': 0.0, 'quer': 0.0, 'dreh': c['wenden_dreh'], 'text': 'wenden'})
 
 
-class Aufheben(Ablauf):
-    """Kleines Hindernis greifen und neben die Strasse legen. Posen: greifen, greifen_hoch, ablegen."""
-    name = 'aufheben'
+class Wegraeumen(Ablauf):
+    """Hindernis im Weg (LiDAR und/oder Kamera haben etwas gemeldet). Ablauf:
+      1. anschauen   anhalten, mit der Tiefenkamera mehrere Bilder lang genau hinschauen (wartet ruhig laenger,
+                     wenn die KI langsam ist: es zaehlen BILDER, nicht nur Sekunden). Was ist es, wo genau, wie gross?
+      2. abstand     so weit heran/zurueck, dass der Arm es erreicht und die Kamera es noch sieht (geregelt nach
+                     dem, was die Kamera misst, nicht nach der Zeit)
+      3. planen      ausrechnen, wie der Arm sich bewegen muss (Kinematik, keine fest eingelernten Posen)
+      4. ausfuehren  Greifer auf -> ueber das Ding -> runter -> zu -> hoch -> zur Seite -> ablegen -> Fahrstellung
+      5. kontrolle   Kamera wieder nach vorne, mehrere Bilder lang pruefen: ist der Weg WIRKLICH frei?
+                     Nein -> noch ein Versuch (ab 1.), danach aufgeben und warten.
+    Ohne Planer (Arm nicht freigegeben) nur 1.: bestaetigt -> warten, bis frei.
+    ergebnis: 'frei' (weiter), 'unbestaetigt' (nur LiDAR, Kamera sieht nichts), 'bestaetigt' (da, nicht anfassen),
+              'fehler' (Wegraeumen hat nicht geklappt)."""
+    name = 'wegraeumen'
     braucht_arm = True
 
-    def __init__(self, jetzt, c, objekt):
+    def __init__(self, jetzt, c, planer=None, darf_greifen=None):
         super().__init__(jetzt, c)
-        self.objekt = dict(objekt)
-        self.zuletzt_gesehen = jetzt
-        self.ruhig = 0
-        self._phase(jetzt, 'ausrichten')
-        self.ereignisse.append((f"Hindernis {objekt['breite'] * 100:.0f} cm breit -> hebe es auf", 'info'))
+        self.planer = planer              # planer(objekt, ablage_seite) -> {'schritte': [...]} | {'fehler': Text}
+        self.darf_greifen = darf_greifen  # darf_greifen(objekt, w) -> None (ja) oder Grund (nein)
+        self.braucht_arm = planer is not None
+        self.versuch = 1
+        self.zurueck_gefahren = 0.0
+        self.grund = ''
+        self._anschauen(jetzt)
+
+    def _anschauen(self, jetzt):
+        self._phase(jetzt, 'anschauen')
+        self.messungen, self.lidar_werte, self.bilder, self.lebewesen = [], [], 0, None
+        self.gesehen = 0                  # Bilder, in denen die Tiefenkamera etwas sah (auch ohne Vermessung)
+
+    def _ende(self, ergebnis, text, art):
+        self.ergebnis = ergebnis
+        self.ereignisse.append((text, art))
+        return None
 
     def schritt(self, jetzt, w):
         c, d = self.c, self.dauer(jetzt)
-        obj = w.get('objekt') if w.get('neues_bild') else None
-        if self.phase == 'ausrichten':
-            if obj:
-                self.objekt, self.zuletzt_gesehen = dict(obj), jetzt
-                fehler_vor = obj['vor'] - c['ausricht_abstand']
-                if abs(obj['seite']) < 0.01 and abs(fehler_vor) < 0.02:
-                    self.ruhig += 1
-                else:
-                    self.ruhig = 0
-            elif jetzt - self.zuletzt_gesehen > 2.0:
-                return self._fehler('Hindernis nicht mehr zu sehen')
-            if self.ruhig >= 3:
-                self.strecke = self.objekt['vor'] + self.objekt['breite'] / 2 - c['greif_abstand']
-                self._phase(jetzt, 'anfahren')
-                return befehl('stopp', 'Aufheben: ausgerichtet')
-            if d > 15:
-                return self._fehler('Ausrichten dauert zu lange')
-            o = self.objekt
-            quer = max(-0.04, min(0.04, 0.8 * o['seite']))
-            lin = max(-0.03, min(0.03, 0.5 * (o['vor'] - c['ausricht_abstand'])))
-            return befehl('manoever', f"Aufheben: ausrichten (seitlich {o['seite'] * 100:+.1f} cm)",
-                          manoever={'lin': lin, 'quer': quer, 'dreh': 0.0, 'text': 'zum Greifen ausrichten'})
-        if self.phase == 'anfahren':
-            dauer_soll = max(0.0, self.strecke) / c['anfahr_tempo']
-            if d >= dauer_soll:
-                self.arm_bewegt = True
-                self._phase(jetzt, 'oeffnen')
-                return befehl('stopp', 'Aufheben: Greifer auf', arm={'pose': 'greifen', 'greifer': 'auf'})
-            return befehl('manoever', f'Aufheben: heranfahren ({self.strecke * 100:.0f} cm)',
-                          manoever={'lin': c['anfahr_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'heranfahren'})
-        schritte = [('oeffnen', c['arm_zeit'] * 1.3, 'zu', {'pose': 'greifen', 'greifer': 'zu'}, 'Greifer zu'),
-                    ('zu', 1.2, 'hoch', {'pose': 'greifen_hoch', 'greifer': 'zu'}, 'Arm hoch'),
-                    ('hoch', c['arm_zeit'], 'ablegen', {'pose': 'ablegen', 'greifer': 'zu'}, 'zur Seite'),
-                    ('ablegen', c['arm_zeit'] + 0.3, 'loslassen', {'pose': 'ablegen', 'greifer': 'auf'}, 'loslassen'),
-                    ('loslassen', 1.0, 'zurueck', {'pose': 'fahrstellung'}, 'Arm in Fahrstellung'),
-                    ('zurueck', c['arm_zeit'], 'pruefen', None, 'pruefe, ob der Weg frei ist')]
-        for phase, warte, naechste, arm, text in schritte:
-            if self.phase == phase:
-                if d >= warte:
-                    self._phase(jetzt, naechste)
-                    if naechste == 'pruefen':
-                        self.arm_bewegt = False
-                        self.noch_da = 0
-                    return befehl('stopp', 'Aufheben: ' + text, arm=arm)
-                return befehl('stopp', 'Aufheben: ' + text)
-        if self.phase == 'pruefen':
-            if obj and obj['vor'] < 0.35:
-                self.noch_da += 1
-            if d >= 1.5:
-                if self.noch_da >= 2:
-                    return self._fehler('Hindernis liegt noch da')
-                self.ereignisse.append(('Hindernis beiseitegelegt -> weiter', 'fahren'))
-                self.ergebnis = 'ok'
-                return None
-            return befehl('stopp', 'Aufheben: pruefe, ob der Weg frei ist')
+        if w.get('lidar_xy') is not None:
+            self.letztes_w_xy = w['lidar_xy']
+        neu = w.get('neues_bild')
+        obj = w.get('objekt') if neu else None
+        kamera_obj = obj if obj and obj.get('quelle') == 'tiefe' else None
+        lid = w.get('lidar')
+        if self.phase == 'anschauen':
+            if neu:
+                self.bilder += 1
+                if kamera_obj:
+                    self.messungen.append(kamera_obj)
+                if kamera_obj or w.get('tiefe_hindernis'):
+                    self.gesehen += 1
+                if lid is not None:
+                    self.lidar_werte.append(lid)
+                lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE]
+                if lebend:
+                    self.lebewesen = lebend[0]
+            genug = d >= c['anschauen_min'] and self.bilder >= c['anschauen_bilder']
+            if not genug and d < c['anschauen_max']:
+                return befehl('stopp', f'Hindernis: schaue es mir genau an ({self.bilder} Bilder)')
+            return self._entscheiden(jetzt, w)
+        if self.phase == 'zurueck':
+            hinten = w.get('lidar_hinten')
+            dt, self.letzte = jetzt - self.letzte, jetzt
+            if hinten is None or hinten < c['hinten_frei'] or self.zurueck_gefahren >= c['sicht_zurueck']:
+                self._anschauen(jetzt)
+                return befehl('stopp', 'Hindernis: schaue nochmal hin')
+            self.zurueck_gefahren += c['zurueck_tempo'] * dt
+            return befehl('manoever', 'Hindernis zu nah fuer die Kamera -> fahre etwas zurueck',
+                          manoever={'lin': -c['zurueck_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'zurueck'})
+        if self.phase == 'abstand':
+            return self._abstand(jetzt, kamera_obj)
+        if self.phase == 'planen':
+            if self.plan is None:
+                if d > 6.0:
+                    return self._ende('fehler', 'Wegraeumen: Armbewegung ausrechnen dauert zu lange', 'stopp')
+                return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
+            if self.plan.get('fehler'):
+                return self._ende('fehler', f"Wegraeumen geht nicht: {self.plan['fehler']} -> warte", 'stopp')
+            self.ereignisse.append((f"Armbewegung berechnet: {self.plan.get('info', '')}", 'info'))
+            self.schritte, self.nr = list(self.plan['schritte']), -1
+            self.arm_bewegt = True
+            self._phase(jetzt, 'ausfuehren')
+            self.warte = 0.0
+            d = 0.0
+        if self.phase == 'ausfuehren':
+            if d < self.warte:
+                return befehl('stopp', f'Wegraeumen: {self.schritte[self.nr][0]}')
+            self.nr += 1
+            if self.nr >= len(self.schritte):
+                self._phase(jetzt, 'kontrolle')
+                self.kontrolle_bilder = self.kontrolle_da = 0
+                return befehl('stopp', 'Wegraeumen: Arm faehrt zurueck, dann pruefe ich den Weg')
+            text, winkel, dauer = self.schritte[self.nr]
+            self.seit, self.warte = jetzt, dauer
+            return befehl('stopp', f'Wegraeumen: {text}', arm={'winkel': winkel, 'zeit_ms': int(dauer * 1000)})
+        if self.phase == 'kontrolle':
+            if d < c['arm_zeit'] * 0.5:
+                return befehl('stopp', 'Wegraeumen: Arm faehrt zurueck in Fahrstellung')
+            self.arm_bewegt = False      # ab jetzt schaut die Kamera wieder nach vorne
+            if neu:
+                self.kontrolle_bilder += 1
+                if (kamera_obj and kamera_obj['vor'] < c['kontrolle_bereich']) or (
+                        lid is not None and lid < c['pruef_dist']):
+                    self.kontrolle_da += 1
+            if d < c['arm_zeit'] * 0.5 + c['kontrolle_zeit'] or self.kontrolle_bilder < c['anschauen_bilder']:
+                return befehl('stopp', f'Wegraeumen: pruefe, ob der Weg frei ist ({self.kontrolle_bilder} Bilder)')
+            if self.kontrolle_da >= 2:
+                if self.versuch < c['versuche']:
+                    self.versuch += 1
+                    self.ereignisse.append((f'Weg noch nicht frei -> {self.versuch}. Versuch', 'stopp'))
+                    self._anschauen(jetzt)
+                    return befehl('stopp', 'Hindernis: schaue nochmal hin')
+                return self._ende('fehler', f'Wegraeumen: liegt nach {self.versuch} Versuchen noch da -> warte',
+                                  'stopp')
+            return self._ende('frei', 'Weg ist frei (geprueft) -> weiter', 'fahren')
         return None
 
-    def _fehler(self, grund):
-        self.ereignisse.append((f'Aufheben hat nicht geklappt: {grund} -> warte', 'stopp'))
-        self.ergebnis = 'fehler'
-        return None
+    def _entscheiden(self, jetzt, w):
+        """Nach dem Anschauen: was ist es und was tun?"""
+        c = self.c
+        if self.lebewesen:
+            return self._ende('bestaetigt', f'Hindernis ist {self.lebewesen} -> nicht anfassen, warte', 'stopp')
+        if len(self.messungen) < 3 and self.gesehen >= 3:
+            return self._ende('bestaetigt', 'Hindernis bestaetigt (Tiefenkamera) -> warte', 'stopp')
+        if len(self.messungen) < 3:
+            # Kamera sieht nichts. Meldet der LiDAR noch etwas?
+            lid = [x for x in self.lidar_werte if x < c['pruef_dist']]
+            if len(lid) < 2:
+                return self._ende('frei', 'Kamera und LiDAR sehen nichts mehr -> weiter', 'fahren')
+            naechst = float(np.median(lid))
+            if naechst < c['kamera_min_sicht'] and self.zurueck_gefahren < c['sicht_zurueck']:
+                self.letzte = jetzt
+                self._phase(jetzt, 'zurueck')
+                return befehl('stopp', 'Hindernis zu nah fuer die Kamera -> fahre etwas zurueck')
+            return self._ende('unbestaetigt', f'LiDAR meldet etwas in {naechst * 100:.0f} cm, Kamera sieht nichts',
+                              'info')
+        o = self._mittel()
+        self.objekt = o
+        self.ereignisse.append((f"Hindernis gesehen: {o['vor'] * 100:.0f} cm voraus, {o['seite'] * 100:+.0f} cm seitlich, "
+                                f"{o['breite'] * 100:.0f} cm breit, {o['hoehe'] * 100:.0f} cm hoch "
+                                f"({len(self.messungen)} von {self.bilder} Bildern)", 'info'))
+        if self.planer is None:
+            return self._ende('bestaetigt', 'Hindernis bestaetigt (Kamera), Arm nicht freigegeben -> warte', 'stopp')
+        nein = self.darf_greifen(o, w) if self.darf_greifen else None
+        if nein:
+            return self._ende('bestaetigt', f'Hindernis bestaetigt, {nein} -> warte', 'stopp')
+        self._phase(jetzt, 'abstand')
+        self.ruhig, self.zuletzt_gesehen = 0, jetzt
+        return befehl('stopp', 'Hindernis: fahre in Greifweite')
+
+    def _mittel(self):
+        m = self.messungen
+        aus = {k: float(np.median([x[k] for x in m])) for k in ('vor', 'seite', 'breite', 'hoehe')}
+        for k in ('pixel', 'tiefe_m'):        # fuer Yahbooms Kinematik (Kamerapunkt -> Arm)
+            werte = [x[k] for x in m if x.get(k) is not None]
+            if werte:
+                aus[k] = [float(v) for v in np.median(np.array(werte, dtype=float).reshape(len(werte), -1), axis=0)]
+                if k == 'tiefe_m':
+                    aus[k] = aus[k][0]
+        q = [x['quer'] for x in m if x.get('quer') is not None]
+        if q:
+            aus['quer'] = float(np.median(q))
+        aus['quelle'] = 'tiefe'
+        return aus
+
+    def _abstand(self, jetzt, obj):
+        c = self.c
+        if obj:
+            self.objekt, self.zuletzt_gesehen = dict(obj), jetzt
+            fehler_vor = obj['vor'] - c['greif_vor']
+            seitlich = abs(obj['seite']) > c['greif_seite']
+            self.ruhig = self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and not seitlich else 0
+            self.messungen.append(obj)
+            self.messungen = self.messungen[-5:]
+        elif jetzt - self.zuletzt_gesehen > 2.5:
+            return self._ende('fehler', 'Wegraeumen: Hindernis beim Heranfahren aus den Augen verloren -> warte', 'stopp')
+        if self.ruhig >= 3:
+            o = self._mittel()
+            self.plan = None
+            self._phase(jetzt, 'planen')
+            seite = self._ablage_seite(self.letztes_w_xy)
+            threading.Thread(target=self._planen, args=(o, seite), daemon=True).start()
+            return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
+        if self.dauer(jetzt) > 15:
+            return self._ende('fehler', 'Wegraeumen: in Greifweite fahren dauert zu lange', 'stopp')
+        o = self.objekt
+        lin = max(-0.03, min(0.03, 0.6 * (o['vor'] - c['greif_vor'])))
+        quer = 0.0
+        if abs(o['seite']) > c['greif_seite'] * 0.6:
+            quer = max(-0.03, min(0.03, 0.6 * o['seite']))
+        return befehl('manoever', f"Hindernis: fahre in Greifweite ({o['vor'] * 100:.0f} cm)",
+                      manoever={'lin': lin, 'quer': quer, 'dreh': 0.0, 'text': 'in Greifweite'})
+
+    letztes_w_xy = None
+
+    def _planen(self, o, seite):
+        try:
+            self.plan = self.planer(o, seite)
+        except Exception as e:   # Planer darf den Ablauf nie haengen lassen
+            self.plan = {'fehler': f'Rechenfehler ({e})'}
+
+    @staticmethod
+    def _ablage_seite(xy):
+        """Wohin damit? Auf die Seite, auf der der LiDAR neben dem Roboter weniger sieht (+1 links, -1 rechts).
+        Gleich viel: rechts (Strassenrand bei Rechtsverkehr)."""
+        if xy is None:
+            return -1
+        xy = np.asarray(xy).reshape(-1, 2)
+        nah = (xy[:, 0] > -0.1) & (xy[:, 0] < 0.4) & (np.abs(xy[:, 1]) > 0.12) & (np.abs(xy[:, 1]) < 0.45)
+        links, rechts = int((nah & (xy[:, 1] > 0)).sum()), int((nah & (xy[:, 1] < 0)).sum())
+        return 1 if links < rechts else -1
 
 
 class Ausweichen(Wenden):

@@ -51,11 +51,11 @@ Eintragen in `config/lokal/roboter.yaml` (Datei anlegen, gilt für Linienfolger,
     kamera_neigung: 35.0
 ```
 
-**Neigung prüfen:** `scripts/test.sh` starten, Roboter gerade auf eine gerade Linie stellen. In der Draufsicht (kleines Bild rechts oben) muss die Linie **senkrecht** und **gleich breit** erscheinen. Wird sie nach oben breiter, ist die Neigung zu klein. Wird sie schmaler, ist sie zu groß. Im laufenden Betrieb ändern: `ros2 param set /line_follower kamera_neigung 35.0` (`ros2 param set` = Einstellung eines laufenden Programms ändern).
+**Neigung prüfen:** Panel → TEST, Roboter gerade auf eine gerade Linie stellen. In der Draufsicht (kleines Bild rechts oben) muss die Linie **senkrecht** und **gleich breit** erscheinen. Wird sie nach oben breiter, ist die Neigung zu klein. Wird sie schmaler, ist sie zu groß. Im laufenden Betrieb ändern: `ros2 param set /line_follower kamera_neigung 35.0` (`ros2 param set` = Einstellung eines laufenden Programms ändern).
 
 ## Weitere Einstellungen
 
-`-p name:=wert` beim Start (z. B. `scripts/test.sh -p threshold:=60`) oder `ros2 param set /line_follower name wert`.
+In `config/lokal/roboter.yaml` unter `line_follower:` → `ros__parameters:` eintragen (gilt ab dem nächsten START) oder im laufenden Betrieb `ros2 param set /line_follower name wert`.
 
 | Name | Standard | Bedeutung |
 |---|---|---|

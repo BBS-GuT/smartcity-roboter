@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # Linienfolger: folgt der schwarzen Linie und gehorcht der KI-Zentrale.
 #
-# Kamera muss laufen:  scripts/kamera.sh       KI-Zentrale: scripts/ki.sh
-# Testmodus (faehrt NICHT): scripts/test.sh    Fahren: scripts/fahren.sh (oder Panel)
+# Start ueber das Panel (scripts/panel.sh): START = faehrt, TEST = zeigt nur an, faehrt NICHT.
+# Das Panel startet Kamera und KI-Zentrale mit.
 #
 # Wer entscheidet was?
 #   KI-Zentrale (ki/zentrale.py): ob gefahren werden darf (Ampel, Schild, Hindernis ...),

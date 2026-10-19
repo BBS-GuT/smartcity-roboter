@@ -24,6 +24,6 @@ Ist apt blockiert: `sudo systemctl stop packagekit`.
 
 ## Vom Laptop
 
-Im Panel unter **System** "Laptop-Zugriff erlauben". Die Adresse steht dort (und oben in der Kopfzeile), z. B. `http://10.0.12.62:8080`. Sie wird jedes Mal neu ermittelt, ändert sich also mit, wenn die VLANs umgestellt werden.
+Laptop-Zugriff ist standardmäßig an (ausschalten: Panel → System). Die Adresse steht dort (und oben in der Kopfzeile), z. B. `http://10.0.12.62:8080`. Sie wird jedes Mal neu ermittelt, ändert sich also mit, wenn die VLANs umgestellt werden.
 
 Das Live-Bild wird **Bild für Bild** geholt: Das nächste Bild wird erst angefordert, wenn das vorige angekommen ist. Vorher wurde ein Videostrom geschickt, der sich in langsamem WLAN aufgestaut hat (daher die starke Verzögerung).
