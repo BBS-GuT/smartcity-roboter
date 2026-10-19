@@ -240,11 +240,7 @@ class PanelNode(Node):
             self._set('akku', float(wert))
 
     def _agent_pruefen(self):
-        try:
-            ok = subprocess.run(['pgrep', '-f', 'micro_ros_agent'], capture_output=True).returncode == 0
-        except Exception:
-            ok = False
-        self._set('agent', ok)
+        self._set('agent', agent_info()['laeuft'])
 
     def _tiefe_verwalten(self):
         # Tiefenbilder sind gross -> nur abonnieren, solange jemand die Tiefen-Ansicht offen hat
@@ -372,8 +368,73 @@ def system_info():
             except OSError:
                 pass
     zeilen.append('Repo-Stand: ' + lauf(['git', '-C', REPO, 'log', '--oneline', '-1']))
-    zeilen.append('micro-ROS-Agent: ' + ('laeuft' if lauf(['pgrep', '-f', 'micro_ros_agent']) else 'LAEUFT NICHT'))
+    a = agent_info()
+    zeilen.append('micro-ROS-Agent: ' + (f"laeuft, Domain-ID {a['domain'] or 'nicht lesbar'}, Anschluss "
+                                         f"{a['geraet'] or '?'}" if a['laeuft'] else 'LAEUFT NICHT'))
     return '\n'.join(zeilen)
+
+
+def agent_info():
+    """Laeuft der micro-ROS-Agent (Verbindung Jetson <-> Board)? Mit welcher Domain-ID und welchem Anschluss?
+    Liest nur /proc (aendert nichts). Werte None = nicht lesbar (z. B. Agent laeuft als root)."""
+    info = {'laeuft': False, 'domain': None, 'geraet': None, 'befehl': ''}
+    try:
+        pids = subprocess.run(['pgrep', '-f', 'micro_ros_agent'], capture_output=True, text=True).stdout.split()
+    except Exception:
+        return info
+    for pid in pids:
+        try:
+            teile = open(f'/proc/{pid}/cmdline', 'rb').read().split(b'\0')
+        except OSError:
+            continue
+        befehl = [t.decode(errors='replace') for t in teile if t]
+        if not befehl:
+            continue
+        programm = os.path.basename(befehl[0])
+        # das Agent-Programm selbst oder "ros2 run micro_ros_agent ..." (nicht eine Shell, die das Wort enthaelt)
+        ros2_run = (programm.startswith('python') and len(befehl) > 2 and os.path.basename(befehl[1]) == 'ros2'
+                    and 'micro_ros_agent' in befehl[2:4])
+        if programm != 'micro_ros_agent' and not ros2_run:
+            continue
+        info.update(laeuft=True, befehl=' '.join(befehl))
+        for schalter in ('--dev', '-D'):
+            if schalter in befehl and befehl.index(schalter) + 1 < len(befehl):
+                info['geraet'] = befehl[befehl.index(schalter) + 1]
+        try:
+            umgebung = open(f'/proc/{pid}/environ', 'rb').read().split(b'\0')
+            werte = dict(t.decode(errors='replace').split('=', 1) for t in umgebung if b'=' in t)
+            info['domain'] = werte.get('ROS_DOMAIN_ID', '0')    # nicht gesetzt = 0
+        except OSError:
+            pass
+        break
+    return info
+
+
+def board_diagnose(board_da, sensoren_da):
+    """Text, warum das Board fehlt (oder None, wenn alles da ist)."""
+    if board_da and sensoren_da:
+        return None
+    a = agent_info()
+    unsere = os.environ.get('ROS_DOMAIN_ID', '0')
+    if not a['laeuft']:
+        return ('micro-ROS-Agent laeuft nicht -> keine Verbindung zum Board. Roboter einmal aus- und einschalten '
+                '(der Agent startet automatisch).')
+    if board_da:
+        return 'Board ist verbunden, aber einzelne Sensoren liefern nichts -> Kabel/Stecker der fehlenden Sensoren pruefen.'
+    if a['domain'] is not None and a['domain'] != unsere:
+        return (f"Domain-ID passt nicht: der Agent (Board) laeuft mit {a['domain']}, unsere Programme mit {unsere}. "
+                f"Dann sehen sie sich nicht. Loesung: echo {a['domain']} > ~/ros_domain_id, Panel neu starten "
+                '(oder den Agent auf dieselbe Nummer stellen, docs/roboter.md).')
+    if a['geraet'] and not os.path.exists(a['geraet']):
+        return (f"Der Agent wartet auf {a['geraet']}, das Geraet gibt es aber nicht -> USB-Kabel Jetson <-> Board "
+                'und Strom des Boards pruefen.')
+    teile = [f"Agent laeuft ({a['befehl'][:80]}), aber das Board meldet sich nicht."]
+    if a['domain'] is None:
+        teile.append(f'(Domain-ID des Agents nicht lesbar, unsere: {unsere}. Pruefen: '
+                     "sudo cat /proc/$(pgrep -f micro_ros_agent | head -1)/environ | tr '\\0' '\\n' | grep DOMAIN)")
+    teile.append('Meist hilft: Hauptschalter am Board aus und wieder an, oder Reset-Knopf am Board druecken, '
+                 'kurz warten. Danach diese Seite neu laden.')
+    return ' '.join(teile)
 
 
 def paket_da(paket):
@@ -576,6 +637,7 @@ def mache_handler(node, prozesse, beenden=None):
 
     def status(lokal):
         akku = node.get('akku', max_alter=5.0)
+        sensoren = node.sensor_status()
         posen = armlib.lade_posen()
         return {
             'fahren': prozesse.laeuft('fahren'), 'modus': prozesse.info.get('fahren', ''),
@@ -586,7 +648,8 @@ def mache_handler(node, prozesse, beenden=None):
             'akku': akku, 'akku_warnung': AKKU_WARNUNG,
             'akku_prozent': None if akku is None else
             max(0, min(100, round((akku - AKKU_LEER) / (AKKU_VOLL - AKKU_LEER) * 100))),
-            'sensoren': node.sensor_status(),
+            'sensoren': sensoren, 'board_diagnose': board_diagnose(
+                sensoren[1]['ok'], all(x['ok'] is not False for x in sensoren[2:] if x['topic'].startswith(('/battery', '/imu', '/odom', '/scan')))),
             'tempo': zustand['tempo'], 'simulation': node.get('bild_sim', max_alter=3.0) is not None,
             'ips': ip_adressen(), 'port': node.args.port, 'netz_erlaubt': node.netz_erlaubt, 'lokal': lokal,
             'roboter': open(os.path.expanduser('~/roboter_name')).read().strip()

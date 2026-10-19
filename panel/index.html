@@ -358,6 +358,7 @@
   <div class="karte">
     <h2>Sensoren</h2>
     <table id="sensortabelle"></table>
+    <div class="warnkasten" id="board-diagnose" hidden></div>
     <p class="hinweis">Hz = Nachrichten pro Sekunde, 0 Hz = Sensor liefert nichts. Fehlen Akku, LiDAR und Odometrie gleichzeitig:
       Board/Agent prüfen (wie bei RM03).</p>
   </div>
@@ -914,6 +915,8 @@ function zeigeSensoren() {
     const z = tr.insertCell(); z.textContent = x.ok === null ? 'Info' : x.ok ? 'OK' : 'FEHLT';
     z.className = x.ok === null ? '' : x.ok ? 'ok' : 'schlecht';
   }
+  $('board-diagnose').hidden = !S.board_diagnose;
+  $('board-diagnose').textContent = S.board_diagnose || '';
   const pt = $('programmtabelle'); pt.innerHTML = '';
   for (const [name, an, text] of [['KI-Zentrale', !!S.ki, ''], ['Kartograf', S.kartograf, ''],
                                   ['Linienfolger', S.fahren, S.fahren && !S.lf ? 'läuft, meldet sich aber nicht' : '']]) {
