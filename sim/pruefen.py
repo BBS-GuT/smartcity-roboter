@@ -5,6 +5,9 @@
 #   SIM_DAUER=150        so viele Sekunden fahren
 #   SIM_SCHWER=1         wie in echt: grosser Raum, zweiter LiDAR versetzt eingebaut, Lagesensor 3 % daneben,
 #                        Scans kommen spaeter an (prueft, ob die Karte trotzdem nicht wegdreht)
+#   SIM_ANTRIEB=echt     Antrieb wie in echt (sim/antrieb.py: Motoren reagieren spaeter, Raeder rutschen in Kurven),
+#                        dazu Radzaehler/Lagesensor nur 10x pro Sekunde wie beim Yahboom-Board. Standard: ideal
+#   SIM_TEMPO=0.35       Linienfolger so schnell fahren lassen (Standard 0,15 m/s; dann wird das Tempo nicht geprueft)
 #   SIM_KARTE_ORDNER=... Kartenordner (Standard: neu in den Logs). Zweimal mit demselben Ordner
 #                        starten -> prueft, ob der Roboter sich in der vorhandenen Karte wiederfindet.
 import json
@@ -30,6 +33,8 @@ LOGS = os.environ.get('SIM_LOGS', '/tmp')
 VERZ = float(os.environ.get('SIM_VERZOEGERUNG', 0.0))   # Kamerabild kommt so viele s zu spaet (Ueberlast)
 GEGNER = bool(os.environ.get('SIM_GEGNER'))   # anderer Roboter blockiert die Linie -> muss ausweichen
 KARTEN = os.environ.get('SIM_KARTE_ORDNER', os.path.join(LOGS, 'sim_karten'))
+ANTRIEB = os.environ.get('SIM_ANTRIEB', 'ideal')
+TEMPO = float(os.environ.get('SIM_TEMPO', 0.15))
 SCHWER = ['-p', 'halle:=true', '-p', 'imu_skala:=1.03', '-p', 'lidar_umlauf:=0.12', '-p', 'lidar_verzoegerung:=0.1',
           '-p', 'lidar1_einbau:=[-0.12,0.0,4.0]'] if os.environ.get('SIM_SCHWER') else []
 
@@ -47,11 +52,12 @@ def main():
     cfg = ['--params-file', os.path.join(REPO, 'config', 'roboter.yaml')]
     prozesse = [
         starte([sys.executable, os.path.join(REPO, 'sim', 'simulator.py')]
-               + ['--ros-args', '-p', f'gegner:={str(GEGNER).lower()}', '-p', f'kamera_verzoegerung:={VERZ}'] + SCHWER,
+               + ['--ros-args', '-p', f'gegner:={str(GEGNER).lower()}', '-p', f'kamera_verzoegerung:={VERZ}',
+                  '-p', f'antrieb:={ANTRIEB}'] + (['-p', 'odom_hz:=10.0'] if ANTRIEB != 'ideal' else []) + SCHWER,
                'simulator', env),
         starte([sys.executable, os.path.join(REPO, 'ki', 'zentrale.py'), '--ros-args'] + cfg, 'ki', env),
         starte([sys.executable, os.path.join(REPO, 'line_follower', 'line_follower.py'), '--ros-args'] + cfg +
-               ['-p', 'drive:=true', '-p', 'show:=false'], 'linienfolger', env),
+               ['-p', 'drive:=true', '-p', 'show:=false', '-p', f'speed:={TEMPO}'], 'linienfolger', env),
         starte([sys.executable, os.path.join(REPO, 'kartograf', 'kartograf.py'), '--ros-args'] + cfg +
                ['-p', f'ordner:={KARTEN}'], 'kartograf', env),
     ]
@@ -121,8 +127,10 @@ def auswerten(zustaende, ereignisse, karte=()):
     fahrt = [z for z in zustaende if z['v'] > 0.05 and abs(z['quer']) < 1e-3
              and not (welt.wuerfel_s - 0.4 < z['s'] < welt.wuerfel_s + 0.3)]
     schnell = max((z['v'] for z in zustaende), default=0)
-    check('Geschwindigkeit (0,15 m/s)', 0.12 <= schnell <= 0.17,
-          f'(max {schnell:.2f} m/s)')
+    if TEMPO == 0.15:
+        check('Geschwindigkeit (0,15 m/s)', 0.12 <= schnell <= 0.17, f'(max {schnell:.2f} m/s)')
+    else:
+        print(f'      (Tempo {TEMPO:.2f} m/s eingestellt, gefahren max {schnell:.2f} m/s)')
     abw = max((z['seite'] for z in fahrt), default=1.0)
     mittel = sum(z['seite'] for z in fahrt) / max(1, len(fahrt))
     check('genau auf der Linie (auch in Kurven)', abw < 0.04,

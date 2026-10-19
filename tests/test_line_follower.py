@@ -118,5 +118,41 @@ if n.p('speed') != 0.5:
     fehler += 1
     print('FEHLER  Begrenzung greift nicht')
 
+
+# ---- Verzoegerung selbst messen: Drehung kommt 0,15 s spaeter, traege (0,1 s) und 5 % schwaecher ----
+lerner = lf.linie.Verzoegerung()
+befehle = [0.8 * math.sin(i * 0.05 * 1.3) + (0.5 if (i // 40) % 2 else -0.5) for i in range(300)]
+drehung = 0.0
+for i, b in enumerate(befehle):
+    spaet = befehle[max(0, i - 3)]                  # 3 Takte = 0,15 s spaeter
+    drehung += (1 - math.exp(-0.05 / 0.1)) * (0.95 * spaet - drehung)
+    lerner.hinzu(b, drehung)
+erg = lerner.schaetzen()
+ok = erg is not None and abs(erg['totzeit'] - 0.15) <= 0.03 and abs(erg['faktor'] - 0.95) < 0.05
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Verzoegerung Lenkbefehl -> Drehung selbst gemessen: {erg}")
+n = neu()
+n.bewegung_quelle = 'Radzaehler + Lagesensor'
+n.verzoegerung.ergebnis = {'totzeit': 0.25, 'traegheit': 0.1, 'faktor': 0.95, 'guete': 0.9}
+ok = abs(n.vorhersage_zeit() - (0.25 - n.p('motor_totzeit'))) < 1e-6
+n.bewegung_quelle = 'Fahrbefehle'
+ok = ok and n.vorhersage_zeit() == 0.0
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Vorhersage = gemessene Totzeit - Motor-Anteil, ohne Messung keine Vorhersage")
+
+# ---- Kurve voraus: Gerade 20 cm, dann Kurve mit 25 cm Radius -> bremst schon vorher ----
+g = lf.linie.Gedaechtnis()
+punkte = [(0.01 * k, 0.0) for k in range(20)]
+punkte += [(0.2 + 0.25 * math.sin(a / 100), 0.25 - 0.25 * math.cos(a / 100)) for a in range(0, 157, 3)]
+g.hinzufuegen(punkte)
+k_vor = g.kruemmung_voraus()
+lenkung = lf.linie.Lenkung()
+v_vor, _, _ = lenkung.berechne({'gefunden': False}, 0.35, time.time(), {'quer': 0.0, 'kurs': 0.0, 'kruemmung': 0.0},
+                               k_vor)
+ok = 2.5 < k_vor < 6.0 and v_vor < 0.25
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Kurve voraus erkannt (Kruemmung {k_vor:.1f} 1/m) -> schon auf der Geraden "
+      f"langsamer: {v_vor:.2f} m/s")
+
 print('\nAlle Tests bestanden.' if not fehler else f'\n{fehler} Test(s) fehlgeschlagen.')
 sys.exit(1 if fehler else 0)
