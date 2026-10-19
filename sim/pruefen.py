@@ -14,7 +14,8 @@
 #   SIM_WUERFEL_ZUFALL=1 Wuerfel zufaellig legen (Lage, Groesse); SIM_WUERFEL_SAAT=7 fuer immer denselben Zufall
 #   SIM_ARM_WIE_PLANER=1 simulierter Arm genau so, wie die KI ihn sich vorstellt (sonst etwas anders, siehe
 #                        sim/arm_sim.yaml geometrie_simulator -> die KI muss mit dem Gelernten ausgleichen)
-#   SIM_GREIFEN_BEHALTEN=1  auf dem Roboter Gelerntes (Logs/greifen_lokal.json) vom letzten Lauf weiterverwenden
+#   SIM_GREIFEN_NEU=1    Greifen frisch lernen (nur Vortraining). Standard: weiterlernen mit dem, was die
+#                        letzten Laeufe gelernt haben (Logs/greifen_lokal.json) - wie auf dem echten Roboter
 import json
 import math
 import os
@@ -60,7 +61,7 @@ def main():
     env.setdefault('SMARTCITY_ARM_YAML', os.path.join(REPO, 'sim', 'arm_sim.yaml'))
     # Gelerntes Greifen der Simulation nicht in config/lokal/ (das gehoert dem echten Roboter)
     env.setdefault('SMARTCITY_GREIFEN', os.path.join(LOGS, 'greifen_lokal.json'))
-    if not os.environ.get('SIM_GREIFEN_BEHALTEN') and os.path.exists(env['SMARTCITY_GREIFEN']):
+    if os.environ.get('SIM_GREIFEN_NEU') and os.path.exists(env['SMARTCITY_GREIFEN']):
         os.remove(env['SMARTCITY_GREIFEN'])
     cfg = ['--params-file', os.path.join(REPO, 'config', 'roboter.yaml')]
     prozesse = [

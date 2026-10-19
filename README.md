@@ -86,10 +86,11 @@ python3 tests/panel_demo.py         # Panel mit Beispieldaten, http://localhost:
 - Alle vier Roboter gleichzeitig: Dafür braucht jeder eine eigene Domain-ID ([docs/roboter.md](docs/roboter.md))
 
 **Bekannte Fehler / ungeprüft:**
-- Karte: Die Drift durch den zweiten, versetzt eingebauten LiDAR ist behoben (in der Simulation nachgestellt und geprüft). Auf dem Roboter noch **nicht** getestet.
-- Greifer: Werte jetzt nach Yahboom (30 = offen, 130 = zu). Auf dem Roboter im Panel prüfen.
-- Wegräumen nutzt auf dem Roboter Yahbooms Kinematik-Dienst. Auf dem Roboter **noch nie gelaufen** (siehe [docs/greifarm.md](docs/greifarm.md)).
-- Teilweise KI-Aussetzer (unter 2 s). Die KI rechnet jetzt auf der Grafikkarte, wenn möglich. Auf dem Roboter noch ungeprüft.
+- **Karte:** Im Simulator nachgestellte Ursachen sind behoben: falsche LiDAR-Richtung „vorne“, gespiegelter LiDAR, Lagesensor falsch herum, Odometrie ohne Geschwindigkeit, zweiter LiDAR versetzt. Welche es am echten Roboter ist, ist **nicht bewiesen** → Panel → Karte → „Messfahrt aufzeichnen“ und die Datei schicken ([docs/karte.md](docs/karte.md)).
+- **Greifarm:** Die KI räumt selbst weg und lernt aus jedem Versuch (Vortraining im Simulator). Am echten Arm **noch nie gelaufen**. Die Armmaße sind aus einem öffentlichen Modell bzw. der URDF. Vor der ersten Fahrt Greifer auf/zu prüfen ([docs/greifarm.md](docs/greifarm.md)).
+- **Kamerahöhe:** Laut Robotermodell sitzt die Kamera in Fahrstellung bei ca. 31 cm, eingestellt sind 22 cm. Bitte nachmessen (betrifft Linie, Karte, Tiefe).
+- **Linienfolger:** Pendeln bei höherem Tempo ist in der Simulation behoben. Am Roboter ungeprüft, die Verzögerungswerte sind geschätzt ([docs/linie.md](docs/linie.md)).
+- Teilweise KI-Aussetzer. Die KI rechnet jetzt auf der Grafikkarte, wenn möglich. Ist sie trotzdem überlastet (wenige Bilder pro Sekunde), hält der Roboter lieber an, statt etwas zu übersehen.
 - Die Objekterkennung ist teilweise fehlerhaft, Ampeln werden noch nicht sauber erkannt.
 
 Alles Neue ist zuerst in der Simulation getestet. Gerätetests auf RM02 laufen.

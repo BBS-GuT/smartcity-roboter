@@ -53,7 +53,7 @@ STANDARD = {
     'zebra_warten': 2.0,       # jemand da -> so lange warten, dann neu schauen (s)
     'zebra_weg': 2.0,          # nach dem Ueberqueren: erst wieder beachten, wenn so lange nicht gesehen
     # Einbahnstrasse
-    'einfahrt_bilder': 2,      # so viele Bilder hintereinander "Einfahrt verboten" -> wenden
+    'einfahrt_bilder': 2,      # so viele der letzten 4 Bilder "Einfahrt verboten" -> wenden
     'wenden_dreh': 0.8,        # Drehgeschwindigkeit beim Wenden (rad/s, + = links herum)
     'wenden_max_zeit': 7.0,    # laenger -> abbrechen und anhalten (180 Grad dauern bei 0,8 rad/s ca. 4 s)
     # Hindernis wegraeumen (Arm, Kinematik - keine eingelernten Greif-Posen noetig)
@@ -107,6 +107,7 @@ class Entscheider:
         self.zebra_merk = None        # zuletzt gesehener Zebrastreifen: (Abstand, Strecke dabei, Zeit) - falls die Kamera
                                       # ihn danach nicht mehr sieht (zu nah, KI langsam, anderer Ablauf lief gerade)
         self.einfahrt_n, self.einfahrt_gesperrt_bis = 0, 0.0
+        self.einfahrt_bilder = []     # gesehen ja/nein in den letzten Bildern
         self.aufheben_gesperrt, self.weg_frei_seit = False, None
         self.umschauen_wunsch = None  # Zeit, zu der jemand (Kartograf/Panel) Umschauen gewuenscht hat
         self.fehler_halt = None       # Manoever fehlgeschlagen -> bleibt stehen bis STOPP + neuer START
@@ -196,7 +197,10 @@ class Entscheider:
                 # des Aufhebens ab. Nach dem Ablauf sieht die Kamera Ampel/Schild ja wieder.
                 self._ampel_bild(jetzt, w)
                 self._schild_bild(jetzt, w)
-            self.einfahrt_n = self.einfahrt_n + 1 if w.get('einfahrt_verboten') else 0
+            # Treffer in den letzten 4 Bildern zaehlen (nicht nur direkt hintereinander): ist die KI langsam
+            # und ein Bild dazwischen unscharf, faehrt er sonst am Schild vorbei in die Einbahnstrasse
+            self.einfahrt_bilder = (self.einfahrt_bilder + [bool(w.get('einfahrt_verboten'))])[-4:]
+            self.einfahrt_n = sum(self.einfahrt_bilder)
             if w.get('zebra'):
                 self.zebra_zuletzt = jetzt
                 if not self.zebra_gesperrt:
@@ -348,7 +352,7 @@ class Entscheider:
             return self._b('stopp', 'KI sieht im Weg: ' + ', '.join(im_weg))
         # 5. Einbahnstrasse von der falschen Seite -> wenden
         if self.einfahrt_n >= c['einfahrt_bilder'] and jetzt >= self.einfahrt_gesperrt_bis:
-            self.einfahrt_n = 0
+            self.einfahrt_n, self.einfahrt_bilder = 0, []
             self._ereignis(jetzt, 'Schild "Einfahrt verboten" (Einbahnstrasse) -> wende', 'stopp')
             self.zebra_merk = None       # nach dem Wenden liegt er nicht mehr vor ihm
             return self._ablauf_start(jetzt, Wenden(jetzt, c, w.get('gier', 0.0)))
@@ -426,7 +430,7 @@ class Entscheider:
             self.zebra_zuletzt = jetzt   # beim Umschauen sah die Kamera den Zebrastreifen nicht
         elif a.name in ('wenden', 'ausweichen'):
             self.einfahrt_gesperrt_bis = jetzt + 6.0
-            self.einfahrt_n = 0
+            self.einfahrt_n, self.einfahrt_bilder = 0, []
             if a.ergebnis != 'ok':
                 # NICHT einfach weiterfahren (sonst in die Einbahnstrasse oder ins Hindernis)
                 self.fehler_halt = 'Wenden hat nicht geklappt'

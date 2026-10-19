@@ -26,6 +26,7 @@ Die Simulation nutzt eine **eigene Domain-ID (77)**. Die Roboter nutzen 30. So s
 | `scripts/simulation.sh pruefen` | fährt gut 2 Minuten ohne Panel und prüft alles automatisch. Am Ende steht `Alles in Ordnung.` oder welche Prüfung fehlgeschlagen ist |
 | `scripts/simulation.sh schwer` | wie ohne Zusatz, aber mit Fehlern wie in echt: großer Raum statt Wände am Spielfeld, zweiter LiDAR 12 cm versetzt und 4° verdreht, Lagesensor misst 3 % zu viel, Scans kommen 0,1 s zu spät |
 | `SIM_SCHWER=1 scripts/simulation.sh pruefen` | Prüfung mit diesen Fehlern |
+| `SIM_GREIFEN_NEU=1 scripts/simulation.sh pruefen` | Greifen frisch lernen. Ohne das lernt jede Prüfung mit dem weiter, was die letzten gelernt haben (wie auf dem echten Roboter). Der Arm im Simulator ist absichtlich anders gebaut, als die KI glaubt: frisch braucht sie oft mehr als 4 Versuche, dann schlägt „Würfel gegriffen“ fehl |
 | `SIM_ANTRIEB=echt scripts/simulation.sh pruefen` | Antrieb wie in echt: Motoren reagieren später und träger, Mecanum-Räder rutschen in Kurven, Radzähler/Lagesensor nur 10× pro Sekunde (geschätzte Werte, siehe [linie.md](linie.md)). `SIM_TEMPO=0.35` dazu: schneller fahren |
 | `python3 sim/linie_messen.py` | misst ohne ROS, wie genau der Linienfolger bei 0,15/0,25/0,35 m/s der Linie folgt (Tabelle, siehe [linie.md](linie.md)) |
 

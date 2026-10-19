@@ -66,7 +66,9 @@ class Zebrastreifen(Ablauf):
         # ... oder der LiDAR sieht etwas AUF oder direkt NEBEN dem Zebrastreifen (wartender Fussgaenger).
         # Nur dieser Bereich zaehlt, damit Haeuser und Waende nicht als Fussgaenger gelten.
         xy = w.get('lidar_xy')
-        if self.weg is None and w.get('weg'):
+        if w.get('weg'):
+            # Linie voraus jedes Mal neu nehmen: beim Anhalten (z. B. direkt nach einer Kurve) ist sie oft noch
+            # ungenau, ein paar Bilder spaeter stimmt sie. Mit der alten wuerde er ewig den falschen Bereich pruefen.
             self.weg = w['weg']
         if xy is not None:
             xy = np.asarray(xy).reshape(-1, 2)

@@ -22,6 +22,7 @@
 #      diese werden unwahrscheinlicher. Ein einzelner Fehlversuch zaehlt nicht voll (er kann auch Pech sein).
 #      Aeltere Versuche zaehlen etwas weniger (falls sich am Arm etwas veraendert).
 #   Ohne Ausprobieren (z. B. beim Pruefen) nimmt er den Mittelwert aller Vermutungen.
+#   Hat der letzte Versuch geklappt, wiederholt er meist genau diese Korrektur ("Gewinner bleibt", WIEDERHOLEN).
 # Wie die Korrektur von der Lage des Wuerfels abhaengt (weiter vorne/seitlich/hoeher), lernt das
 # Vortraining (Ausgleichsgerade = lineare Regression), auf dem Roboter wird nur die Grundkorrektur gelernt.
 #
@@ -52,6 +53,7 @@ P_TREFFER, P_DANEBEN = 0.92, 0.06   # Wahrscheinlichkeit fuer Erfolg, wenn die V
 WEICH = 0.003           # Rand der Greiferoeffnung ist nicht scharf (Messrauschen), m
 VERGESSEN = 0.985       # Gewicht eines Versuchs sinkt mit jedem neueren Versuch
 SPEICHER = 150          # so viele Versuche merkt er sich
+WIEDERHOLEN = 0.7       # nach einem Erfolg: so oft dieselbe Korrektur nochmal (sonst neu ziehen)
 
 
 def _gitter():
@@ -197,6 +199,13 @@ class Politik:
         if not erkunden:
             return mitte, mitte
         rng = rng if rng is not None else np.random.default_rng()
+        if self.speicher and self.speicher[-1][10] > 0.5 and rng.random() < WIEDERHOLEN:
+            # "Was gerade geklappt hat, wiederholen": letzter Versuch war ein Erfolg -> meist dieselbe
+            # Grundkorrektur nochmal (angepasst an die Lage dieses Wuerfels). Ab und zu trotzdem etwas Neues,
+            # sonst lernt er die genaue Korrektur nie (Ausprobieren gegen Ausnutzen).
+            x = self.speicher[-1]
+            alt = np.array(x[4:7]) - self.W0[:, 1:] @ np.array(x[1:4])
+            return alt + self.W0[:, 1:] @ phi[1:], mitte
         k = rng.choice(len(self.p), p=self.p)
         return self.c[k] + self.W0[:, 1:] @ phi[1:], mitte
 

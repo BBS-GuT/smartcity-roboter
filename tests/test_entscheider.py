@@ -201,6 +201,10 @@ print(f"{'OK  ' if ok else 'FEHLER'} Zebrastreifen waehrend Hindernis-Pruefung g
 l = Lauf()
 pruefe('Einfahrt verboten 1 Bild -> noch nichts', l.schritt(1, einfahrt_verboten=True), 'fahren')
 pruefe('Einfahrt verboten 2 Bilder -> anhalten', l.schritt(1, einfahrt_verboten=True), 'stopp')
+l2 = Lauf()
+l2.schritt(1, einfahrt_verboten=True)
+l2.schritt(1)                                   # ein Bild ohne Schild dazwischen (KI langsam, unscharf)
+pruefe('Einfahrt verboten mit Luecke (ja, nein, ja) -> trotzdem anhalten', l2.schritt(1, einfahrt_verboten=True), 'stopp')
 b = l.schritt(10, gier=0.0)
 ok = b['aktion'] == 'manoever' and b['manoever']['dreh'] > 0
 fehler += not ok
