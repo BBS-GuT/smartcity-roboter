@@ -10,7 +10,6 @@
 #   - Kamera: Hoehe, Neigung, Lage, seitliche Drehung, Blickwinkel; Tiefenrauschen und Massstabsfehler
 #   - Wuerfel: Groesse und Lage vor dem Roboter
 # Der PLANER kennt davon nichts: er rechnet mit den Nennmassen (so wie die KI auf dem echten Roboter).
-import math
 import os
 import sys
 
