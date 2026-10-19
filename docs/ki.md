@@ -17,7 +17,7 @@
 
 - **ki/zentrale.py**: ROS-Programm. Wertet die Sinne aus und schickt 10× pro Sekunde einen Befehl mit Grund.
 - **ki/entscheider.py**: Entscheidungslogik, ohne ROS testbar (`python3 tests/test_entscheider.py`).
-- **ki/ablaeufe.py**: Abläufe aus mehreren Schritten: Zebrastreifen, Wenden, Aufheben, Umschauen.
+- **ki/ablaeufe.py**: Abläufe aus mehreren Schritten: Zebrastreifen, Wenden, Wegräumen, Umschauen.
 - **line_follower/line_follower.py**: lenkt nach der schwarzen Linie, fährt nur, wenn die KI es erlaubt, und führt deren Manöver aus. Manöver sind z. B. wenden oder zum Greifen ausrichten. Sie sind begrenzt: max. 0,10 m/s vor, 0,08 m/s seitwärts, 1,2 rad/s drehen.
 
 ## Wie entscheidet die KI? (wichtigstes zuerst)
@@ -26,16 +26,14 @@
 |---|---|---|
 | 1 | LiDAR: etwas näher als **12 cm** | **STOPP sofort, ohne KI-Prüfung** (Eigenschutz) |
 | 2 | kein LiDAR oder keine Kamerabilder | STOPP (wer nichts sieht, fährt nicht) |
-| – | ein Ablauf läuft (Zebrastreifen, Wenden, Aufheben, Umschauen) | der Ablauf bestimmt, 1 und 2 gelten trotzdem |
-| 3 | LiDAR: etwas **im Fahrschlauch**, näher als **45 cm** | KI prüft mit Kamera-KI **und** Tiefenkamera: bestätigt → STOPP bis frei oder **aufheben** (siehe unten). Nicht bestätigt → LANGSAM, ab **20 cm** trotzdem STOPP. Ist der Arm freigegeben und die Pose "Prüfblick" da: im Stand kurz genauer hinschauen |
-| 4 | Tiefenkamera allein: etwas ragt aus der Fahrbahn (z. B. Holzwürfel, zu flach für den LiDAR) | STOPP oder aufheben |
-| 5 | Kamera-KI sieht Person/Auto/… im Weg | STOPP |
+| – | ein Ablauf läuft (Zebrastreifen, Wenden, Wegräumen, Umschauen) | der Ablauf bestimmt, 1 und 2 gelten trotzdem |
+| 3 | LiDAR (**im Fahrschlauch**, näher als **45 cm**) und/oder Tiefenkamera (etwas ragt aus der Fahrbahn, näher als 35 cm) | **STOPP, Kamera schaut genau hin**, dann wegräumen oder warten (siehe unten) |
+| 4 | Kamera-KI sieht Person/Auto/… im Weg | STOPP |
 | 6 | Schild **"Einfahrt verboten"** (2 Bilder hintereinander) | **wenden**: auf der Stelle drehen, bis die Linie wieder genau vorne liegt (gemessen mit dem Lagesensor, mind. 150°) |
 | 7 | **Zebrastreifen** näher als 33 cm | anhalten, Kamera nach **links**, dann nach **rechts** drehen (Arm), zurück. Sieht er eine Person oder steht etwas am Zebrastreifen (LiDAR, ±30 cm seitlich): warten und neu schauen. Sonst weiter. Ohne Arm-Freigabe: anhalten und geradeaus schauen |
 | 8 | Ampel rot oder gelb | STOPP, bis **grün** erkannt wird (oder die Ampel 4 s nicht mehr zu sehen ist) |
 | 9 | Stoppschild (nah, d. h. groß im Bild) | 3 s halten, dann weiter. Dasselbe Schild löst erst wieder aus, wenn es 2 s weg war |
 
-Im Szenario **RTW-Einsatz** werden 8 und 9 übergangen (Sonderrechte), alles andere gilt weiter.
 
 **Wenden** (Einbahnstraße) bricht ab und der Roboter bleibt stehen, wenn der Lagesensor nach 2,5 s keine Drehung meldet (IMU fehlt, falsch eingebaut, Räder blockiert) oder nach 7 s nicht fertig ist. Weiter geht es erst nach STOPP und neuem START. So dreht er nicht endlos im Kreis.
 
@@ -47,23 +45,25 @@ Im Szenario **RTW-Einsatz** werden 8 und 9 übergangen (Sonderrechte), alles and
 
 **Warum hat die Notbremse unter 12 cm das letzte Wort und nicht die KI?** Die KI kennt nur 80 Dinge. Einen Schuh, ein Kabel oder einen Karton kennt sie nicht. Darum: ganz nah = sofort stopp.
 
-## Aufheben – Sicherheitsregeln
+## Hindernis wegräumen (ki/ablaeufe.py, `Wegraeumen`)
 
-Die KI hebt nur auf, wenn **alles** stimmt:
-- Arm freigegeben (Panel → Arm), Posen Fahrstellung, Greifen, Greifen hoch und Ablegen eingelernt.
-- Höchstens 8 cm breit und 12 cm hoch.
-- Liegt **mitten auf der Straße** (höchstens 8 cm neben der Linie). Am Rand steht vielleicht jemand.
-- Kein Lebewesen und kein Fahrzeug erkannt.
-- **Kein Zebrastreifen** in den letzten 3 s gesehen. Dort stehen Fußgänger. In der Simulation hat die KI sonst einmal versucht, einen wartenden Fußgänger aufzuheben.
-- Das Fahrprogramm **fährt** (START). Im TEST und nach STOPP bewegt die KI den Arm nie. Ein laufender Ablauf wird abgebrochen, der Arm bleibt stehen. Beim nächsten START fährt er zuerst in die Fahrstellung.
+1. **Anhalten, anschauen:** mindestens 1 s **und** mindestens 5 neue KI-Bilder (höchstens 8 s). Ist die KI langsam, wartet er also länger, statt nach einem halben Blick zu entscheiden. Er misst mit der Tiefenkamera: wo, wie breit, wie hoch.
+2. **Urteil:**
+   - Kamera und LiDAR sehen nichts mehr → weiter (Fehlalarm).
+   - Nur der LiDAR sieht etwas → LANGSAM, ab 20 cm STOPP. Ist es näher als 22 cm (zu nah für die Kamera), fährt er bis zu 10 cm zurück und schaut nochmal.
+   - Lebewesen, Fahrzeug, zu groß, am Rand, kurz nach einem Zebrastreifen, Arm nicht freigegeben → **warten**, bis der Weg frei ist.
+3. **In Greifweite fahren:** geregelt nach dem, was die Kamera misst (nicht nach der Zeit), bis die Vorderkante 25 cm vor der Robotermitte liegt.
+4. **Planen:** Die KI rechnet die Servowinkel für jeden Schritt aus (inverse Kinematik). Auf dem Roboter macht das Yahbooms Kinematik-Dienst mit dem echten Armmodell, siehe [greifarm.md](greifarm.md). Erreicht der Arm einen Punkt nicht, wird nichts bewegt und er wartet.
+5. **Ausführen:** Greifer auf → über das Hindernis → runter → zu → anheben → zur Seite (die Seite, auf der der LiDAR weniger sieht, sonst rechts) → absetzen → loslassen → Fahrstellung.
+6. **Prüfen:** Kamera wieder nach vorne, mindestens 1,5 s und 5 Bilder. Sieht sie im Weg noch etwas → 2. Versuch (ab 1.), danach aufgeben und warten. Sonst „Weg ist frei (geprüft)“ → weiter.
 
-Ablauf: seitlich ausrichten (bis der Gegenstand mittig 30 cm vor ihm liegt) → langsam heranfahren → Greifer auf → zu → hoch → zur Seite (Pose "Ablegen") → loslassen → Fahrstellung → prüfen, ob der Weg frei ist. Liegt er noch da: nicht nochmal versuchen, warten.
+Der Arm bewegt sich nur, wenn er freigegeben ist (Panel → Arm) und das Fahrprogramm **fährt** (START). Im TEST und nach STOPP bewegt die KI den Arm nie. Ein laufender Ablauf wird abgebrochen. Beim nächsten START fährt der Arm zuerst in die Fahrstellung.
 
 ## Die Sinne
 
-- **Kamera-KI**: YOLOv8n (`models/yolov8n.onnx`), 80 Dinge aus dem COCO-Datensatz, u. a. Person, Auto, Bus, Fahrrad, Hund, Ampel, Stoppschild. Findet sie eine **Ampel**, schaut sie im Kasten nach, welche Lampe leuchtet.
+- **Kamera-KI**: YOLO. Mit Grafikkarte (Jetson): über Ultralytics/TensorRT, z. B. Yahbooms `~/ultralytics/ultralytics/yolo11n.engine` (sucht selbst, `erkennung/yolo.py`). Ohne: `models/yolov8n.onnx` auf dem Prozessor. Im Panel steht, was läuft (z. B. „TensorRT (Grafikkarte)“). 80 Dinge aus dem COCO-Datensatz, u. a. Person, Auto, Bus, Fahrrad, Hund, Ampel, Stoppschild. Findet sie eine **Ampel**, schaut sie im Kasten nach, welche Lampe leuchtet.
 - **Ersatz, wenn die KI nichts findet**:
-  - LED-Erkennung für die winzigen SmartCity-Ampeln (`line_follower/ampel.py`, einstellbar mit `scripts/ampel_kalibrieren.sh`),
+  - LED-Erkennung für die winzigen SmartCity-Ampeln (`line_follower/ampel.py`, einstellbar im Panel → System → „Ampel einstellen“),
   - Achteck-Form für Stoppschilder (`line_follower/schilder.py`).
 - **Einfahrt verboten**: roter Kreis mit waagrechtem weißem Balken (`schilder.finde_einfahrt_verboten`).
 - **Zebrastreifen**: In der Draufsicht des Linienfolgers sind mindestens 4 gleich breite, parallele Balken nebeneinander (`lib/zebra.py`).
@@ -76,7 +76,7 @@ Ablauf: seitlich ausrichten (bis der Gegenstand mittig 30 cm vor ihm liegt) → 
 - Entscheidungslogik: `tests/test_entscheider.py`.
 - Komplette Simulation mit ROS 2 Humble (`scripts/simulation.sh pruefen`), alles bestanden:
   - Ampel, Zebrastreifen mit Fußgänger,
-  - Würfel aufheben und neben die Straße legen,
+  - Würfel anschauen, Armbewegung berechnen, wegräumen, Weg prüfen,
   - Stoppschild, Einbahnstraße (gewendet bei ca. 160°),
   - Karte.
 

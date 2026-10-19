@@ -9,7 +9,7 @@
 
 Alle: Benutzer `jetson`, Domain-ID 30, micro-ROS-Agent startet automatisch.
 
-Welcher Roboter ist es? Alle heißen `yahboom`. `scripts/installieren.sh` fragt einmal nach dem Namen und speichert ihn in `~/roboter_name`. `scripts/check.sh` zeigt ihn an, dazu die MAC-Adressen (bei jedem Gerät anders), bitte hier eintragen.
+Welcher Roboter ist es? Alle heißen `yahboom`. `scripts/installieren.sh` fragt einmal nach dem Namen und speichert ihn in `~/roboter_name`. Panel → System → „Systemcheck“ zeigt ihn an, dazu die MAC-Adressen (bei jedem Gerät anders), bitte hier eintragen.
 
 | Roboter | MAC WLAN | MAC LAN |
 |---|---|---|

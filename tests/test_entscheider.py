@@ -19,7 +19,7 @@ class Lauf:
         self.t = 100.0
         self.nr = 0
 
-    def schritt(self, n=1, szenario='normal', **w):
+    def schritt(self, n=1, **w):
         befehl = None
         for _ in range(n):
             self.t += 0.1
@@ -27,7 +27,7 @@ class Lauf:
             daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None,
                      'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False}
             daten.update(w)
-            befehl = self.e.update(self.t, daten, szenario)
+            befehl = self.e.update(self.t, daten)
         return befehl
 
     def bis(self, arm, max_schritte=40, **w):
@@ -61,56 +61,56 @@ pruefe('nach 3 s weiter, obwohl Schild noch sichtbar', l.schritt(31, stoppschild
 pruefe('Schild lange sichtbar (langsam vorbei) -> kein 2. Halt', l.schritt(80, stoppschild=True), 'fahren')
 l.schritt(25)
 pruefe('naechstes Schild (nach 2,5 s ohne Schild) -> wieder halten', l.schritt(2, stoppschild=True), 'stopp')
-pruefe('Einsatz: Rot wird ueberfahren', Lauf().schritt(3, szenario='einsatz', ampel='rot'), 'fahren')
 
 l = Lauf()
-pruefe('LiDAR meldet, KI-Bild aelter -> langsam (prueft)',
-       l.e.update(l.t + 0.05, {'bild_nr': 0, 'bild_zeit': l.t, 'lidar': 0.3}, 'normal'), 'langsam')
+pruefe('LiDAR meldet etwas -> erst anhalten, Kamera prueft',
+       l.e.update(l.t + 0.05, {'bild_nr': 0, 'bild_zeit': l.t, 'lidar': 0.3}), 'stopp')
 pruefe('LiDAR + Kamera-KI sieht Person -> Stopp',
        l.schritt(1, lidar=0.3, objekte=[{'name': 'Person', 'im_weg': True}]), 'stopp')
 pruefe('Person weg, LiDAR frei -> noch kurz warten', l.schritt(1), 'stopp')
 pruefe('nach 1 s frei -> weiter', l.schritt(10), 'fahren')
 pruefe('LiDAR + Tiefenkamera -> Stopp', l.schritt(1, lidar=0.3, tiefe_hindernis=True), 'stopp')
 l = Lauf()
-pruefe('LiDAR ohne Bestaetigung -> langsam', l.schritt(3, lidar=0.3), 'langsam')
+pruefe('LiDAR ohne Bestaetigung -> nach dem Anschauen langsam', l.schritt(15, lidar=0.3), 'langsam')
 pruefe('LiDAR ohne Bestaetigung, aber naeher als 20 cm -> halten', l.schritt(1, lidar=0.18), 'stopp')
 pruefe('NOTBREMSE unter 12 cm, ohne KI', l.schritt(1, lidar=0.10), 'stopp')
 pruefe('kein LiDAR -> Stopp', l.schritt(1, lidar=None), 'stopp')
 l = Lauf()
 l.schritt(1)
 pruefe('KI-Bild veraltet -> Stopp',
-       l.e.update(l.t + 3.0, {'bild_nr': l.nr, 'bild_zeit': l.t, 'lidar': float('inf')}, 'normal'), 'stopp')
-pruefe('Einsatz: Person im Weg -> trotzdem Stopp',
-       Lauf().schritt(1, szenario='einsatz', objekte=[{'name': 'Person', 'im_weg': True}]), 'stopp')
+       l.e.update(l.t + 3.0, {'bild_nr': l.nr, 'bild_zeit': l.t, 'lidar': float('inf')}), 'stopp')
 
-# Arm-Blick (nur wenn erlaubt und die Pose 'pruefblick' eingelernt ist)
-PRUEF = {'fahrstellung': [90, 120, 10, 20, 90, 30], 'pruefblick': [90, 100, 20, 30, 90, 30]}
-l = Lauf(arm_erlaubt=True, posen=PRUEF)
-pruefe('unklar (1,5 s) -> Arm in Pruefblick', l.bis('pruefblick', lidar=0.3), 'stopp', 'pruefblick')
-t0 = l.t
-pruefe('Arm faehrt hin', l.schritt(10, lidar=0.3), 'stopp')
-b = l.bis('fahrstellung', lidar=0.3)
-pruefe('nach Schauen -> Arm zurueck', b, 'stopp', 'fahrstellung')
-print(f'     (Arm-Blick dauerte {l.t - t0:.1f} s bis zum Zurueckfahren)')
-pruefe('Arm noch unterwegs -> Stopp', l.schritt(5, lidar=0.3), 'stopp')
-pruefe('Arm zurueck, nichts gefunden -> langsam', l.schritt(12, lidar=0.3), 'langsam')
-pruefe('kein zweites Umschauen fuer dieselbe Meldung', l.schritt(30, lidar=0.3), 'langsam', None)
-l = Lauf(arm_erlaubt=True, posen=PRUEF)
-l.bis('pruefblick', lidar=0.3)
-l.schritt(5, lidar=0.3)
-pruefe('Notbremse waehrend Arm-Blick', l.schritt(1, lidar=0.1), 'stopp')
-pruefe('danach frei -> Arm zuerst zurueck', l.schritt(1, lidar=1.0), 'stopp', 'fahrstellung')
-pruefe('waehrend Arm zurueckfaehrt -> noch Stopp', l.schritt(5, lidar=1.0), 'stopp')
-pruefe('danach weiter', l.schritt(20, lidar=1.0), 'fahren')
-pruefe('ohne Erlaubnis kein Arm', Lauf().schritt(40, lidar=0.3), 'langsam', None)
-pruefe('ohne Pose "pruefblick" kein Arm-Blick', Lauf(arm_erlaubt=True, posen={'fahrstellung': PRUEF['fahrstellung']})
-       .schritt(40, lidar=0.3), 'langsam', None)
+# LiDAR meldet etwas, Kamera sieht nichts (z. B. Hauskante in der Kurve)
+l = Lauf()
+b = l.schritt(5, lidar=0.3)
+pruefe('LiDAR 30 cm, Kamera schaut noch hin -> Stopp', b, 'stopp')
+pruefe('Kamera sieht nach >= 1 s nichts -> langsam', l.schritt(15, lidar=0.3), 'langsam')
+pruefe('kein zweites Anschauen fuer dieselbe Meldung', l.schritt(30, lidar=0.3), 'langsam')
+pruefe('naeher als 20 cm -> halten', l.schritt(1, lidar=0.18), 'stopp')
+l = Lauf()
+l.schritt(3, lidar=0.3)
+pruefe('Fehlalarm: LiDAR und Kamera sehen nichts mehr -> weiter', l.schritt(20, lidar=1.0), 'fahren')
+# langsame KI: Anschauen wartet auf genug BILDER, nicht nur auf die Zeit
+l = Lauf()
+l.schritt(1, lidar=0.3)
+for _ in range(30):                     # 3 s, aber kein neues Bild
+    l.t += 0.1
+    b = l.e.update(l.t, {'bild_nr': l.nr, 'bild_zeit': l.t, 'lidar': 0.3, 'objekte': []})
+pruefe('KI liefert keine neuen Bilder -> wartet weiter mit dem Urteil', b, 'stopp')
 
 # ---------------- Zebrastreifen ----------------
-POSEN = {'fahrstellung': [90, 120, 10, 20, 90, 30], 'pruefblick': [90, 100, 20, 30, 90, 30],
-         'blick_links': [135, 120, 10, 20, 90, 30], 'blick_rechts': [45, 120, 10, 20, 90, 30],
-         'greifen': [90, 60, 60, 40, 90, 30], 'greifen_hoch': [90, 120, 40, 40, 90, 30],
-         'ablegen': [170, 70, 60, 40, 90, 30]}
+POSEN = {'fahrstellung': [90, 120, 10, 20, 90, 30],
+         'blick_links': [135, 120, 10, 20, 90, 30], 'blick_rechts': [45, 120, 10, 20, 90, 30]}
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
+import arm as armlib  # noqa: E402
+KIN = armlib.Kinematik()
+
+
+def planer(obj, seite):
+    """wie ki/zentrale.py (eigene Kinematik)"""
+    greif = (obj['vor'] + obj['breite'] / 2, obj['seite'], max(0.012, obj['hoehe'] / 2))
+    return armlib.plane_wegraeumen(KIN.inverse, greif, armlib.ablagestellen(seite, obj['hoehe'] / 2 + 0.01),
+                                   obj['hoehe'], POSEN['fahrstellung'], 30, 130)
 
 
 def arm_befehle(lauf, n, **w):
@@ -118,8 +118,9 @@ def arm_befehle(lauf, n, **w):
     arme, letzter = [], None
     for _ in range(n):
         letzter = lauf.schritt(1, **w)
-        if letzter['arm']:
-            arme.append(letzter['arm']['pose'] if isinstance(letzter['arm'], dict) else letzter['arm'])
+        a = letzter['arm']
+        if a:
+            arme.append(a if isinstance(a, str) else a.get('pose') or tuple(a['winkel']))
     return arme, letzter
 
 
@@ -180,34 +181,65 @@ pruefe('Gedaechtnis: 170 Grad, Linie unter dem Roboter gerade -> fertig',
        l.schritt(1, gier=math.radians(170), linie={'kamera': False, 'quer': 0.01, 'kurs': 0.1}), 'fahren')
 pruefe('Schild noch sichtbar -> nicht nochmal wenden', l.schritt(5, gier=math.radians(170), einfahrt_verboten=True), 'fahren')
 
-# ---------------- Aufheben ----------------
+# ---------------- Wegraeumen ----------------
 WUERFEL = {'vor': 0.31, 'seite': 0.02, 'breite': 0.045, 'hoehe': 0.045, 'quelle': 'tiefe'}
-l = Lauf(arm_erlaubt=True, posen=POSEN)
+NAH = dict(WUERFEL, vor=0.25)
+
+
+def wegraeumen(lauf, n, objekt_bis_greifen=WUERFEL, danach=None):
+    """Simuliert die Welt grob: Wuerfel kommt naeher, wenn der Roboter vorfaehrt; nach dem Greifen weg."""
+    obj, arme, gruende, letzter = dict(objekt_bis_greifen), [], [], None
+    for _ in range(n):
+        letzter = lauf.schritt(1, objekt=obj)
+        m = letzter.get('manoever')
+        if m:
+            obj = dict(obj, vor=obj['vor'] - m['lin'] * 0.1, seite=obj['seite'] - m['quer'] * 0.1)
+        a = letzter['arm']
+        if a and not isinstance(a, str) and a.get('winkel'):
+            arme.append(a['winkel'])
+            if a['winkel'][5] == 130:            # zugegriffen -> Wuerfel ist weg
+                obj = danach
+        gruende.append(letzter['grund'])
+    return arme, letzter, gruende
+
+
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 b = l.schritt(1, objekt=WUERFEL)
-ok = b['aktion'] == 'manoever' and b['manoever']['quer'] > 0
+pruefe('Wuerfel (Tiefenkamera) -> anhalten und anschauen', b, 'stopp')
+arme, b, gruende = wegraeumen(l, 400)
+ok = len(arme) == 9 and arme[-1] == POSEN['fahrstellung'] and any('Greifweite' in g for g in gruende)
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} Wuerfel (Tiefenkamera) -> richtet sich seitlich aus: {b['grund']}")
-mittig = dict(WUERFEL, seite=0.0, vor=0.30)
-b = l.schritt(4, objekt=mittig)
-pruefe('ausgerichtet -> faehrt heran', l.schritt(1, objekt=mittig), 'manoever')
-arme, b = arm_befehle(l, 200)
-soll = ['greifen', 'greifen', 'greifen_hoch', 'ablegen', 'ablegen', 'fahrstellung']
-ok = arme == soll
+print(f"{'OK  ' if ok else 'FEHLER'} angeschaut, in Greifweite gefahren, {len(arme)} berechnete Armbewegungen "
+      f"(keine eingelernten Posen), zurueck in Fahrstellung")
+ok = any('pruefe, ob der Weg frei' in g for g in gruende)
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} Greif-Ablauf: {arme}")
-pruefe('Weg frei -> weiter', b, 'fahren')
-l = Lauf(arm_erlaubt=True, posen=POSEN)
-l.schritt(5, objekt=mittig)
-arme, b = arm_befehle(l, 200, objekt=mittig)
-pruefe('Wuerfel liegt nach dem Greifen noch da -> wartet', b, 'stopp')
-pruefe('kein zweiter Versuch, solange er da liegt', l.schritt(10, objekt=mittig), 'stopp')
-l = Lauf(arm_erlaubt=True, posen=POSEN)
-b = l.schritt(3, objekt=WUERFEL, objekte=[{'name': 'Person', 'im_weg': False}])
-pruefe('Person in Sicht -> nie greifen, nur warten', b, 'stopp')
-l = Lauf(arm_erlaubt=True, posen=POSEN)
-pruefe('zu breit (20 cm) -> warten statt greifen', l.schritt(3, objekt=dict(WUERFEL, breite=0.2)), 'stopp')
-l = Lauf(arm_erlaubt=False, posen=POSEN)
-pruefe('ohne Arm-Freigabe -> warten', l.schritt(3, objekt=WUERFEL), 'stopp')
+print(f"{'OK  ' if ok else 'FEHLER'} nach dem Wegraeumen wird der Weg geprueft")
+pruefe('Weg frei (geprueft) -> weiter', b, 'fahren')
+ereignisse = [t for _, t, _ in l.e.ereignisse]
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=NAH)
+arme, b, gruende = wegraeumen(l, 600, NAH, danach=NAH)     # liegt nach dem Greifen immer noch da
+ok = len(arme) == 18 and b['aktion'] == 'stopp'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> 2. Versuch, dann aufgeben und warten "
+      f"({len(arme)} Armbewegungen, {b['grund']})")
+pruefe('kein dritter Versuch, solange er da liegt', l.schritt(30, objekt=NAH), 'stopp', None)
+pruefe('Wuerfel weg -> weiter', l.schritt(30), 'fahren')
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lambda o, s: {'fehler': 'Test: nicht erreichbar'})
+l.schritt(1, objekt=NAH)
+arme, b, gruende = wegraeumen(l, 100, NAH, danach=NAH)
+pruefe('Arm erreicht es nicht -> keine Bewegung, warten', b, 'stopp', None)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+b = l.schritt(30, objekt=WUERFEL, objekte=[{'name': 'Person', 'im_weg': False}])
+pruefe('Person in Sicht -> nie anfassen, nur warten', b, 'stopp', None)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+pruefe('zu breit (20 cm) -> warten statt greifen', l.schritt(30, objekt=dict(WUERFEL, breite=0.2)), 'stopp', None)
+l = Lauf(arm_erlaubt=False, posen=POSEN, planer=None)
+b = l.schritt(30, objekt=WUERFEL)
+pruefe('ohne Arm-Freigabe -> Kamera bestaetigt, warten', b, 'stopp', None)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+pruefe('LiDAR 15 cm, Kamera sieht nichts -> etwas zurueck, damit die Kamera es sieht',
+       l.schritt(15, lidar=0.15, lidar_hinten=1.0), 'manoever')
 
 # ---------------- Umschauen fuer die Karte ----------------
 l = Lauf(arm_erlaubt=True, posen=POSEN)
@@ -222,28 +254,27 @@ ok = 'geht nicht' in l.e.kommando(l.t, 'umschauen')
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Umschauen ohne Arm-Freigabe wird abgelehnt")
 
-# ---------------- Aufheben: Sicherheitsregeln ----------------
-l = Lauf(arm_erlaubt=True, posen=POSEN)
+# ---------------- Wegraeumen: Sicherheitsregeln ----------------
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 pruefe('Gegenstand am Strassenrand (12 cm neben der Linie) -> nicht greifen, warten',
-       l.schritt(3, objekt=dict(WUERFEL, quer=0.12)), 'stopp', None)
-l = Lauf(arm_erlaubt=True, posen=POSEN)
+       l.schritt(30, objekt=dict(WUERFEL, quer=0.12)), 'stopp', None)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(1, zebra={'abstand': 0.6})
-b = l.schritt(2, objekt=WUERFEL)
-ok = b['aktion'] == 'stopp' and l.e.ablauf is None
+arme, b, _ = wegraeumen(l, 40)
+ok = b['aktion'] == 'stopp' and not arme
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} kurz nach Zebrastreifen -> nichts aufheben (Fussgaenger!): {b['grund']}")
+print(f"{'OK  ' if ok else 'FEHLER'} kurz nach Zebrastreifen -> nichts anfassen (Fussgaenger!): {b['grund']}")
 
 # ---------------- STOPP / TEST: KI bewegt den Arm nie ----------------
-l = Lauf(arm_erlaubt=True, posen=POSEN)
-mittig = dict(WUERFEL, seite=0.0, vor=0.30)
-l.schritt(1, objekt=mittig)
-arme, b = arm_befehle(l, 60, objekt=mittig)       # ausrichten, heranfahren, Greifer auf
-ok_vorher = 'greifen' in arme
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=NAH)
+arme, b, _ = wegraeumen(l, 45, NAH)                 # anschauen, planen, erste Armbewegungen
+ok_vorher = len(arme) > 0
 l.e.fahrt_aktiv = False                          # STOPP gedrueckt
-arme, b = arm_befehle(l, 60, objekt=mittig)
+arme, b, _ = wegraeumen(l, 60, NAH)
 ok = ok_vorher and arme == [] and l.e.ablauf is None
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} STOPP waehrend Aufheben: Ablauf abgebrochen, kein Arm-Befehl mehr ({b['grund']})")
+print(f"{'OK  ' if ok else 'FEHLER'} STOPP waehrend Wegraeumen: Ablauf abgebrochen, kein Arm-Befehl mehr ({b['grund']})")
 l.e.fahrt_aktiv = True                           # wieder START
 b = l.schritt(1)
 ok = b['arm'] == 'fahrstellung'

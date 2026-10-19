@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # KI-Zentrale: behaelt alles im Blick und sagt dem Linienfolger, ob er fahren darf.
 #
-# Start: scripts/ki.sh  (das Panel startet sie automatisch)
+# Start: das Panel startet sie automatisch (scripts/panel.sh)
 #
 # Sinne:
 #   Kamera      -> YOLO-KI (Personen, Autos, Ampeln, Stoppschilder, ...)
@@ -19,7 +19,6 @@
 #   /ki/bild/compressed     Kamerabild mit allem, was die KI sieht (fuer das Panel)
 #   /ki/antwort             std_msgs/String  Antwort auf /ki/kommando
 # Empfaengt:
-#   /ki/szenario            std_msgs/String  'normal' | 'einsatz'
 #   /ki/kommando            std_msgs/String  'umschauen' (Kartograf/Panel: kurz anhalten, links/rechts schauen)
 #   /arm6_joints            wohin der Arm geschickt wurde (von wem auch immer) -> wohin schaut die Kamera?
 import json
@@ -60,7 +59,7 @@ AKTION_BGR = {'fahren': (60, 170, 60), 'langsam': (0, 170, 230), 'stopp': (40, 4
 
 
 def lade_ampel_werte():
-    """Eingestellte Ampelwerte aus config/ampel.yaml (erzeugt mit ampel_kalibrieren.sh)."""
+    """Eingestellte Ampelwerte aus config/ampel.yaml (Panel -> System -> Ampel einstellen)."""
     try:
         import yaml
         with open(os.path.join(REPO, 'config', 'ampel.yaml')) as f:
@@ -79,7 +78,10 @@ class Zentrale(Node):
         dp = self.declare_parameter
         dp('model', os.path.join(REPO, 'models', 'yolov8n.onnx'))
         dp('imgsz', 320)
-        dp('kerne', 2)                  # Prozessorkerne fuer die KI
+        dp('kerne', 2)                  # Prozessorkerne fuer die KI (nur ohne Grafikkarte)
+        dp('gpu', True)                 # KI auf der Grafikkarte rechnen, wenn moeglich (viel schneller, entlastet
+                                        # den Prozessor fuer Linienfolger und Karte)
+        dp('gpu_modell', '')            # leer = automatisch suchen (erkennung/yolo.py, GPU_MODELLE)
         dp('rate', 8.0)                 # KI-Bilder pro Sekunde (hoechstens)
         dp('min_conf', 0.35)            # Mindest-Sicherheit der KI (zum Anzeigen)
         dp('weg_min_conf', 0.5)         # so sicher muss sie sein, damit "im Weg" zum Anhalten fuehrt
@@ -100,7 +102,6 @@ class Zentrale(Node):
         dp('obstacle_min_range', 0.08)
         dp('fahrschlauch_breite', 0.30)  # Roboterbreite + etwas Rand (m) - am Roboter nachmessen
         dp('fahrschlauch_laenge', 0.80)  # so weit voraus pruefen (m)
-        dp('szenario', 'normal')
         for name in ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x', 'threshold'):
             dp(name, linie.STANDARD[name])   # gleiche Kameradaten wie der Linienfolger (config/roboter.yaml)
         # Alle Werte des Entscheiders (ki/entscheider.py, STANDARD) sind auch einstellbar, z. B. in
@@ -111,9 +112,19 @@ class Zentrale(Node):
         einst = armlib.lade_einstellungen()
         self.posen = {k: v for k, v in armlib.lade_posen().items() if v}
         arm_erlaubt = bool(einst.get('ki_darf_arm_bewegen')) and bool(self.posen.get('fahrstellung'))
-        self.entscheider = Entscheider(cfg={n: self.p(n) for n in KI_STANDARD}, arm_erlaubt=arm_erlaubt,
-                                       posen=self.posen)
         self.arm = armlib.Arm(self) if arm_erlaubt else None
+        # Kinematik zum Wegraeumen: echter Roboter -> Yahbooms Dienst (echtes Armmodell). Die eigene Rechnung
+        # (geschaetzte Masse) nur in der Simulation oder wenn ausdruecklich erlaubt (eigene_kinematik: true).
+        self.eigene_kin = armlib.lade_kinematik()
+        self.eigene_kin_erlaubt = bool(einst.get('eigene_kinematik')) or (self.arm is not None and not self.arm.echt)
+        self.yahboom_kin = None
+        if self.arm is not None and self.arm.echt:
+            try:
+                self.yahboom_kin = armlib.YahboomKinematik()
+            except Exception as e:
+                self.get_logger().warn(f'Yahboom-Kinematik nicht verfuegbar ({e}) -> KI raeumt nichts weg')
+        self.entscheider = Entscheider(cfg={n: self.p(n) for n in KI_STANDARD}, arm_erlaubt=arm_erlaubt,
+                                       posen=self.posen, planer=self.planen if arm_erlaubt else None)
         self.arm_beobachter = armlib.ArmBeobachter(self)
         self.kamera_cfg = {n: self.p(n) for n in ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x', 'threshold')}
         self.linien_sucher = linie.LinienSucher(self.kamera_cfg)   # Draufsicht fuer den Zebrastreifen
@@ -130,15 +141,26 @@ class Zentrale(Node):
                             'stoppschild': False, 'tiefe_hindernis': None}
         self.befehl = {'aktion': 'stopp', 'faktor': 0.0, 'grund': 'KI startet ...', 'arm': None}
         self.ki_ms = 0.0
-        self.szenario = self.p('szenario')
         # Tiefenkamera prueft denselben Fahrweg wie der LiDAR (halbe Fahrschlauch-Breite)
         self.boden = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
         self.ampel_werte = lade_ampel_werte()
 
         self.yolo, self.yolo_fehler = None, ''
+        if self.p('gpu'):
+            try:
+                from yolo import YoloGpu, gpu_modell_suchen
+                pfad = gpu_modell_suchen(REPO, self.p('gpu_modell'))
+                if pfad:
+                    self.get_logger().info(f'Lade KI-Modell fuer die Grafikkarte: {pfad} (dauert etwas) ...')
+                    self.yolo = YoloGpu(pfad, self.p('imgsz'))
+            except Exception as e:   # keine Grafikkarte, Ultralytics fehlt, .engine passt nicht zu TensorRT ...
+                self.get_logger().warn(f'Grafikkarte geht nicht ({e}) -> KI rechnet auf dem Prozessor')
+                self.yolo = None
         try:
             from yolo import Yolo
-            if os.path.exists(self.p('model')):
+            if self.yolo is not None:
+                pass
+            elif os.path.exists(self.p('model')):
                 self.yolo = Yolo(self.p('model'), self.p('imgsz'), kerne=self.p('kerne'))
             else:
                 self.yolo_fehler = 'Modell fehlt: ' + self.p('model')
@@ -155,7 +177,6 @@ class Zentrale(Node):
         for i, t in enumerate(self.p('scan_topics')):
             self.create_subscription(LaserScan, t, lambda m, t=t, i=i: self._scan(m, t, i),
                                      qos_profile_sensor_data)
-        self.create_subscription(String, '/ki/szenario', self._szenario, 10)
         self.create_subscription(String, '/ki/kommando', self._kommando, 10)
         self.pub_antwort = self.create_publisher(String, '/ki/antwort', 10)
         self.create_subscription(Imu, '/imu/data_raw', self._imu, qos_profile_sensor_data)
@@ -212,11 +233,6 @@ class Zentrale(Node):
             self.linie_status = st
         except ValueError:
             pass
-
-    def _szenario(self, msg):
-        if msg.data in ('normal', 'einsatz') and msg.data != self.szenario:
-            self.szenario = msg.data
-            self._sende_ereignis(time.time(), f'Szenario: {msg.data}', 'info')
 
     def _kommando(self, msg):
         antwort = self.entscheider.kommando(time.time(), msg.data.strip())
@@ -406,7 +422,7 @@ class Zentrale(Node):
         if lid_obj and lid_obj['abstand'] >= self.entscheider.c['pruef_dist']:
             lid_obj = None
         w['objekt'] = w.get('tiefe_objekt') or lid_obj
-        befehl = self.entscheider.update(jetzt, w, self.szenario)
+        befehl = self.entscheider.update(jetzt, w)
         if befehl['arm'] and self.arm is not None:
             self._arm_befehl(befehl['arm'])
         with self.lock:
@@ -417,7 +433,7 @@ class Zentrale(Node):
         kamera_ok, kamera_gier = self.kamera_lage()
         info = dict(befehl)
         info.update({
-            'zeit': jetzt, 'szenario': self.szenario,
+            'zeit': jetzt,
             'ki': self.yolo.backend if self.yolo else self.yolo_fehler, 'ki_ms': round(self.ki_ms),
             'bild_alter': round(jetzt - w['bild_zeit'], 2) if w['bild_zeit'] else None,
             'lidar': None if w['lidar'] is None else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
@@ -435,19 +451,51 @@ class Zentrale(Node):
         })
         self.pub_befehl.publish(String(data=json.dumps(info)))
 
+    def planen(self, obj, seite):
+        """Armbewegung zum Wegraeumen ausrechnen (laeuft in einem eigenen Thread, siehe ki/ablaeufe.py).
+        obj: gemessenes Hindernis (Tiefenkamera, Roboter-System), seite: Ablage +1 links / -1 rechts."""
+        fahr = self.posen['fahrstellung']
+        auf, zu = armlib.greifer_werte()
+        h = obj['hoehe']
+        kin = self.yahboom_kin
+        if kin is not None and kin.bereit() and obj.get('pixel') and obj.get('tiefe_m'):
+            p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], fahr)
+            if p is None:
+                return {'fehler': 'Yahboom-Kinematik antwortet nicht'}
+            # Kamerapunkt liegt auf der Vorderseite/Oberseite -> etwas weiter hinein greifen
+            greif = (p[0] + obj['breite'] / 4, p[1], p[2])
+            boden = p[2] - h / 2
+            plan = armlib.plane_wegraeumen(lambda x, y, z: kin.inverse(x, y, z, aktuell=fahr), greif,
+                                           armlib.ablagestellen(seite, boden + h / 2 + 0.01), h, fahr, auf, zu)
+            plan['info'] = plan.get('info', '') + ' (Yahboom-Kinematik)'
+            return plan
+        if not self.eigene_kin_erlaubt:
+            return {'fehler': 'Yahbooms Kinematik-Dienst laeuft nicht (ros2 run arm_kin kin_srv, startet das Panel)'}
+        greif = (obj['vor'] + obj['breite'] / 2, obj['seite'], max(0.012, h / 2))
+        plan = armlib.plane_wegraeumen(self.eigene_kin.inverse, greif, armlib.ablagestellen(seite, h / 2 + 0.01),
+                                       h, fahr, auf, zu)
+        plan['info'] = plan.get('info', '') + ' (eigene Kinematik)'
+        return plan
+
     def _arm_befehl(self, arm):
-        """arm: Posenname oder {'pose': Name, 'greifer': 'auf' | 'zu' | None}."""
+        """arm: Posenname, {'pose': Name, 'greifer': 'auf' | 'zu' | None} oder {'winkel': [6], 'zeit_ms'}."""
         if isinstance(arm, str):
             arm = {'pose': arm}
+        if arm.get('winkel'):
+            fehler = self.arm.fahre(list(arm['winkel']), int(arm.get('zeit_ms', 1200)))
+            if fehler:
+                self.get_logger().error(f'Arm: {fehler}')
+            return
         winkel = self.posen.get(arm['pose'])
         if not winkel:
             self.get_logger().error(f"Arm: Pose '{arm['pose']}' fehlt (im Panel einlernen)")
             return
         winkel = list(winkel)
+        auf, zu = armlib.greifer_werte()
         if arm.get('greifer') == 'auf':
-            winkel[5] = armlib.GREIFER_AUF
+            winkel[5] = auf
         elif arm.get('greifer') == 'zu':
-            winkel[5] = armlib.GREIFER_ZU
+            winkel[5] = zu
         fehler = self.arm.fahre(winkel, 1200)
         if fehler:
             self.get_logger().error(f'Arm: {fehler}')

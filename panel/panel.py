@@ -4,10 +4,10 @@
 #
 # Erreichbar:
 #   am Roboter selbst:  http://localhost:8080
-#   vom Laptop:         http://<IP-des-Roboters>:8080   -> erst im Panel unter "System"
-#                       "Laptop-Zugriff erlauben" einschalten (oder Start mit --netz).
+#   vom Laptop:         http://<IP-des-Roboters>:8080   -> Laptop-Zugriff ist STANDARDMAESSIG AN
+#                       (ausschalten: im Panel unter "System" oder Start mit --kein-netz).
 #                       Die aktuelle IP zeigt das Panel selbst an.
-#   ACHTUNG: Mit Laptop-Zugriff kann jeder im Netz, der die Adresse kennt, den Roboter starten.
+#   ACHTUNG: Solange Laptop-Zugriff an ist, kann jeder im Netz, der die Adresse kennt, den Roboter starten.
 #
 # Was das Panel tut:
 #   Dashboard        -> alles auf einer Seite: Karte (2D/3D), Kamera, LiDAR, Knoepfe, Ereignisse
@@ -49,14 +49,6 @@ import lidar           # noqa: E402
 import arm as armlib   # noqa: E402
 import einstellungen   # noqa: E402
 from entscheider import STANDARD as KI_STANDARD  # noqa: E402
-
-# Szenarien: Name -> Beschreibung + was an KI und Linienfolger geht. Neue einfach ergaenzen.
-SZENARIEN = {
-    'normal': {'titel': 'Normal', 'text': 'Haelt bei Rot, am Stoppschild und vor Hindernissen.',
-               'ki': 'normal'},
-    'einsatz': {'titel': 'RTW-Einsatz', 'text': 'Sonderrechte: faehrt bei Rot und am Stoppschild weiter, '
-                'etwas schneller. Vor Hindernissen haelt er trotzdem.', 'ki': 'einsatz'},
-}
 
 # Sensoren fuer die Statusseite: (Anzeigename, Topic, Mindestrate in Hz oder None = nur Info)
 SENSOREN = [
@@ -117,12 +109,12 @@ class Prozesse:
         pr = self.p.get(name)
         return pr is not None and pr.poll() is None
 
-    def start(self, name, befehl, info=''):
+    def start(self, name, befehl, info='', env=None):
         if self.laeuft(name):
             return False
         log = open(f'/tmp/panel_{name}.log', 'w')
         # eigene Prozessgruppe, damit beim Beenden auch alle Unterprozesse beendet werden
-        self.p[name] = subprocess.Popen(befehl, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        self.p[name] = subprocess.Popen(befehl, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=env)
         self.info[name] = info
         return True
 
@@ -153,7 +145,7 @@ class PanelNode(Node):
         self.scans = {}                 # topic -> (zeit, msg)
         self.ereignisse = deque(maxlen=40)
         self.zaehler = {}               # topic -> Zeitpunkte (fuer Hz)
-        self.netz_erlaubt = args.netz
+        self.netz_erlaubt = not args.kein_netz
         cfg = lade_lidar_einstellungen()
         self.scan_topics = list(cfg.get('scan_topics', ['/scan0', '/scan1']))
         self.scan_front = [float(x) for x in cfg.get('scan_front_deg', [0.0] * len(self.scan_topics))]
@@ -161,10 +153,8 @@ class PanelNode(Node):
         self.notbremse = float(cfg.get('notbremse_dist', KI_STANDARD['notbremse_dist']))
         self.arm = None
         self.tiefe_sub, self.tiefe_gewuenscht = None, 0.0
-        self.szenario = 'normal'
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
-        self.szenario_pub = self.create_publisher(String, '/ki/szenario', 10)
         self.ki_kommando_pub = self.create_publisher(String, '/ki/kommando', 10)
         self.karte_kommando_pub = self.create_publisher(String, '/karte/kommando', 10)
         self.tempo_pub = self.create_publisher(Float32, '/line_follower/tempo', 10)
@@ -176,14 +166,13 @@ class PanelNode(Node):
         sub(String, '/ki/antwort', lambda m: self._set('ki_antwort', m.data), 10)
         sub(CompressedImage, '/line_follower/bild/compressed', lambda m: self._set('bild_lf', bytes(m.data)), 1)
         sub(CompressedImage, '/ki/bild/compressed', lambda m: self._set('bild_ki', bytes(m.data)), 1)
+        sub(CompressedImage, '/sim/bild/compressed', lambda m: self._set('bild_sim', bytes(m.data)), 1)  # nur Simulation
         for t in self.scan_topics:
             sub(LaserScan, t, lambda m, t=t: self._scan(t, m), qos_profile_sensor_data)
         self.dyn_subs = {}
         self.create_timer(2.0, self._dynamisch_abonnieren)
         self.create_timer(3.0, self._agent_pruefen)
         self.create_timer(0.5, self._tiefe_verwalten)
-        # Szenario jede Sekunde senden, damit es auch eine spaeter gestartete KI mitbekommt
-        self.create_timer(1.0, lambda: self.szenario_pub.publish(String(data=SZENARIEN[self.szenario]['ki'])))
 
     # ---------------- Eingaenge ----------------
     def _set(self, name, wert):
@@ -362,6 +351,64 @@ def topics_mit(woerter):
     return '\n'.join(zeilen) or 'keine passenden Topics gefunden'
 
 
+def system_info():
+    """Schnellcheck (frueher scripts/check.sh): Name, Netz, Version, Programme. Aendert nichts."""
+    def lauf(befehl):
+        try:
+            return subprocess.run(befehl, capture_output=True, text=True, timeout=10).stdout.strip()
+        except Exception as e:
+            return f'({e})'
+    name_datei = os.path.expanduser('~/roboter_name')
+    zeilen = [f"Rechner: {socket.gethostname()}",
+              'Roboter: ' + (open(name_datei).read().strip() if os.path.exists(name_datei)
+                             else 'unbekannt (echo RM02 > ~/roboter_name)'),
+              f"Domain-ID: {os.environ.get('ROS_DOMAIN_ID', '?')}, "
+              f"ROS-Uebertragung: {os.environ.get('RMW_IMPLEMENTATION', 'Standard (Fast DDS)')}",
+              'IP: ' + ', '.join(ip_adressen())]
+    for n in sorted(os.listdir('/sys/class/net')) if os.path.isdir('/sys/class/net') else []:
+        if n != 'lo':
+            try:
+                zeilen.append(f'MAC {n}: ' + open(f'/sys/class/net/{n}/address').read().strip())
+            except OSError:
+                pass
+    zeilen.append('Repo-Stand: ' + lauf(['git', '-C', REPO, 'log', '--oneline', '-1']))
+    zeilen.append('micro-ROS-Agent: ' + ('laeuft' if lauf(['pgrep', '-f', 'micro_ros_agent']) else 'LAEUFT NICHT'))
+    return '\n'.join(zeilen)
+
+
+def paket_da(paket):
+    try:
+        return subprocess.run(['ros2', 'pkg', 'prefix', paket], capture_output=True, timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
+_KINEMATIK = None
+
+
+def kinematik_pruefen():
+    """Fragt Yahbooms Kinematik-Dienst, wo der Greifer in der Fahrstellung ist (rechnet nur, bewegt nichts)."""
+    global _KINEMATIK
+    fahr = armlib.lade_posen().get('fahrstellung')
+    try:
+        kin = _KINEMATIK = _KINEMATIK or armlib.YahboomKinematik()
+    except Exception as e:
+        return f'Yahboom-Kinematik nicht installiert ({e}). Ohne sie raeumt die KI auf dem Roboter nichts weg.'
+    for _ in range(20):
+        if kin.bereit():
+            break
+        time.sleep(0.25)
+    else:
+        return 'Dienst /get_kinemarics antwortet nicht. Laeuft "ros2 run arm_kin kin_srv"? (startet mit der KI)'
+    ende = kin.vorwaerts(fahr)
+    if ende is None:
+        return 'Dienst antwortet nicht (Zeit abgelaufen).'
+    x, y, z = ende[:3]
+    ziel = kin.inverse(0.22, 0.0, 0.03, aktuell=fahr)
+    return (f'Kinematik laeuft. Fahrstellung {fahr}: Arm-Ende bei x {x * 100:.1f} cm, y {y * 100:.1f} cm, '
+            f'z {z * 100:.1f} cm (base_link).\nTest: Punkt 22 cm voraus, 3 cm hoch -> Servos {ziel or "nicht erreichbar"}')
+
+
 def param_setzen(knoten, name, wert):
     """Parameter eines laufenden Programms aendern (im Hintergrund, Fehler egal)."""
     def lauf():
@@ -375,6 +422,9 @@ def mache_handler(node, prozesse, beenden=None):
     def ki_starten():
         # Kartograf gehoert dazu: baut bei jeder Fahrt die Karte weiter (faehrt nicht, bewegt keinen Arm)
         karte_starten()
+        # Yahbooms Kinematik-Dienst (rechnet Armbewegungen mit dem echten Armmodell), falls installiert
+        if 'kinemarics_arm' not in node.get_node_names() and paket_da('arm_kin'):
+            prozesse.start('kinematik', ['ros2', 'run', 'arm_kin', 'kin_srv'])
         return prozesse.start('ki', [sys.executable, os.path.join(REPO, 'ki', 'zentrale.py'), '--ros-args']
                               + einstellungen.ros_argumente())
 
@@ -401,22 +451,14 @@ def mache_handler(node, prozesse, beenden=None):
                 hinweis = ' KI-Zentrale wird gestartet (ca. 5 s), bis dahin bleibt er stehen.'
             else:
                 hinweis = ''
-            node.szenario_pub.publish(String(data=SZENARIEN[node.szenario]['ki']))
             if 'line_follower' in node.get_node_names():
                 return ('Es laeuft schon ein Linienfolger, der NICHT vom Panel gestartet wurde (alte Version oder '
-                        'scripts/test.sh/fahren.sh). Erst beenden: Terminal -> scripts/stopp.sh, dann nochmal.')
+                        'aus einem Terminal). Erst beenden: Terminal -> scripts/stopp.sh, dann nochmal.')
             prozesse.start('fahren', lf_befehl(name == 'start'), 'FAEHRT' if name == 'start' else 'TESTMODUS')
             time.sleep(2.5)       # sofort wieder beendet? Dann den Grund aus dem Protokoll zeigen
             if not prozesse.laeuft('fahren'):
                 return 'Linienfolger hat sich sofort beendet:\n' + log_ende('fahren')
             return ('Faehrt los.' if name == 'start' else 'Testmodus: zeigt alles, faehrt nicht.') + hinweis
-        if name == 'szenario':
-            sz = daten.get('szenario')
-            if sz not in SZENARIEN:
-                return f'Unbekanntes Szenario {sz}'
-            node.szenario = sz
-            node.szenario_pub.publish(String(data=SZENARIEN[sz]['ki']))
-            return f"Szenario: {SZENARIEN[sz]['titel']}"
         if name == 'tempo':
             zustand['tempo'] = max(0.05, min(0.4, float(daten.get('wert', 0.15))))
             node.tempo_pub.publish(Float32(data=zustand['tempo']))
@@ -459,8 +501,11 @@ def mache_handler(node, prozesse, beenden=None):
                 if not letzte:
                     return 'Erst einmal eine ganze Pose schicken (der Roboter meldet die Armstellung nicht).'
                 winkel = list(letzte)
-                winkel[5] = armlib.GREIFER_AUF if daten.get('auf') else armlib.GREIFER_ZU
-                return node.arm.fahre(winkel, 800) or ('Greifer auf' if daten.get('auf') else 'Greifer zu')
+                auf, zu = armlib.greifer_werte()
+                winkel[5] = auf if daten.get('auf') else zu
+                return node.arm.fahre(winkel, 800) or (f'Greifer auf ({auf})' if daten.get('auf') else
+                                                       f'Greifer zu ({zu}). Falsch herum? greifer_auf/greifer_zu in '
+                                                       'config/lokal/arm.yaml tauschen.')
             if name == 'arm_speichern':
                 pose = daten.get('name', '')
                 if not re.fullmatch(r'[a-z0-9_]{2,30}', pose):
@@ -475,6 +520,8 @@ def mache_handler(node, prozesse, beenden=None):
                     return 'Erst die Pose "fahrstellung" speichern.'
                 armlib.speichere_einstellung('ki_darf_arm_bewegen', bool(daten.get('erlaubt')))
                 return 'Gespeichert. KI neu starten (KI stoppen + starten), damit es gilt.'
+            if name == 'arm_kinematik':
+                return kinematik_pruefen()
             if name == 'arm_diagnose':
                 return topics_mit(['arm', 'servo', 'joint', 'grip', 'claw'])
         # ---- LiDAR ----
@@ -495,6 +542,17 @@ def mache_handler(node, prozesse, beenden=None):
                 return 'Laptop-Zugriff kann nur am Roboter selbst umgeschaltet werden.'
             node.netz_erlaubt = bool(daten.get('erlaubt'))
             return 'Laptop-Zugriff ' + ('AN' if node.netz_erlaubt else 'AUS')
+        if name == 'ampel_kalibrieren':
+            if prozesse.laeuft('fahren'):
+                return 'Erst STOPP druecken.'
+            env = dict(os.environ, DISPLAY=os.environ.get('DISPLAY', ':0'))
+            if not prozesse.start('ampel', [sys.executable, os.path.join(REPO, 'line_follower', 'ampel_kalibrieren.py')],
+                                  env=env):
+                return 'Ampel-Einstellung laeuft schon (Fenster am Roboter-Bildschirm).'
+            return ('Fenster "Ampel einstellen" geht am Roboter-Bildschirm auf. Tasten: s = Foto, w = Werte speichern, '
+                    'q = Ende. Danach KI neu starten, damit die Werte gelten.')
+        if name == 'system_info':
+            return system_info()
         if name == 'update':
             if prozesse.laeuft('fahren'):
                 return 'Erst STOPP druecken.'
@@ -529,8 +587,7 @@ def mache_handler(node, prozesse, beenden=None):
             'akku_prozent': None if akku is None else
             max(0, min(100, round((akku - AKKU_LEER) / (AKKU_VOLL - AKKU_LEER) * 100))),
             'sensoren': node.sensor_status(),
-            'szenarien': {k: {'titel': v['titel'], 'text': v['text']} for k, v in SZENARIEN.items()},
-            'szenario': node.szenario, 'tempo': zustand['tempo'],
+            'tempo': zustand['tempo'], 'simulation': node.get('bild_sim', max_alter=3.0) is not None,
             'ips': ip_adressen(), 'port': node.args.port, 'netz_erlaubt': node.netz_erlaubt, 'lokal': lokal,
             'roboter': open(os.path.expanduser('~/roboter_name')).read().strip()
             if os.path.exists(os.path.expanduser('~/roboter_name')) else '',
@@ -576,6 +633,9 @@ def mache_handler(node, prozesse, beenden=None):
                     self._senden(200, 'application/json', json.dumps(status(self._lokal())).encode())
                 elif pfad == '/api/lidar':
                     self._senden(200, 'application/json', json.dumps(node.lidar_daten()).encode())
+                elif pfad == '/bild/sim.jpg':
+                    b = node.get('bild_sim', max_alter=2.0)
+                    self._senden(200, 'image/jpeg', b or text_bild('Keine Simulation (nur mit scripts/simulation.sh)'))
                 elif pfad in ('/bild/ki.jpg', '/bild/linie.jpg'):
                     b = node.get('bild_ki' if 'ki' in pfad else 'bild_lf', max_alter=2.0)
                     if b is None:
@@ -624,7 +684,7 @@ def mache_handler(node, prozesse, beenden=None):
 def main():
     ap = argparse.ArgumentParser(description='Control-Panel')
     ap.add_argument('--port', type=int, default=8080)
-    ap.add_argument('--netz', action='store_true', help='Laptop-Zugriff gleich beim Start erlauben (Vorsicht!)')
+    ap.add_argument('--kein-netz', action='store_true', help='Laptop-Zugriff beim Start AUS (Standard: an)')
     ap.add_argument('--tiefe-topic', default='/camera/depth/image_raw')
     ap.add_argument('--autostart', action='store_true', help='Kamera und KI-Zentrale beim Start mitstarten')
     ap.add_argument('--karte', default='smartcity', help='Name der Karte (Ordner karten/<name>)')
@@ -646,7 +706,7 @@ def main():
     server.daemon_threads = True
     print(f'Control-Panel am Roboter:  http://localhost:{args.port}')
     for ip in ip_adressen():
-        print(f'Vom Laptop (Laptop-Zugriff im Panel erlauben):  http://{ip}:{args.port}')
+        print(f"Vom Laptop (Laptop-Zugriff {'AN' if node.netz_erlaubt else 'AUS'}):  http://{ip}:{args.port}")
     # Auch bei "Beenden"-Signalen (Fenster zu, Herunterfahren) sauber aufraeumen,
     # sonst laufen KI und Linienfolger ohne Panel weiter.
     def signal_ende(*_):

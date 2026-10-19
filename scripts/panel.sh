@@ -7,7 +7,7 @@
 #   2. sonst ein Browser                      -> zum Beenden DIESES Terminal schliessen oder
 #                                                im Panel unter System "Panel beenden"
 # Fehlt beides: scripts/browser_installieren.sh
-# Laptop-Zugriff gleich erlauben (Vorsicht):  scripts/panel.sh --netz
+# Laptop-Zugriff ist standardmaessig AN. Ausschalten:  scripts/panel.sh --kein-netz
 source "$(dirname "$0")/env.sh"
 export DISPLAY="${DISPLAY:-:0}"
 PORT=8080
@@ -66,7 +66,7 @@ else
 fi
 echo "Adresse am Roboter: $URL"
 for IP in $(hostname -I); do
-    [[ "$IP" == *.*.*.* ]] && echo "Adresse vom Laptop:  http://$IP:$PORT  (im Panel unter System Laptop-Zugriff erlauben)"
+    [[ "$IP" == *.*.*.* ]] && echo "Adresse vom Laptop:  http://$IP:$PORT  (Laptop-Zugriff ist an, abschalten unter System)"
 done
 echo
 echo ">>> Dieses Fenster offen lassen. Schliessen oder Strg+C = alles aus, Roboter haelt an. <<<"

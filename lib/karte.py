@@ -15,6 +15,10 @@
 #      bisherige Karte passt -> Fehler aus 1. wird laufend korrigiert.
 #   3. Neue Fahrt mit vorhandener Karte: Der erste Scan wird in ALLEN Drehungen ueber die ganze Karte
 #      geschoben (globale Suche), bis er passt. Danach weiter wie 2.
+#   Zwei LiDARs: Der erste (Haupt-LiDAR) baut die Karte. Wo der zweite GENAU sitzt (ein paar Grad/cm
+#   anders als eingestellt), lernt die Lokalisierung selbst, indem sie seine Scans auf die Karte schiebt.
+#   Erst danach zaehlen seine Punkte mit. Ohne das dreht sich die Karte mit jeder Runde etwas weiter.
+#   Scans kommen etwas spaeter an, als sie gemessen wurden: abgeglichen wird mit der Position ZUR MESSZEIT.
 import json
 import math
 import os
@@ -106,6 +110,16 @@ class Belegung:
     def bekannt(self):
         return bool((self.lo > 1.0).sum() > 50)
 
+    def bekannt_anteil(self, pose, punkte):
+        """Anteil der Scanpunkte, die in schon vermessenen Zellen landen (frei oder belegt).
+        Klein = neues Gebiet (dort kann der Abgleich nicht gut passen, eintragen ist trotzdem richtig)."""
+        p = np.asarray(punkte, dtype=np.float64)
+        p = p[np.hypot(p[:, 0], p[:, 1]) < self.c['max_reichweite']]
+        if len(p) == 0:
+            return 0.0
+        ij, ok = self.zellen(in_karte(pose, p))
+        return float((np.abs(self.lo[ij[ok, 1], ij[ok, 0]]) > 0.5).sum() / len(p))
+
     def guete(self, pose, punkte):
         """Anteil (0..1) der Scanpunkte, die auf Belegtes treffen."""
         t = self.trefferkarte()
@@ -114,15 +128,21 @@ class Belegung:
             return 0.0
         return float(t[ij[ok, 1], ij[ok, 0]].sum() / len(punkte))
 
-    def abgleichen(self, pose, punkte):
-        """Beste Position in der Naehe der mitgerechneten. Rueckgabe: (pose, guete) oder (None, guete)."""
+    def abgleichen(self, pose, punkte, xy=None, w=None):
+        """Beste Position in der Naehe der mitgerechneten. Rueckgabe: (pose, guete) oder (None, guete).
+        xy (m) / w (Grad): so weit suchen (Standard: abgleich_xy / abgleich_w)."""
         p = np.asarray(punkte, dtype=np.float64)
+        # nur Punkte, die auch eingetragen werden (weiter weg steht nichts in der Karte -> zaehlte als "passt nicht")
+        p = p[np.hypot(p[:, 0], p[:, 1]) < self.c['max_reichweite']]
+        if len(p) < 10:
+            return None, 0.0
         if len(p) > 240:
             p = p[np.linspace(0, len(p) - 1, 240).astype(int)]
         t = self.trefferkarte()
         beste = (self.guete(pose, p), tuple(pose))
         for stufe, (xy, schritt_xy, w, schritt_w) in enumerate((
-                (self.c['abgleich_xy'], self.aufl, math.radians(self.c['abgleich_w']), math.radians(1.0)),
+                (self.c['abgleich_xy'] if xy is None else xy, self.aufl,
+                 math.radians(self.c['abgleich_w'] if w is None else w), math.radians(1.0)),
                 (self.aufl, self.aufl / 2, math.radians(0.75), math.radians(0.25)))):
             mitte = beste[1]
             versatz = np.arange(-xy, xy + 1e-9, schritt_xy)
@@ -301,6 +321,7 @@ class Karte:
         self.marker = Marker()
         self.fahrten = 0
         self.letzte_pose = None
+        self.einbau = {}        # weitere LiDARs: Name -> gelernte Einbau-Korrektur (dx, dy, dw) oder None
 
     # ---------------- Speichern ----------------
     def laden(self):
@@ -319,12 +340,14 @@ class Karte:
         info = json.loads(str(d['info']))
         self.fahrten = info.get('fahrten', 0)
         self.letzte_pose = info.get('letzte_pose')
+        self.einbau = info.get('einbau', {})
         self.marker.liste = [m for m in info.get('marker', []) if m['art'] not in ('hindernis', 'person')]
         return True
 
     def speichern(self):
         os.makedirs(self.ordner, exist_ok=True)
         info = {'fahrten': self.fahrten, 'letzte_pose': self.letzte_pose, 'marker': self.marker.liste,
+                'einbau': self.einbau,
                 'aufloesung': self.belegung.aufl, 'ursprung': self.belegung.ursprung}
         tmp = os.path.join(self.ordner, 'karte_neu.npz')
         np.savez_compressed(tmp, belegung=self.belegung.lo.astype(np.float16),
@@ -491,46 +514,139 @@ def relativ(a, b):
     return (c * dx + s * dy, -s * dx + c * dy, winkel(b[2] - a[2]))
 
 
+class LidarEinbau:
+    """Wo sitzt ein weiterer LiDAR GENAU? Lernt die Abweichung (dx, dy, dw) gegenueber der Einstellung,
+    indem seine Scans auf die Karte des Haupt-LiDARs geschoben werden (nur wenn die Position sicher ist)."""
+    PROBEN = 25            # so viele passende Messungen ...
+    STREUUNG_W = 1.0       # ... duerfen hoechstens so viel streuen (Grad) ...
+    STREUUNG_XY = 0.02     # ... bzw. so viel (m), dann gilt die Korrektur
+
+    def __init__(self, korrektur=None):
+        self.korrektur = tuple(korrektur) if korrektur else None   # None = noch nicht gelernt
+        self.proben = []
+        self.letzte_probe = 0.0
+
+    def probe(self, karte_belegung, pose, punkte, jetzt):
+        """Eine Messung: Scan dieses LiDARs (ohne Korrektur) an der sicheren Position 'pose' abgleichen."""
+        if jetzt - self.letzte_probe < 0.5:
+            return
+        self.letzte_probe = jetzt
+        # weiter suchen als sonst: von Hand eingestellt kann er einige Grad daneben liegen
+        neu, guete = karte_belegung.abgleichen(pose, punkte, xy=0.12, w=10.0)
+        if neu is None or guete < 0.5:
+            return
+        self.proben = (self.proben + [relativ(pose, neu)])[-self.PROBEN * 2:]
+        if len(self.proben) < self.PROBEN:
+            return
+        p = np.array(self.proben[-self.PROBEN:])
+        mitte = np.median(p, axis=0)
+        if (np.degrees(np.std(p[:, 2])) < self.STREUUNG_W and np.std(p[:, 0]) < self.STREUUNG_XY
+                and np.std(p[:, 1]) < self.STREUUNG_XY):
+            alt = self.korrektur
+            self.korrektur = tuple(round(float(v), 4) for v in mitte)
+            return alt is None
+        return False
+
+    def anwenden(self, punkte):
+        return in_karte(self.korrektur, punkte) if self.korrektur else punkte
+
+    def text(self):
+        if self.korrektur is None:
+            return f'lerne Einbau ({len(self.proben)}/{self.PROBEN})'
+        dx, dy, dw = self.korrektur
+        return f'Einbau gelernt: {dx * 100:+.1f} / {dy * 100:+.1f} cm, {math.degrees(dw):+.1f} Grad'
+
+
 class Lokalisierung:
     """Wo ist der Roboter in der Karte? Mitrechnen + Scan-Abgleich + (bei neuer Fahrt) globale Suche."""
 
     def __init__(self, karte):
         self.karte = karte
         self.odom = (0.0, 0.0, 0.0)     # mitgerechnete Position (eigenes System, driftet)
+        self.verlauf = []               # (zeit, odom) der letzten Sekunden: wo war ich, als der Scan gemessen wurde?
         self.pose = None                # Position in der Karte, None = noch unbekannt
         self.guete = 0.0
         self.status = 'startet'
         self.letzter_eintrag = None     # (odom, zeit) beim letzten Eintragen in die Karte
         self.puffer = []                # Scans, solange die Position unbekannt ist: (odom, punkte)
         self.pfad = []                  # gefahrene Strecke dieser Fahrt (Karte)
+        self.unsicher_seit = None       # seit wann passt der Abgleich nicht (dann weiter suchen)
+        # weitere LiDARs: Name -> LidarEinbau (gelernte Korrektur steht in der Karte, gilt fuer den naechsten Start)
+        self.einbau = {name: LidarEinbau(k) for name, k in (karte.einbau or {}).items()}
 
-    def bewegen(self, dx, dy, dw):
+    def bewegen(self, dx, dy, dw, zeit=None):
         """Bewegung seit dem letzten Aufruf im Roboter-System (aus Odometrie + IMU)."""
         schritt = (dx, dy, dw)
         self.odom = verknuepfen(self.odom, schritt)
         if self.pose is not None:
             self.pose = verknuepfen(self.pose, schritt)
+        if zeit is not None:
+            self.verlauf.append((zeit, self.odom))
+            if len(self.verlauf) > 400 or (self.verlauf and zeit - self.verlauf[0][0] > 3.0):
+                self.verlauf = self.verlauf[-200:]
 
-    def scan(self, punkte, jetzt, eintragen=True):
-        """Neuer LiDAR-Scan (N,2) im Roboter-System. eintragen=False: nur abgleichen (z. B. beim schnellen Drehen)."""
+    def odom_bei(self, zeit):
+        """Mitgerechnete Position zur Zeit 'zeit' (aus dem Verlauf, sonst die aktuelle)."""
+        if zeit is None or not self.verlauf or zeit >= self.verlauf[-1][0]:
+            return self.odom
+        for t, o in reversed(self.verlauf):
+            if t <= zeit:
+                return o
+        return self.verlauf[0][1]
+
+    def einbau_text(self):
+        return '; '.join(f'{n}: {e.text()}' for n, e in self.einbau.items())
+
+    def scan(self, punkte, jetzt, eintragen=True, scan_zeit=None, weitere=None):
+        """Neuer LiDAR-Scan (N,2) im Roboter-System. eintragen=False: nur abgleichen (z. B. beim schnellen Drehen).
+        scan_zeit: wann er gemessen wurde (None = jetzt). weitere: {Name: (zeit, punkte)} der anderen LiDARs."""
         bel = self.karte.belegung
+        odom_scan = self.odom_bei(scan_zeit)
+        bis_jetzt = relativ(odom_scan, self.odom)          # Bewegung seit der Messung
+        alle = [np.asarray(punkte, dtype=np.float64)]
+        roh_weitere = {}
+        for name, (zeit, p) in (weitere or {}).items():
+            if len(p) == 0:
+                continue
+            # in das System des Haupt-Scans bringen (anderer Messzeitpunkt)
+            p = in_karte(relativ(odom_scan, self.odom_bei(zeit)), p)
+            roh_weitere[name] = p
+            e = self.einbau.setdefault(name, LidarEinbau())
+            if e.korrektur is not None:
+                alle.append(e.anwenden(p))
+        alle = np.concatenate(alle) if len(alle) > 1 else alle[0]
         if self.pose is None:
             if not bel.bekannt():
                 self.pose, self.status = (0.0, 0.0, 0.0), 'neue Karte'
                 self.karte.fahrten += 1
             else:
-                self.puffer = (self.puffer + [(self.odom, punkte)])[-60:]
+                self.puffer = (self.puffer + [(odom_scan, alle)])[-60:]
                 return False
-        else:
-            neu, self.guete = bel.abgleichen(self.pose, punkte) if bel.bekannt() else (None, 0.0)
+        pose_scan = verknuepfen(self.pose, relativ(self.odom, odom_scan))   # wo ich bei der Messung war
+        sicher = not bel.bekannt()
+        if bel.bekannt():
+            # Passt es eine Weile nicht, weiter suchen (der Fehler der Odometrie waechst mit der Zeit)
+            weit = self.unsicher_seit is not None and jetzt - self.unsicher_seit > 1.0
+            neu, self.guete = bel.abgleichen(pose_scan, alle, *((0.15, 8.0) if weit else ()))
             if neu is not None:
-                self.pose = neu
-                self.status = 'ok'
-            elif bel.bekannt():
+                pose_scan, sicher = neu, True
+                self.pose = verknuepfen(neu, bis_jetzt)
+                self.status, self.unsicher_seit = 'ok', None
+            else:
+                self.unsicher_seit = self.unsicher_seit or jetzt
                 self.status = f'Abgleich unsicher ({self.guete:.0%}) - rechne mit'
-        if eintragen and self._weit_genug(jetzt):
-            bel.eintragen(self.pose, punkte)
+        # Nur eintragen, was sicher ist: sonst wandert die Karte mit dem Fehler mit und dreht sich.
+        # Ausnahme: neues Gebiet (dort kann der Abgleich nicht passen, weil noch nichts in der Karte steht).
+        neues_gebiet = not sicher and bel.bekannt_anteil(pose_scan, alle) < 0.3
+        if eintragen and (sicher or neues_gebiet) and self._weit_genug(jetzt):
+            bel.eintragen(pose_scan, alle)
             self.letzter_eintrag = (self.odom, jetzt)
+        # weitere LiDARs: Einbau lernen, wenn die Position sicher ist und die Karte schon etwas hat
+        if sicher and bel.bekannt():
+            for name, p in roh_weitere.items():
+                if self.einbau[name].probe(bel, pose_scan, p, jetzt):
+                    self.status = f'{name}: {self.einbau[name].text()}'
+                self.karte.einbau[name] = self.einbau[name].korrektur
         if not self.pfad or math.hypot(self.pfad[-1][0] - self.pose[0], self.pfad[-1][1] - self.pose[1]) > 0.03:
             self.pfad.append((round(self.pose[0], 3), round(self.pose[1], 3)))
         return True

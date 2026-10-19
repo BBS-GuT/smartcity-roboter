@@ -41,7 +41,10 @@ def strecke(x0=0.4, y0=0.4, x1=2.6, y1=1.8, r=0.25, schritt=0.005):
 
 
 class Welt:
-    def __init__(self, mit_einbahn=True, mit_wuerfel=True, mit_fussgaenger=True):
+    def __init__(self, mit_einbahn=True, mit_wuerfel=True, mit_fussgaenger=True, halle=False):
+        # halle=True: wie in echt - um das Spielfeld keine Waende, sondern ein grosser Raum (Waende 3-5 m weg).
+        # Der LiDAR sieht dann viele Punkte weit weg und weniger Haeuser in der Naehe (schwerer fuer die Karte).
+        self.halle = halle
         self.punkte, self.laenge = strecke()
         d = np.diff(np.vstack([self.punkte, self.punkte[:1]]), axis=0)
         self.richtung = np.arctan2(d[:, 1], d[:, 0])
@@ -67,6 +70,8 @@ class Welt:
         # mindestens 22 cm neben der Linie (Roboter ist ca. 30 cm breit)
         self.haeuser = [(0.0, 0.0, 0.18, 0.6), (2.82, 1.4, 3.0, 2.2), (1.0, 2.02, 1.7, 2.2), (1.9, 0.0, 2.4, 0.18),
                         (0.9, 0.8, 1.3, 1.35), (1.7, 0.75, 2.1, 1.2), (2.82, 0.2, 2.98, 0.55)]
+        if halle:   # in der Halle: nur zwei Haeuser in LiDAR-Hoehe, der Rest ist weit weg
+            self.haeuser = [self.haeuser[0], self.haeuser[4]]
         self._raster()
 
     def pose_bei(self, s):
@@ -104,6 +109,38 @@ class Welt:
     def welt_zu_pixel(p):
         p = np.asarray(p, dtype=np.float64)
         return np.stack([p[..., 0] / AUFLOESUNG, (HOEHE - p[..., 1]) / AUFLOESUNG], axis=-1)
+
+    # ------------------------------------------------------------------ Draufsicht (zum Zuschauen)
+    def draufsicht(self, pose, arm_dreh_deg=0.0, greifer=None, haelt=False, spur=()):
+        """Bild der ganzen Welt von oben mit Roboter, Arm, Ampel, Wuerfel, Fussgaenger (BGR).
+        greifer: (x, y) der Greiferspitze in der Welt oder None. spur: bisher gefahrene Punkte."""
+        img = self.boden.copy()
+        px = lambda p: tuple(int(v) for v in self.welt_zu_pixel(p))
+        if len(spur) > 1:
+            cv2.polylines(img, [self.welt_zu_pixel(np.array(spur)).astype(np.int32)], False, (200, 120, 40), 1)
+        farbe_ampel = {'rot': (40, 40, 230), 'gelb': (40, 220, 240), 'gruen': (60, 200, 60), 'aus': (90, 90, 90)}
+        for s in self.schilder:
+            f = farbe_ampel[self.ampel] if s['art'] == 'ampel' else (30, 30, 200) if s['art'] == 'stopp' else (250, 250, 250)
+            cv2.circle(img, px((s['x'], s['y'])), 7, f, -1)
+            cv2.circle(img, px((s['x'], s['y'])), 7, (20, 20, 20), 1)
+            text = {'ampel': 'Ampel', 'stopp': 'STOP', 'einfahrt_verboten': 'Einfahrt verb.'}[s['art']]
+            cv2.putText(img, text, px((s['x'] + 0.03, s['y'] - 0.06)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (20, 20, 20), 1)
+        for z in self.zylinder:
+            cv2.circle(img, px((z['x'], z['y'])), max(3, int(z['r'] / AUFLOESUNG)), z['farbe'], -1)
+            cv2.putText(img, z['name'], px((z['x'] + 0.03, z['y'] + 0.03)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (20, 20, 20), 1)
+        x, y, w = pose
+        c, s = math.cos(w), math.sin(w)
+        ecken = [(x + c * a - s * b, y + s * a + c * b) for a, b in ((0.15, 0.12), (0.15, -0.12), (-0.15, -0.12), (-0.15, 0.12))]
+        cv2.fillPoly(img, [self.welt_zu_pixel(np.array(ecken)).astype(np.int32)], (70, 160, 70))
+        cv2.polylines(img, [self.welt_zu_pixel(np.array(ecken)).astype(np.int32)], True, (20, 60, 20), 2)
+        cv2.arrowedLine(img, px((x, y)), px((x + 0.2 * c, y + 0.2 * s)), (255, 255, 255), 2, tipLength=0.3)
+        # Arm: von der Basis in Richtung Servo 1, bis zum Greifer (falls bekannt)
+        basis = (x + KAMERA['arm_basis_x'] * c, y + KAMERA['arm_basis_x'] * s)
+        a = w + math.radians(arm_dreh_deg)
+        ziel = greifer or (basis[0] + 0.12 * math.cos(a), basis[1] + 0.12 * math.sin(a))
+        cv2.line(img, px(basis), px(ziel), (0, 140, 255), 3)
+        cv2.circle(img, px(ziel), 5, (0, 0, 255) if haelt else (0, 140, 255), -1)
+        return img
 
     # ------------------------------------------------------------------ Kamera
     @staticmethod
@@ -229,7 +266,8 @@ class Welt:
         segmente = []
         for x0, y0, x1, y1 in self.haeuser:
             segmente += [(x0, y0, x1, y0), (x1, y0, x1, y1), (x1, y1, x0, y1), (x0, y1, x0, y0)]
-        segmente += [(0, 0, BREITE, 0), (BREITE, 0, BREITE, HOEHE), (BREITE, HOEHE, 0, HOEHE), (0, HOEHE, 0, 0)]
+        x0, y0, x1, y1 = (-3.0, -2.5, 7.5, 5.0) if self.halle else (0, 0, BREITE, HOEHE)
+        segmente += [(x0, y0, x1, y0), (x1, y0, x1, y1), (x1, y1, x0, y1), (x0, y1, x0, y0)]
         s = np.array(segmente)
         p = np.array([x, y])
         e = s[:, 2:] - s[:, :2]                     # (M, 2)

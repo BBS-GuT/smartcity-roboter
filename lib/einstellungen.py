@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ROS-Einstellungen aus mehreren Dateien (spaetere gelten vor frueheren):
 #   config/roboter.yaml        Standardwerte (im Repository)
-#   config/ampel.yaml          Ampelwerte (von scripts/ampel_kalibrieren.sh, falls vorhanden)
+#   config/ampel.yaml          Ampelwerte (Panel -> System -> Ampel einstellen, falls vorhanden)
 #   config/lokal/roboter.yaml  eigene Werte DIESES Roboters (Panel speichert hierhin, nicht im Repository,
 #                              damit "git pull" nie an gespeicherten Werten scheitert)
 # Eigene Werte kann man auch von Hand eintragen, z. B. die gemessene Kameraneigung:

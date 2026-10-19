@@ -80,6 +80,38 @@ with tempfile.TemporaryDirectory() as ordner:
     ply = k2.ply()
     check('3D-Export (PLY)', ply.startswith(b'ply') and len(ply) > 10000, f'({len(ply) // 1024} KB)')
 
+# ---------------- Zwei LiDARs: zweiter sitzt anders als eingestellt (wie am M3 Pro: vorne/hinten versetzt) ----------
+EINBAU = (-0.12, 0.03, math.radians(4.0))      # wahrer Versatz des zweiten LiDARs (unbekannt fuer die Karte)
+rng = np.random.default_rng(9)
+with tempfile.TemporaryDirectory() as ordner:
+    karte = K.Karte(ordner)
+    lok = K.Lokalisierung(karte)
+    s, wahr, t, abw = 0.0, W.pose_bei(0.0), 0.0, []
+    while s < W.laenge * 1.5:
+        neu = W.pose_bei(s + 0.015)
+        rel = K.relativ(wahr, neu)
+        lok.bewegen(rel[0], rel[1], rel[2] + (0.003 + rng.normal(0, 0.01)) * 0.1, t)
+        wahr, s = neu, s + 0.015
+        scans = []
+        for einbau in ((0.0, 0.0, 0.0), EINBAU):
+            r, a = W.lidar(K.verknuepfen(wahr, einbau), rng=rng)
+            ok = np.isfinite(r) & (r > 0.08) & (r < 7.9)
+            # beide LiDARs "glauben", sie saessen in der Robotermitte
+            scans.append(np.column_stack([r[ok] * np.cos(a[ok]), r[ok] * np.sin(a[ok])]))
+        lok.scan(scans[0], t, weitere={'/scan1': (t, scans[1])})
+        wk = K.relativ(START, wahr)
+        abw.append(math.hypot(lok.pose[0] - wk[0], lok.pose[1] - wk[1]))
+        t += 0.1
+    k = lok.einbau['/scan1'].korrektur
+    check('Zweiter LiDAR: Einbau selbst gelernt', k is not None and abs(k[0] - EINBAU[0]) < 0.015
+          and abs(k[1] - EINBAU[1]) < 0.015 and abs(k[2] - EINBAU[2]) < math.radians(1.0),
+          f'(wahr {EINBAU[0] * 100:+.0f} / {EINBAU[1] * 100:+.0f} cm, 4.0 Grad; {lok.einbau["/scan1"].text()})')
+    check('Zweiter LiDAR: Karte bleibt genau', max(abw) < 0.08, f'(max {max(abw) * 100:.1f} cm)')
+    karte.speichern()
+    k2 = K.Karte(ordner)
+    k2.laden()
+    check('Gelernter Einbau wird mit der Karte gespeichert', k2.einbau.get('/scan1') is not None)
+
 # ---------------- Tiefenkamera: Hindernis im Fahrweg, auch in Kurven ----------------
 bm = tiefe.Bodenmodell(KAM)
 for s in np.linspace(0.3, 0.8, 8):          # Boden lernen (freie Strecke)

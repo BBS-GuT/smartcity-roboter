@@ -2,7 +2,7 @@
 # Kartograf: baut waehrend jeder Fahrt eine 2D- und 3D-Karte und verbessert sie mit jeder Fahrt.
 # FAEHRT NICHT und bewegt den Arm nicht selbst (er kann die KI hoechstens bitten, sich umzuschauen).
 #
-# Start: scripts/kartograf.sh  (das Panel startet ihn automatisch mit der KI)
+# Start: das Panel startet ihn automatisch mit der KI (scripts/panel.sh)
 #
 # Sensoren -> Karte (Erklaerung der Schichten in lib/karte.py):
 #   LiDAR (/scan0, /scan1)        -> Belegung (Waende, Haeuser, Hindernisse) + Scan-Abgleich (Position)
@@ -143,7 +143,7 @@ class Kartograf(Node):
             # keine Odometrie: wenigstens die Drehung vom Lagesensor mitrechnen (Strecke macht der Scan-Abgleich)
             if letzte and jetzt - letzte < 0.2:
                 with self.lock:
-                    self.lok.bewegen(0.0, 0.0, (msg.angular_velocity.z - self.gyro_bias) * (jetzt - letzte))
+                    self.lok.bewegen(0.0, 0.0, (msg.angular_velocity.z - self.gyro_bias) * (jetzt - letzte), jetzt)
 
     def _odom(self, msg):
         jetzt = time.time()
@@ -167,7 +167,7 @@ class Kartograf(Node):
                 wz = imu_w - self.gyro_bias
         self.dreh, self.v = wz, math.hypot(vx, vy)
         with self.lock:
-            self.lok.bewegen(vx * dt, vy * dt, wz * dt)
+            self.lok.bewegen(vx * dt, vy * dt, wz * dt, jetzt)
         self.gefahren += math.hypot(vx, vy) * dt
 
     # ---------------- LiDAR ----------------
@@ -180,15 +180,20 @@ class Kartograf(Node):
 
     def _scans_verarbeiten(self):
         jetzt = time.time()
-        frisch = [xy for z, xy in self.scans.values() if jetzt - z < 0.3]
+        # Der erste LiDAR (scan_topics[0]) baut die Karte. Die weiteren zaehlen erst mit, wenn ihr genauer
+        # Einbau gelernt ist (siehe lib/karte.py, LidarEinbau). Jeder Scan mit seiner Messzeit.
+        frisch = [(t, self.scans[t]) for t in self.p('scan_topics') if t in self.scans and jetzt - self.scans[t][0] < 0.5]
         if not frisch:
             return
-        punkte = np.concatenate(frisch)
+        (_, (zeit, punkte)), weitere = frisch[0], {t: v for t, v in frisch[1:]}
         if abs(self.dreh) > 1.0:
             return                   # dreht schnell: Scan ist verzerrt -> nur mitrechnen
         with self.lock:
             vorher = self.lok.pose
-            self.lok.scan(punkte, jetzt, eintragen=abs(self.dreh) < 0.5)
+            self.lok.scan(punkte, jetzt, eintragen=abs(self.dreh) < 0.5, scan_zeit=zeit, weitere=weitere)
+            for t in weitere:
+                self.scans.pop(t, None)          # jeden Scan nur einmal verwenden
+            self.scans.pop(frisch[0][0], None)
             if self.lok.pose is not None:   # Scan in Kartenkoordinaten fuer die Anzeige (passt so immer zur Karte)
                 auswahl = punkte[np.linspace(0, len(punkte) - 1, min(len(punkte), 180)).astype(int)]
                 self.scan_karte = np.round(K.in_karte(self.lok.pose, auswahl), 3).tolist()
@@ -316,8 +321,9 @@ class Kartograf(Node):
     def _pose_senden(self):
         with self.lock:
             pose, status, guete, fahrten = self.lok.pose, self.lok.status, self.lok.guete, self.karte.fahrten
+            einbau = self.lok.einbau_text()
         aus = {'zeit': time.time(), 'status': status, 'guete': round(guete, 2), 'fahrten': fahrten,
-               'karte': self.p('karte')}
+               'karte': self.p('karte'), 'lidar_einbau': einbau}
         if pose is not None:
             aus.update({'x': round(pose[0], 3), 'y': round(pose[1], 3), 'w': round(pose[2], 3), 'scan': self.scan_karte})
         self.pub_pose.publish(String(data=json.dumps(aus)))
