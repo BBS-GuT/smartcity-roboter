@@ -1,0 +1,264 @@
+{
+  "schema_version": "1.0",
+  "generated_at_utc": "2026-10-20T08:33:32.11124+02:00",
+  "repository": "https://github.com/davidheinrich73/smartcity-roboter",
+  "repository_commit": "b9f64424d92f64ed4f391a96b6c6718caae43bcd",
+  "expected_review_commit": "b9f64424d92f64ed4f391a96b6c6718caae43bcd",
+  "commit_matches_review": true,
+  "numpy_version": "2.3.5",
+  "test_method": "Unchanged original methods, repository ROS doubles, controlled wall clock; no ROS or hardware.",
+  "opencv_stub": "Import-only empty module; no OpenCV operation executed.",
+  "image_detector_override": "Three timestamp probes use deterministic LinienSucher.suche; their original on_image/entscheide methods are unchanged.",
+  "source_sha256": {
+    "line_follower/line_follower.py": "a5a8b51f1bff3509ca6be6a7b1f965fa42b7464a3f649138d6d64b8cd87f14d7",
+    "line_follower/linie.py": "ac1b957790b8e771b45f2a4b97ba9422b5bd1c36640c5d78a9bafeef0bf18bff",
+    "lib/lidar.py": "9a1f537837e3d9d0a6e226a2412bd3dcf05aaef1495dd5ab9a77da61ec9f4e2d",
+    "ki/entscheider.py": "a5c998d12b070e3a38ddd6a762006445c3c7953667f7ae424f5ebe29f86aca43",
+    "ki/ablaeufe.py": "79db172ab37ed922658edf2889aa8aa5d4a41720e392410244f634f365bb80dc",
+    "panel/panel.py": "f073e19c706fd893ecde08c41c0acb31c2c63d1617a36efb77a0d38a37acf64c",
+    "tests/attrappen/rclpy/node.py": "22d5a77155b7badb009a28c49c9ad1c9630b15d1481ee8b55f8227cc9df18982",
+    "tests/attrappen/cv_bridge.py": "fc0aa979dbfa26bf7a943bd4893cae7e21c2ee134127d2606c985dbe9025078c"
+  },
+  "counts": {
+    "total": 9,
+    "observations_reproduced": 9,
+    "goal_deviations_observed": 8,
+    "positive_controls": 1,
+    "unreproduced": 0
+  },
+  "observations": [
+    {
+      "id": "invalid_nan_lidar",
+      "requirements": [
+        "GB-13",
+        "GB-14"
+      ],
+      "setup": "Fresh scan0 contains 360 NaN ranges; synthetic line and AI command are fresh.",
+      "expected_safe_behavior": "Unknown/invalid required scan prevents movement.",
+      "actual": {
+        "command": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "scan_distance_is_infinite": true
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": []
+    },
+    {
+      "id": "missing_scan1",
+      "requirements": [
+        "GB-12",
+        "GB-13"
+      ],
+      "setup": "Configured topics are scan0 and scan1; only scan0 has ever arrived.",
+      "expected_safe_behavior": "Missing required scan prevents movement, or explicitly validated replacement is selected.",
+      "actual": {
+        "configured_topics": [
+          "/scan0",
+          "/scan1"
+        ],
+        "received_topics": [
+          "/scan0"
+        ],
+        "command": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ]
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": [
+        "The required sensor matrix has not been finalized; this demonstrates the current one-of-N policy."
+      ]
+    },
+    {
+      "id": "notbrake_camera_bypass",
+      "requirements": [
+        "GB-13",
+        "GB-14"
+      ],
+      "setup": "No LiDAR, no camera frames, fresh AI turn request.",
+      "expected_safe_behavior": "Missing required perception prevents the turn.",
+      "actual": {
+        "command": [
+          0.0,
+          0.0,
+          0.8,
+          "Manoever trotz Notbremse (nur drehen/rueckwaerts): "
+        ],
+        "notbrake_reason": "KEIN LIDAR: noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)"
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": []
+    },
+    {
+      "id": "image_age_0_7s_control",
+      "requirements": [
+        "GB-13"
+      ],
+      "setup": "Image capture age 0.7s; original on_image and entscheide methods; deterministic line detection.",
+      "expected_safe_behavior": "Capture older than the maximum, or invalid capture time, prevents movement.",
+      "actual": {
+        "capture_age_s": 0.7,
+        "timestamp_accepted": true,
+        "reported_capture_age_s": 0.7000000000000455,
+        "command": [
+          0.0,
+          0.0,
+          0.0,
+          "KAMERABILDER ZU ALT (0.70 s) -> STOPP (Rechner ueberlastet?)"
+        ],
+        "detector_calls": 1
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": false,
+      "limitations": [
+        "LinienSucher.suche is replaced only for this timestamp probe; detection accuracy is not tested."
+      ]
+    },
+    {
+      "id": "image_age_6s_fallback",
+      "requirements": [
+        "GB-13"
+      ],
+      "setup": "Image capture age 6.0s; original on_image and entscheide methods; deterministic line detection.",
+      "expected_safe_behavior": "Capture older than the maximum, or invalid capture time, prevents movement.",
+      "actual": {
+        "capture_age_s": 6.0,
+        "timestamp_accepted": false,
+        "reported_capture_age_s": 0.0,
+        "command": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "detector_calls": 1
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": [
+        "LinienSucher.suche is replaced only for this timestamp probe; detection accuracy is not tested."
+      ]
+    },
+    {
+      "id": "image_future_1s_fallback",
+      "requirements": [
+        "GB-13"
+      ],
+      "setup": "Image capture age -1.0s; original on_image and entscheide methods; deterministic line detection.",
+      "expected_safe_behavior": "Capture older than the maximum, or invalid capture time, prevents movement.",
+      "actual": {
+        "capture_age_s": -1.0,
+        "timestamp_accepted": false,
+        "reported_capture_age_s": 0.0,
+        "command": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "detector_calls": 1
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": [
+        "LinienSucher.suche is replaced only for this timestamp probe; detection accuracy is not tested."
+      ]
+    },
+    {
+      "id": "failed_turn_one_tick_drive",
+      "requirements": [
+        "GB-13",
+        "GB-14"
+      ],
+      "setup": "Turn requested; yaw remains zero until Wenden reports failure.",
+      "expected_safe_behavior": "The failure transition itself issues STOPP and latches the error.",
+      "actual": {
+        "failure_transition": {
+          "aktion": "fahren",
+          "faktor": 1.0,
+          "grund": "Weg frei",
+          "arm": null,
+          "manoever": null
+        },
+        "error_latched": "Wenden hat nicht geklappt",
+        "following_tick": {
+          "aktion": "stopp",
+          "faktor": 0.0,
+          "grund": "Wenden hat nicht geklappt -> bitte pruefen, dann STOPP und START",
+          "arm": null,
+          "manoever": null
+        }
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": []
+    },
+    {
+      "id": "reverse_without_arm_or_avoidance",
+      "requirements": [
+        "GB-04",
+        "GB-12",
+        "GB-14"
+      ],
+      "setup": "Default decider: arm disabled, avoidance disabled; obstacle 0.15m ahead, camera sees none, rear reports 1m free.",
+      "expected_safe_behavior": "Blocked-road basic operation waits; any permitted perception maneuver requires explicit policy and clearance.",
+      "actual": {
+        "arm_enabled": false,
+        "avoidance_enabled": false,
+        "command": {
+          "aktion": "manoever",
+          "faktor": 1.0,
+          "grund": "Hindernis zu nah fuer die Kamera -> fahre etwas zurueck",
+          "arm": null,
+          "manoever": {
+            "lin": -0.05,
+            "quer": 0.0,
+            "dreh": 0.0,
+            "text": "zurueck"
+          }
+        },
+        "phase": "zurueck"
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": [
+        "The probe demonstrates reverse movement, not whether the physical robot leaves its line."
+      ]
+    },
+    {
+      "id": "panel_stop_unregistered_publisher",
+      "requirements": [
+        "GB-14"
+      ],
+      "setup": "Foreign line follower is represented by absence from the panel child registry; original action, Prozesse, and stillstand methods execute.",
+      "expected_safe_behavior": "STOPP prevents subsequent movement from all sources, including unregistered publishers.",
+      "actual": {
+        "reply": "Gestoppt",
+        "zero_messages_sent": 10,
+        "stop_calls": [
+          {
+            "name": "fahren",
+            "registered": false
+          }
+        ],
+        "tracked_child_names": [],
+        "foreign_process_termination_attempted": false
+      },
+      "observation_reproduced": true,
+      "goal_deviation_observed": true,
+      "limitations": [
+        "No real foreign process is launched. The probe proves the finite publication and empty-registry return path; continued physical motion is not measured."
+      ]
+    }
+  ],
+  "interpretation": "Reproduction success is evidence of the recorded behavior, not passing safety acceptance. No hardware behavior or real camera detection is validated."
+}
