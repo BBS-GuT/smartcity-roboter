@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -79,12 +80,20 @@ class Runner(unittest.TestCase):
         self.assertIn('expected failures=1', result.stdout)
 
     def test_timeout_keeps_partial_output_and_continues(self):
-        self.script('test_a.py', "import time\nprint('before timeout', flush=True)\ntime.sleep(60)")
+        self.script('test_a.py', "import subprocess, sys, time\n"
+                    "subprocess.Popen([sys.executable, '-c', \"import pathlib,time; time.sleep(4); pathlib.Path('child-leak').write_text('leak')\"])\n"
+                    "print('before timeout', flush=True)\ntime.sleep(60)")
         self.script('test_b.py', "print('after timeout')")
+        started = time.monotonic()
         result = self.run_runner('--timeout', '0.8')
+        elapsed = time.monotonic() - started
         self.assertEqual(result.returncode, 1)
         for message in ('TIMEOUT', 'before timeout', 'after timeout', '1/2 Skripte bestanden'):
             self.assertIn(message, result.stdout)
+        self.assertLess(elapsed, 3, 'Timeout darf nicht auf das vier Sekunden laufende Kind warten')
+        self.assertNotIn('WARNUNG', result.stdout)
+        time.sleep(4.2)
+        self.assertFalse((self.root / 'child-leak').exists(), 'Testkind wurde nicht beendet')
 
     def test_individual_timeout_override(self):
         self.script('test_long.py', 'import time\ntime.sleep(1.2)')

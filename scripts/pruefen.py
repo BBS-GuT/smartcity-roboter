@@ -9,8 +9,10 @@ import math
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,11 +34,50 @@ def discover(root):
     return sorted(path for path in (root / 'tests').glob('test_*.py') if path.is_file())
 
 
-def output_text(value):
-    # TimeoutExpired liefert auch bei text=True eventuell Bytes.
-    if isinstance(value, bytes):
-        return value.decode('utf-8', errors='replace')
-    return value or ''
+def stop_tree(process):
+    """Nur den selbst gestarteten Testprozess und seine Nachkommen beenden."""
+    if os.name == 'nt':
+        result = subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                capture_output=True, timeout=5)
+        if result.returncode:
+            process.kill()
+            return 'WARNUNG: Beendigung aller Kindprozesse nicht bestaetigt.\n'
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    process.wait(timeout=5)
+    return ''
+
+
+def run_test(test, root, env, timeout):
+    # Geerbte PIPE-Handles eines Kindes koennen communicate() unter Windows
+    # trotz Timeout blockieren. Eine temporaere Datei vermeidet diese Wartefalle
+    # und erhaelt stdout/stderr gemeinsam in ihrer Ausgabereihenfolge.
+    options = {'creationflags': subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == 'nt' else {'start_new_session': True}
+    with tempfile.TemporaryFile() as output:
+        process = subprocess.Popen([sys.executable, '-u', str(test)], cwd=root, env=env,
+                                   stdout=output, stderr=subprocess.STDOUT, **options)
+        warning = ''
+        try:
+            process.wait(timeout=timeout)
+            status = 'OK' if process.returncode == 0 else f'FEHLER (Exitcode {process.returncode})'
+        except subprocess.TimeoutExpired:
+            status = f'TIMEOUT ({timeout:g}s)'
+            try:
+                warning = stop_tree(process)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                process.kill()
+                warning = f'WARNUNG: Prozessbaum konnte nicht vollstaendig beendet werden: {error}\n'
+        except BaseException:
+            stop_tree(process)
+            raise
+        output.seek(0)
+        log = output.read().decode('utf-8', errors='replace') + warning
+    if status == 'OK' and SKIPS.search(log):
+        status = 'UNVOLLSTAENDIG (unittest-Skips)'
+    return status, log
 
 
 def main(argv=None):
@@ -77,16 +118,7 @@ def main(argv=None):
         print(f'\nSTART {test.name} (Timeout {timeout:g}s)', flush=True)
         started = time.monotonic()
         try:
-            process = subprocess.run([sys.executable, '-u', str(test)], cwd=root, env=env,
-                                     capture_output=True, text=True, encoding='utf-8',
-                                     errors='replace', timeout=timeout)
-            log = process.stdout + process.stderr
-            status = 'OK' if process.returncode == 0 else f'FEHLER (Exitcode {process.returncode})'
-            if process.returncode == 0 and SKIPS.search(log):
-                status = 'UNVOLLSTAENDIG (unittest-Skips)'
-        except subprocess.TimeoutExpired as error:
-            log = output_text(error.stdout) + output_text(error.stderr)
-            status = f'TIMEOUT ({timeout:g}s)'
+            status, log = run_test(test, root, env, timeout)
         except OSError as error:
             log = str(error)
             status = 'FEHLER (Prozessstart)'
