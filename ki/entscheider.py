@@ -27,7 +27,7 @@
 
 import random
 
-from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen
+from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen, LEBEWESEN, FAHRZEUGE
 
 STANDARD = {
     'notbremse_dist': 0.12,    # LiDAR naeher (m) -> sofort Stopp, ohne Rueckfrage
@@ -38,7 +38,6 @@ STANDARD = {
     'langsam_faktor': 0.5,     # Geschwindigkeit bei "langsam"
     'ki_max_alter': 1.5,       # aelteres KI-Bild = KI sieht nichts -> stopp (s)
     'ampel_bilder': 2,         # so viele KI-Bilder hintereinander dieselbe Farbe, bis sie gilt
-    'ampel_timeout': 4.0,      # Rot/Gelb so lange nicht mehr gesehen -> weiter (falls Gruen unerkannt)
     'schild_bilder': 2,
     'schild_warten': 3.0,      # am Stoppschild so lange halten (s)
     'schild_weg': 2.0,         # nach dem Halten: Schild erst wieder beachten, wenn es so lange
@@ -61,6 +60,8 @@ STANDARD = {
     'anschauen_min': 1.0,      # so lange mindestens hinschauen (s) ...
     'anschauen_bilder': 5,     # ... und mindestens so viele neue KI-Bilder (langsame KI -> dauert laenger)
     'anschauen_max': 8.0,      # laenger nie (s)
+    'lebewesen_weg': 3.0,      # Hindernis wegen Person/Tier nicht angefasst: so lange niemand mehr in Sicht (s)
+                               # -> nochmal hinschauen (statt zu warten, bis der Weg frei ist)
     'kamera_min_sicht': 0.22,  # LiDAR meldet etwas naeher als das, Kamera sieht nichts -> etwas zurueck
     'sicht_zurueck': 0.10,     # ... hoechstens so weit (m)
     'aufheben_max_breite': 0.08,
@@ -111,7 +112,7 @@ class Entscheider:
         self.aufheben_gesperrt, self.weg_frei_seit = False, None
         self.umschauen_wunsch = None  # Zeit, zu der jemand (Kartograf/Panel) Umschauen gewuenscht hat
         self.fehler_halt = None       # Manoever fehlgeschlagen -> bleibt stehen bis STOPP + neuer START
-        self.fahrt_war_aktiv = True   # fuer: neuer START nach STOPP/TEST erkennen
+        self.start_quittung = None    # Zeit eines ausdruecklichen START (Panel -> /ki/kommando 'start')
         self.blockiert_seit, self.blockiert_grenze = None, 0.0
         self.ereignisse = []          # (zeit, text, art) art: stopp | fahren | info
         self.letzte_bild_nr = -1
@@ -129,6 +130,8 @@ class Entscheider:
         self.meldung_seit = None      # seit wann meldet der LiDAR etwas im Pruefbereich
         self.geprueft_frei = False    # Kamera hat genau hingeschaut: sieht nichts (nur LiDAR meldet etwas)
         self.bestaetigt = None        # Kamera hat es gesehen, wird nicht angefasst (Grund) -> warten bis frei
+        self.bestaetigt_lebewesen = False  # ... weil eine Person/ein Tier in Sicht war -> nochmal schauen, wenn weg
+        self.lebewesen_zuletzt = 0.0  # wann die Kamera-KI zuletzt eine Person/ein Tier/ein Fahrzeug gesehen hat
         # Arm
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
         self.arm_warten_bis = 0.0
@@ -152,6 +155,11 @@ class Entscheider:
                 return 'Umschauen geht nur waehrend der Fahrt (START), nicht im TEST'
             self.umschauen_wunsch = jetzt
             return 'Umschauen vorgemerkt'
+        if text == 'start':
+            # Ausdruecklicher START am Panel (nicht: Status des Linienfolgers kam nach kurzer Pause wieder).
+            # Wird angewendet, sobald das Fahrprogramm wirklich faehrt.
+            self.start_quittung = jetzt
+            return 'START quittiert'
         return f'unbekanntes Kommando: {text}'
 
     def _ereignis(self, jetzt, text, art='info'):
@@ -180,16 +188,19 @@ class Entscheider:
             if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
                 self.arm_zurueck_noetig = True
             self.ablauf = None
-        if self.fahrt_aktiv and not self.fahrt_war_aktiv and (self.aufheben_gesperrt or self.bestaetigt):
-            # Neuer START nach STOPP: quittiert auch ein fehlgeschlagenes Wegraeumen. Sonst versucht er es
-            # vor demselben Hindernis nie wieder (nur wenn der Weg einmal frei war). Er schaut neu hin und
-            # raeumt, wenn er darf, nochmal weg - oder wartet wieder.
-            self._ereignis(jetzt, 'Neuer START: Hindernis wird neu angeschaut', 'info')
-            self.aufheben_gesperrt, self.bestaetigt = False, None
+        if self.start_quittung is not None and jetzt - self.start_quittung > 15.0:
+            self.start_quittung = None   # Fahrprogramm ist nach dem START nicht angelaufen
+        if self.start_quittung is not None and self.fahrt_aktiv:
+            # Ausdruecklicher START (Panel): quittiert einen Manoever-Fehler und ein fehlgeschlagenes Wegraeumen.
+            # Sonst versucht er es vor demselben Hindernis nie wieder (nur wenn der Weg einmal frei war).
+            # NUR so - ein Statusausfall und dessen Wiederkehr (fahrt_aktiv kurz False) quittiert nichts.
+            self.start_quittung = None
+            if self.fehler_halt or self.aufheben_gesperrt or self.bestaetigt:
+                self._ereignis(jetzt, 'START quittiert: Fehler/Hindernis wird neu geprueft', 'info')
+            self.fehler_halt = None
+            self.aufheben_gesperrt, self.bestaetigt, self.bestaetigt_lebewesen = False, None, False
             self.meldung_seit, self.geprueft_frei = None, False
-        self.fahrt_war_aktiv = self.fahrt_aktiv
         if not self.fahrt_aktiv:
-            self.fehler_halt = None     # STOPP/TEST quittiert einen Manoever-Fehler
             # STOPP gedrueckt oder nur TEST: nichts am Arm bewegen, laufende Arm-Ablaeufe abbrechen.
             # Der Arm bleibt, wo er ist; beim naechsten START faehrt er zuerst in die Fahrstellung.
             if self.ablauf is not None and self.ablauf.braucht_arm:
@@ -200,6 +211,8 @@ class Entscheider:
         neues_bild = w.get('bild_nr', -1) != self.letzte_bild_nr
         if neues_bild:
             self.letzte_bild_nr = w.get('bild_nr', -1)
+            if any(o['name'] in LEBEWESEN | FAHRZEUGE for o in w.get('objekte', [])):
+                self.lebewesen_zuletzt = jetzt
             if self.ablauf is None and self.arm_in_fahrstellung:
                 # Ampel/Schild nur zaehlen, wenn die Kamera normal nach vorne schaut (nicht beim
                 # Umschauen oder Greifen). Sonst liefe z. B. die Haltezeit am Stoppschild waehrend
@@ -216,7 +229,6 @@ class Entscheider:
                     self.zebra_merk = (w['zebra']['abstand'], w.get('strecke'), jetzt)
         if self.zebra_gesperrt and self.ablauf is None and jetzt - self.zebra_zuletzt > self.c['zebra_weg']:
             self.zebra_gesperrt = False  # ueber den Zebrastreifen drueber
-        self._ampel_zeit(jetzt)
         w = dict(w, neues_bild=neues_bild)
 
         befehl = self._entscheide(jetzt, w)
@@ -257,11 +269,6 @@ class Entscheider:
             self.ampel_halt = False
             self._ereignis(jetzt, f'Gruene Ampel erkannt ({quelle}) -> darf weiter', 'fahren')
 
-    def _ampel_zeit(self, jetzt):
-        if self.ampel_halt and jetzt - self.ampel_zuletzt_rot > self.c['ampel_timeout']:
-            self.ampel_halt = False
-            self._ereignis(jetzt, 'Rote Ampel nicht mehr zu sehen -> weiter', 'fahren')
-
     def _schild_bild(self, jetzt, w):
         if w.get('stoppschild'):
             self.schild_zuletzt = jetzt
@@ -297,7 +304,7 @@ class Entscheider:
                     self.arm_zurueck_noetig = True
                 self.ablauf = None
                 self.aufheben_gesperrt = True
-                self.bestaetigt = 'Wegraeumen abgebrochen (Notbremse)'
+                self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen abgebrochen (Notbremse)', False
             return self._b('stopp', f'NOTBREMSE: LiDAR {d * 100:.0f} cm (ohne KI-Pruefung)')
         self.notbremse_seit = None
         if self.fehler_halt:
@@ -317,6 +324,8 @@ class Entscheider:
             if b is not None:
                 return self._mit_faktor(b)
             self._ablauf_ende(jetzt)
+            if self.fehler_halt:          # z. B. Wenden fehlgeschlagen: schon in DIESEM Zyklus halten
+                return self._b('stopp', self.fehler_halt + ' -> bitte pruefen, dann STOPP und START')
 
         obj = w.get('objekt')
         tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < c['tiefe_halt']
@@ -342,6 +351,11 @@ class Entscheider:
             if im_weg:
                 self.hindernis_bis = jetzt + c['frei_zeit']
                 return self._b('stopp', 'KI sieht im Weg: ' + ', '.join(im_weg))
+            if self.bestaetigt and self.bestaetigt_lebewesen and jetzt - self.lebewesen_zuletzt > c['lebewesen_weg']:
+                # Wegen einer Person (z. B. Hand beim Hinlegen) nicht angefasst. Die ist jetzt weg, das Hindernis
+                # noch da: nochmal genau hinschauen statt ewig zu warten
+                self._ereignis(jetzt, f'{self.bestaetigt}: niemand mehr in Sicht -> schaue nochmal hin', 'info')
+                self.bestaetigt, self.bestaetigt_lebewesen = None, False
             if self.bestaetigt:
                 return self._b('stopp', f'{self.bestaetigt} -> warte, bis der Weg frei ist')
             if not self.geprueft_frei:
@@ -448,10 +462,11 @@ class Entscheider:
             if a.ergebnis == 'unbestaetigt':
                 self.geprueft_frei = True
             elif a.ergebnis == 'bestaetigt':
-                self.bestaetigt = 'Hindernis'
+                self.bestaetigt = f'Hindernis ist {a.lebewesen}' if a.lebewesen else 'Hindernis'
+                self.bestaetigt_lebewesen = bool(a.lebewesen)
             elif a.ergebnis == 'fehler':
                 self.aufheben_gesperrt = True
-                self.bestaetigt = 'Wegraeumen hat nicht geklappt'
+                self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen hat nicht geklappt', False
             else:                        # frei: Fehlalarm oder weggeraeumt UND geprueft
                 self.meldung_seit = None
 

@@ -58,7 +58,16 @@ pruefe('Rot 2 Bilder -> Stopp', l.schritt(1, ampel='rot'), 'stopp')
 pruefe('Ampel kurz verdeckt -> weiter warten', l.schritt(5, ampel=None), 'stopp')
 pruefe('Gruen -> weiter', l.schritt(2, ampel='gruen'), 'fahren')
 pruefe('Gelb -> Stopp', l.schritt(2, ampel='gelb'), 'stopp')
-pruefe('Ampel weg, nach Timeout -> weiter', l.schritt(45, ampel=None), 'fahren')
+# GB/B1: Rot verschwindet nicht durch Timeout - Ampel nicht mehr zu sehen ist keine Freigabe
+pruefe('Ampel weg, auch lange -> weiter Halt (kein Timeout)', l.schritt(100, ampel=None), 'stopp')
+pruefe('erst Gruen gibt frei', l.schritt(2, ampel='gruen'), 'fahren')
+# zwei Haltegruende gleichzeitig: Gruen hebt den Hindernishalt nicht auf
+KLOTZ = {'vor': 0.3, 'seite': 0.0, 'breite': 0.05, 'hoehe': 0.05, 'quelle': 'tiefe'}   # Kamera sieht ihn
+l = Lauf()
+l.schritt(2, ampel='rot')
+pruefe('Rot + Hindernis -> Halt', l.schritt(3, ampel='rot', lidar=0.3, objekt=KLOTZ), 'stopp')
+pruefe('Gruen, Hindernis noch da -> weiter Halt', l.schritt(15, ampel='gruen', lidar=0.3, objekt=KLOTZ), 'stopp')
+pruefe('Gruen und Hindernis weg -> weiter', l.schritt(30, ampel='gruen'), 'fahren')
 
 l = Lauf()
 pruefe('Stoppschild -> halten', l.schritt(2, stoppschild=True), 'stopp')
@@ -272,6 +281,23 @@ pruefe('Arm erreicht es nicht -> keine Bewegung, warten', b, 'stopp', None)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 b = l.schritt(30, objekt=WUERFEL, objekte=[{'name': 'Person', 'im_weg': False}])
 pruefe('Person in Sicht -> nie anfassen, nur warten', b, 'stopp', None)
+# Person (z. B. Hand beim Hinlegen) nur beim Anschauen in Sicht, Hindernis bleibt liegen: nach ein paar Sekunden
+# ohne Person schaut er nochmal hin und raeumt weg (vorher wartete er, bis der Weg frei war - also ewig)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(15, objekt=NAH, objekte=[{'name': 'Person', 'im_weg': False}])
+war_person = (l.e.bestaetigt or '').startswith('Hindernis ist Person')
+arme, b, _ = wegraeumen(l, 120, NAH)
+ok = war_person and len(arme) > 0
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Person beim Anschauen, dann weg -> schaut nochmal hin, raeumt weg ({len(arme)} Arm-Befehle)")
+# nur EIN Bild mit Person (Fehlerkennung) blockiert nicht
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(3, objekt=NAH)                                              # Anschauen laeuft ...
+l.schritt(1, objekt=NAH, objekte=[{'name': 'Person', 'im_weg': False}])   # ... ein Bild mit "Person"
+arme, b, _ = wegraeumen(l, 60, NAH)
+ok = len(arme) > 0 and not (l.e.bestaetigt or '').startswith('Hindernis ist Person')
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} nur ein Bild mit Person (Fehlerkennung) -> raeumt trotzdem weg ({len(arme)} Arm-Befehle)")
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 pruefe('zu breit (20 cm) -> warten statt greifen', l.schritt(30, objekt=dict(WUERFEL, breite=0.2)), 'stopp', None)
 l = Lauf(arm_erlaubt=False, posen=POSEN, planer=None)
@@ -416,12 +442,22 @@ l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.e.aufheben_gesperrt, l.e.bestaetigt = True, 'Wegraeumen hat nicht geklappt'
 b = l.schritt(5, objekt=NAH)
 ok_vorher = b['aktion'] == 'stopp' and l.e.ablauf is None
+# B1: Statusausfall und -wiederkehr (fahrt_aktiv kurz False) ist KEIN START -> Sperre bleibt, kein Armversuch
+l.e.fahrt_aktiv = False
+l.schritt(11, objekt=NAH)
+l.e.fahrt_aktiv = True
+arme, b, _ = wegraeumen(l, 60, NAH)
+ok = ok_vorher and l.e.aufheben_gesperrt and arme == [] and b['aktion'] == 'stopp'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Statusausfall + Wiederkehr quittiert nichts: Sperre bleibt, kein Armversuch ({b['grund']})")
 l.e.fahrt_aktiv = False                          # STOPP
 l.schritt(3, objekt=NAH)
-l.e.fahrt_aktiv = True                           # START
+l.e.kommando(l.t, 'start')                       # ausdruecklicher START am Panel
+l.schritt(2, objekt=NAH)                         # Fahrprogramm startet noch
+l.e.fahrt_aktiv = True
 l.schritt(1, objekt=NAH)
 arme, b, _ = wegraeumen(l, 60, NAH)
-ok = ok_vorher and not l.e.aufheben_gesperrt and len(arme) > 0
+ok = not l.e.aufheben_gesperrt and len(arme) > 0
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} nach fehlgeschlagenem Wegraeumen: STOPP + START -> neuer Versuch ({len(arme)} Arm-Befehle)")
 l = Lauf(arm_erlaubt=True, posen=POSEN)
@@ -462,12 +498,17 @@ print(f"{'OK  ' if ok else 'FEHLER'} Grundbetrieb (ausweichen aus): wartet auch 
 # Wenden, aber der Lagesensor meldet keine Drehung -> abbrechen und stehen bleiben
 l = Lauf()
 l.schritt(2, einfahrt_verboten=True)
-b = l.schritt(40, gier=0.0)
-ok1 = b['aktion'] == 'stopp' and 'Wenden' in b['grund']
+folge = [l.schritt(1, gier=0.0) for _ in range(40)]
+ok1 = all(x['aktion'] != 'fahren' for x in folge) and 'Wenden' in folge[-1]['grund']   # auch im Fehler-Zyklus
 b = l.schritt(30, gier=0.0)
 ok2 = b['aktion'] == 'stopp'
-l.e.fahrt_aktiv = False
+l.e.fahrt_aktiv = False                          # Statusausfall ...
 l.schritt(1)
+l.e.fahrt_aktiv = True                           # ... und Wiederkehr: Fehlerhalt bleibt
+ok2 = ok2 and l.schritt(3)['aktion'] == 'stopp'
+l.e.fahrt_aktiv = False                          # STOPP
+l.schritt(1)
+l.e.kommando(l.t, 'start')                       # START
 l.e.fahrt_aktiv = True
 b = l.schritt(3)
 ok3 = b['aktion'] == 'fahren'

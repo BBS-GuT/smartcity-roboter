@@ -253,6 +253,7 @@ class Wegraeumen(Ablauf):
     def _anschauen(self, jetzt):
         self._phase(jetzt, 'anschauen')
         self.messungen, self.lidar_werte, self.bilder, self.lebewesen = [], [], 0, None
+        self.lebewesen_n = 0              # in so vielen Bildern Person/Tier/Fahrzeug gesehen
         self.gesehen = 0                  # Bilder, in denen die Tiefenkamera etwas sah (auch ohne Vermessung)
 
     def _gefahren(self, w, jetzt, tempo):
@@ -317,7 +318,10 @@ class Wegraeumen(Ablauf):
                     self.lidar_werte.append(lid)
                 lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE]
                 if lebend:
-                    self.lebewesen = lebend[0]
+                    # erst ab 2 Bildern: ein einzelnes Fehlbild (KI irrt sich kurz) soll nicht alles blockieren
+                    self.lebewesen_n += 1
+                    if self.lebewesen_n >= 2:
+                        self.lebewesen = lebend[0]
             genug = d >= c['anschauen_min'] and self.bilder >= c['anschauen_bilder']
             if not genug and d < c['anschauen_max']:
                 return befehl('stopp', f'Hindernis: schaue es mir genau an ({self.bilder} Bilder)')

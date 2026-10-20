@@ -558,6 +558,9 @@ def mache_handler(node, prozesse, beenden=None):
             time.sleep(2.5)       # sofort wieder beendet? Dann den Grund aus dem Protokoll zeigen
             if not prozesse.laeuft('fahren'):
                 return 'Linienfolger hat sich sofort beendet:\n' + log_ende('fahren')
+            if name == 'start':
+                # ausdruecklicher START: KI quittiert damit Manoever-Fehler und fehlgeschlagenes Wegraeumen
+                node.ki_kommando_pub.publish(String(data='start'))
             return ('Faehrt los.' if name == 'start' else 'Testmodus: zeigt alles, faehrt nicht.') + hinweis
         if name == 'tempo':
             zustand['tempo'] = max(0.05, min(0.4, float(daten.get('wert', 0.15))))
