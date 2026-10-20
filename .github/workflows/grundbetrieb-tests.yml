@@ -3,6 +3,7 @@ name: Grundbetrieb - Softwarepruefung
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main, 'chore/gb-*', 'fix/gb-*', 'test/gb-*']
 
