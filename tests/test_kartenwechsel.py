@@ -17,9 +17,9 @@ import kartograf as KG       # noqa: E402
 _deklarieren = Node.declare_parameter
 
 
-def kartograf(ordner):
+def kartograf(ordner, **param):
     """Kartograf, dessen Karten in <ordner>/test liegen."""
-    werte = {'ordner': ordner, 'karte': 'test'}
+    werte = dict({'ordner': ordner, 'karte': 'test'}, **param)
     with patch.object(Node, 'declare_parameter', lambda self, n, v: _deklarieren(self, n, werte.get(n, v))):
         return KG.Kartograf()
 
@@ -43,14 +43,23 @@ class Kartenwechsel(unittest.TestCase):
         k2 = kartograf(self.ordner)                     # Neustart mit gespeicherter Karte: kein Absturz
         self.assertEqual(k2.kr.kal.einbau, (0.0, 0.0, 0.0))
 
-    def test_gelernte_kalibrierung_bleibt(self):
+    def test_neue_karte_setzt_kalibrierung_zurueck(self):
         k = kartograf(self.ordner)
         k.kr.kal.einbau, k.kr.kal.einbau_gelernt, k.kr.kal.odom_skala = (0.1, -0.02, 0.05), True, 1.07
         self.assertTrue(k.neue_karte('a2')['ok'])
-        self.assertEqual(k.kr.kal.einbau, (0.1, -0.02, 0.05))
-        self.assertAlmostEqual(k.kr.kal.odom_skala, 1.07)
+        self.assertEqual(k.kr.kal.einbau, (0.0, 0.0, 0.0))
+        self.assertFalse(k.kr.kal.einbau_gelernt)
+        self.assertEqual(k.kr.kal.odom_skala, 1.0)
+
+    def test_gespeicherte_kalibrierung_nur_wenn_eingeschaltet(self):
+        k = kartograf(self.ordner)
+        k.kr.kal.imu_vorzeichen, k.kr.kal.spiegeln, k.kr.kal.imu_skala = -1.0, True, 1.3
         k._speichern()
-        self.assertEqual(kartograf(self.ordner).kr.kal.einbau, (0.1, -0.02, 0.05))
+        self.assertFalse(kartograf(self.ordner).kr.kal.spiegeln)          # Standard: aus -> Rohwerte
+        self.assertEqual(kartograf(self.ordner).kr.kal.imu_vorzeichen, 1.0)
+        k2 = kartograf(self.ordner, selbst_kalibrieren=True)
+        self.assertTrue(k2.kr.kal.spiegeln)
+        self.assertEqual(k2.kr.kal.imu_vorzeichen, -1.0)
 
     def test_sicherung_hat_aktuellen_stand(self):
         k = kartograf(self.ordner)

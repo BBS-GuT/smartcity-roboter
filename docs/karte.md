@@ -46,7 +46,7 @@ Auf dem echten Roboter ist vieles **ungeprüft**: wohin „vorne“ bei den LiDA
 | Wohin „vorne“ beim Haupt-LiDAR zeigt und wo er sitzt | fährt der Roboter laut Rädern geradeaus, fährt der LiDAR in **seine** Richtung „vorne“; dreht sich der Roboter, beschreibt der LiDAR einen Kreis um die Robotermitte (Hand-Auge-Kalibrierung) | wird beim Mitrechnen angewendet; die gemeldete Position ist die der Robotermitte. Bei mehr als 10° Hinweis „LiDAR-Richtung vermutlich falsch“ (die Hinderniserkennung braucht trotzdem das richtige `scan_front_deg`) |
 | Räder messen zu kurz/lang | ebenfalls aus der Hand-Auge-Kalibrierung | wird angewendet |
 
-Das Gelernte wird mit der Karte gespeichert (`kalibrierung` in `karte.npz`) und gilt beim nächsten Start sofort. Abschalten (zum Vergleichen): `selbst_kalibrieren:=false`.
+**Standard seit 20.10.: AUS** (`selbst_kalibrieren: false`). Auf dem Roboter hatte sich die Karte nach dem Lernen verdreht/verdoppelt. Ohne Selbstkalibrierung rechnet die Karte mit den eingestellten Werten, die Selbstprüfung meldet Auffälligkeiten nur und stellt nichts um. Einschalten erst, wenn eine Messfahrt-Aufnahme mit `--setze selbst_kalibrieren=true` besser aussieht (siehe unten). Eingeschaltet wird das Gelernte mit der Karte gespeichert (`kalibrierung` in `karte.npz`) und gilt beim nächsten Start sofort. „Neue Karte“ fängt auch die Kalibrierung neu an.
 
 **Im Panel** (Karte): „Scan-Abgleich sicher: 95 %“ (grün ab 80 %), „Gelernt: …“, die letzte Änderung und ein gelber Kasten mit Hinweisen, z. B. „LiDAR-Richtung vermutlich um +90 Grad falsch: scan_front_deg anpassen“ oder „Scan-Abgleich passt oft nicht … Bitte Messfahrt aufzeichnen“. Auf dem Dashboard erscheint dann „Karte: Hinweis, siehe Seite Karte“.
 
@@ -132,7 +132,7 @@ Andere Karte (z. B. andere Stadt): Panel mit `scripts/panel.sh --karte werkstatt
 | `scan_spiegeln` | [false, false] | LiDAR zählt die Winkel im Uhrzeigersinn. Erkennt der Kartograf auch selbst (Hinweis im Panel) |
 | `scan_dauer` | 0.0 | Dauer einer LiDAR-Umdrehung (s), nur falls der LiDAR weder `time_increment` noch `scan_time` meldet. 0 = nicht entzerren |
 | `max_reichweite` | 8.0 | LiDAR-Punkte weiter weg nicht verwenden (m) |
-| `selbst_kalibrieren` | true | gelernte Korrekturen (Lagesensor, Räder, LiDAR-Einbau) anwenden |
+| `selbst_kalibrieren` | false | gelernte Korrekturen (Lagesensor, Räder, LiDAR-Einbau, gespiegelt) anwenden |
 | `aufnahme_bild_hz` | 2.0 | so viele Kamerabilder je Sekunde in die Messfahrt (0 = keine) |
 | `arm_basis_x` | 0.05 | Drehachse von Servo 1 vor der Robotermitte (m), für Bilder beim Umschauen. Geschätzt |
 | `kamera_*` | wie Linienfolger | Kameramaße, siehe `docs/linie.md` |

@@ -85,13 +85,16 @@ class Kartograf(Node):
         dp('lidar_x', 0.0)                       # LiDAR so weit vor der Robotermitte (m) - nachmessen
         dp('karte_min_abstand', 0.15)            # naeher (m) nicht in die Karte (eigene Teile, Beruehrung)
         dp('scan_dauer', 0.0)                    # Dauer einer LiDAR-Umdrehung (s), falls nicht im Scan. 0 = aus
-        dp('selbst_kalibrieren', True)           # gelernte Korrekturen (Lagesensor, LiDAR-Einbau) anwenden
+        # Gelernte Korrekturen (Lagesensor, LiDAR-Einbau, gespiegelt) anwenden? AUS: die Karte rechnet mit den
+        # eingestellten Werten (wie anfangs), die Selbstpruefung meldet nur. AN nur nach Pruefung mit einer
+        # Messfahrt-Aufnahme (kartograf/abspielen.py --setze selbst_kalibrieren=true).
+        dp('selbst_kalibrieren', False)
         dp('max_reichweite', 8.0)                # LiDAR-Punkte weiter weg nicht verwenden (m)
         dp('odom_topic', '/odom_raw')
         dp('imu_topic', '/imu/data_raw')
         dp('image_topic', '/camera/color/image_raw')
         dp('depth_topic', '/camera/depth/image_raw')
-        dp('kamera_hz', 2.0)                     # so oft Kamera/Tiefe in die Karte eintragen
+        dp('kamera_hz', 1.0)                     # so oft Kamera/Tiefe in die Karte eintragen (kostet Rechenzeit)
         dp('aufnahme_bild_hz', 2.0)              # so oft ein Kamerabild in die Messfahrt-Aufnahme
         dp('arm_basis_x', 0.05)                  # Drehachse von Servo 1 vor der Robotermitte (m) - geschaetzt
         dp('umschauen_auto', False)              # KI bitten, sich umzuschauen, wo die Karte Luecken hat
@@ -420,9 +423,8 @@ class Kartograf(Node):
         try:
             with self.datei_lock:
                 with self.lock:
-                    kal = self.kr.kal.speichern()      # Gelerntes ueber die Sensoren gilt weiter
+                    # wirklich neu: auch die Selbstkalibrierung (eine falsch gelernte Korrektur soll nicht mitwandern)
                     karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
-                    karte.kalibrierung = kal
                     kr = KR.Kartierer(karte, self.kartierer_cfg())
                     ply = self._speichern_ohne_lock()    # neuester Stand, nicht nur der letzte Autosave
                     schreibe_atomar(os.path.join(self.ordner, 'karte.ply'), ply)

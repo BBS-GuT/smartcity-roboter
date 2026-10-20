@@ -320,7 +320,9 @@ class Kartierer:
         self.c = dict(STANDARD)
         self.c.update({k: v for k, v in (cfg or {}).items() if v is not None})
         self.namen = list(self.c['scan_topics'])
-        self.kal = Kalibrierung(karte.kalibrierung)
+        # Gespeicherte Selbstkalibrierung nur, wenn sie auch angewendet werden soll. Sonst Rohwerte wie eingestellt
+        # (eine einmal falsch gelernte Korrektur verdreht sonst jede weitere Karte)
+        self.kal = Kalibrierung(karte.kalibrierung if self.c['selbst_kalibrieren'] else None)
         self.lok = K.Lokalisierung(karte)
         self.uhren = {}
         self.scans = {}               # name -> Liste der letzten Scans (zeit, punkte, empfang)
@@ -573,6 +575,14 @@ class Kartierer:
         if u is None:
             return
         r_imu, r_odo = u
+        if not self.c['selbst_kalibrieren']:
+            # nur melden, nichts umstellen (Einstellungen pruefen: scan_spiegeln, IMU)
+            if r_imu is not None and not 0.7 <= r_imu <= 1.4:
+                text = f'Selbstpruefung: Scan dreht {r_imu:+.2f}x so viel wie der Lagesensor (Einstellungen pruefen)'
+                if not self.kal.meldungen or self.kal.meldungen[-1][1] != text:
+                    self.kal.melden(text, zeit)
+                    self.meldung = text
+            return
         az = float(np.median(self.imu_az)) if self.imu_az else 9.8
         if r_imu is not None and r_imu < -0.5:
             if (r_odo is not None and r_odo < -0.5) or (r_odo is None and az > 0):
