@@ -34,11 +34,11 @@ class Lauf:
         raise AssertionError(f'{zielphase} nicht regulaer erreicht: {self.phasen}')
 
     def planer(self, objekt, seite):
-        if self.ablauf.phase == 'vorpruefen':     # Ablagesuche vor dem Heranfahren zaehlt nicht als Planung
-            return {'schritte': []}
-        self.planungen += 1
-        if self.naeher_noetig and self.planungen == 1:
-            return {'naeher': 0.03}
+        # Die Vorpruefung bekommt einen machbaren Plan; naeher erst bei der eigentlichen Planung.
+        if self.ablauf.phase == 'planen':
+            self.planungen += 1
+            if self.naeher_noetig and self.planungen == 1:
+                return {'naeher': 0.03}
         return {'schritte': [('heben', [90, 120, 10, 20, 90, 130], 1.0),
                              ('fahrstellung', [90, 120, 10, 20, 90, 30], 1.5)]}
 
@@ -55,7 +55,7 @@ class Lauf:
         if self.phasen[-1] != self.ablauf.phase:
             self.phasen.append(self.ablauf.phase)
         # Planerthread wirklich rechnen lassen, ohne die kuenstliche Testuhr weiterzudrehen.
-        if self.ablauf.phase == 'planen':
+        if self.ablauf.phase in ('vorpruefen', 'planen'):
             ende = time.monotonic() + 2
             while self.ablauf.plan is None and time.monotonic() < ende:
                 time.sleep(0.001)
@@ -86,8 +86,8 @@ class RaeumenPersonen(unittest.TestCase):
         for phase in NEUE_PHASEN:
             with self.subTest(phase=phase):
                 lauf = Lauf(phase)
-                # vor dem Heranfahren sucht er im Stand eine Ablagestelle (Phase vorpruefen)
-                self.assertEqual(lauf.phasen, ['anschauen'] + (['vorpruefen'] if phase == 'abstand' else []) + [phase])
+                erwartet = ['anschauen', 'vorpruefen', phase] if phase == 'abstand' else ['anschauen', phase]
+                self.assertEqual(lauf.phasen, erwartet)
                 self.assertGreater(lauf.lidar, STANDARD['notbremse_dist'])
                 self.bewegung(lauf.schritt(), phase)
 
