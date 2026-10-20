@@ -103,7 +103,8 @@ class Kalibrierung:
         self.gyro_bias = float(g.get('gyro_bias', 0.0))
         self.bias_aus_stand = False
         self.odom_skala = float(g.get('odom_skala', 1.0))
-        self.einbau = tuple(g.get('einbau', (0.0, 0.0, 0.0)))    # Haupt-LiDAR gegenueber der Robotermitte
+        # Haupt-LiDAR gegenueber der Robotermitte. Noch nicht gelernt = gespeichert als None (nicht fehlend!)
+        self.einbau = tuple(g.get('einbau') or (0.0, 0.0, 0.0))
         self.einbau_gelernt = bool(g.get('einbau'))
         self.spiegeln = bool(g.get('spiegeln', False))
         self.dreh_proben = []      # (lidar_drehung, imu_roh_integral, dauer)

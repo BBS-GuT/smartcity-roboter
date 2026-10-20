@@ -120,7 +120,7 @@ Auch die ROS-Simulation (`sim/simulator.py`) kann diese Fehler nachstellen (Para
 | `karte.json`, `wolke.bin` | für das Panel |
 | `karten/aufnahmen/*.jsonl.gz` | Messfahrten (eine Zeile JSON je Nachricht, gzip). Auch nach einem Absturz bis kurz davor lesbar |
 
-**Neue Karte:** Panel → Karte → "Neue Karte". Die alte wird **umbenannt** (`karten/smartcity_alt_<Datum>`), nicht gelöscht. Was über die Sensoren gelernt wurde, gilt weiter.
+**Neue Karte:** Panel → Karte → "Neue Karte". Die alte wird **umbenannt** (`karten/smartcity_alt_<Datum>`), nicht gelöscht. Was über die Sensoren gelernt wurde, gilt weiter. Vorher wird ihr **aktueller** Stand gespeichert. Das Panel meldet nur dann Erfolg, wenn der Kartograf genau diesen Auftrag bestätigt. Klappt etwas nicht (z. B. keine Schreibrechte), bleibt die alte Karte aktiv und das Panel zeigt den Grund.
 Andere Karte (z. B. andere Stadt): Panel mit `scripts/panel.sh --karte werkstatt` starten.
 
 ## Einstellungen (in `config/lokal/roboter.yaml` unter `/**:` → `ros__parameters:`)

@@ -22,7 +22,9 @@
 #
 # Sendet:  /karte/pose  std_msgs/String JSON {x, y, w, status, guete, fahrten, warnungen, aufnahme ...} (5x pro s)
 #          /ki/kommando 'umschauen' (nur wenn umschauen_auto:=true)
-# Empfaengt: /karte/kommando  'neu' (alte Karte sichern, neu anfangen) | 'speichern' | 'aufnahme_start' | 'aufnahme_stopp'
+# Empfaengt: /karte/kommando  'neu' oder 'neu:<auftrag>' (alte Karte sichern, neu anfangen) | 'speichern' |
+#                             'aufnahme_start' | 'aufnahme_stopp'
+#            Ergebnis eines Neuanfangs steht in /karte/pose unter 'karte_neu': {auftrag, ok, text, sicherung}
 import json
 import math
 import os
@@ -101,6 +103,9 @@ class Kartograf(Node):
         self.k_cfg['arm_basis_x'] = self.p('arm_basis_x')
 
         self.lock = threading.Lock()
+        # Dateien im Kartenordner schreiben/verschieben: immer ZUERST datei_lock, dann lock (nie andersherum)
+        self.datei_lock = threading.Lock()
+        self.karte_neu = None               # Ergebnis des letzten Neuanfangs (fuers Panel, s. o.)
         self.bridge = CvBridge()
         self.karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
         geladen = self.karte.laden()
@@ -349,6 +354,7 @@ class Kartograf(Node):
             aus = self.kr.meldung_pose(jetzt)
         aus['karte'] = self.p('karte')
         aus['angefangen'] = self.angefangen
+        aus['karte_neu'] = self.karte_neu
         if 'x' in aus:
             aus['scan'] = self.scan_karte
         a = self.aufnahme
@@ -370,27 +376,70 @@ class Kartograf(Node):
         if not self.geaendert:
             return
         self.geaendert = False
-        with self.lock:
-            bild, bereich = self.karte.bild()
-            p, f = self.karte.wolke_export()
-            info = {'zeit': time.time(), 'karte': self.p('karte'), 'fahrten': self.karte.fahrten,
-                    'bereich': bereich, 'aufloesung': self.karte.boden.aufl, 'status': self.kr.lok.status,
-                    'pose': self.kr.roboter_pose_bei(), 'pfad': self.kr.lok.pfad[-3000:],
-                    'marker': self.karte.marker.sichere(), 'punkte_3d': int(len(p))}
-        os.makedirs(self.ordner, exist_ok=True)
-        if bild is not None:
-            schreibe_atomar(os.path.join(self.ordner, 'karte.png'), cv2.imencode('.png', bild)[1].tobytes())
-        kopf = np.array([len(p)], np.uint32).tobytes()
-        schreibe_atomar(os.path.join(self.ordner, 'wolke.bin'), kopf + p.astype('<f4').tobytes() + f.tobytes())
-        schreibe_atomar(os.path.join(self.ordner, 'karte.json'), json.dumps(info).encode())
+        with self.datei_lock:    # nicht gleichzeitig mit "Neue Karte" (Ordner wird verschoben)
+            with self.lock:
+                bild, bereich = self.karte.bild()
+                p, f = self.karte.wolke_export()
+                info = {'zeit': time.time(), 'karte': self.p('karte'), 'fahrten': self.karte.fahrten,
+                        'bereich': bereich, 'aufloesung': self.karte.boden.aufl, 'status': self.kr.lok.status,
+                        'pose': self.kr.roboter_pose_bei(), 'pfad': self.kr.lok.pfad[-3000:],
+                        'marker': self.karte.marker.sichere(), 'punkte_3d': int(len(p))}
+            os.makedirs(self.ordner, exist_ok=True)
+            if bild is not None:
+                schreibe_atomar(os.path.join(self.ordner, 'karte.png'), cv2.imencode('.png', bild)[1].tobytes())
+            kopf = np.array([len(p)], np.uint32).tobytes()
+            schreibe_atomar(os.path.join(self.ordner, 'wolke.bin'), kopf + p.astype('<f4').tobytes() + f.tobytes())
+            schreibe_atomar(os.path.join(self.ordner, 'karte.json'), json.dumps(info).encode())
 
     def _speichern(self):
-        with self.lock:
-            self.karte.letzte_pose = self.kr.lok.pose
-            self.karte.kalibrierung = self.kr.kal.speichern()
-            self.karte.speichern()
-            ply = self.karte.ply()
-        schreibe_atomar(os.path.join(self.ordner, 'karte.ply'), ply)
+        with self.datei_lock:
+            with self.lock:
+                ply = self._speichern_ohne_lock()
+            schreibe_atomar(os.path.join(self.ordner, 'karte.ply'), ply)
+
+    def _speichern_ohne_lock(self):
+        """Aktuellen Stand (Karte, Pose, Kalibrierung) in den Kartenordner. Aufrufer haelt lock. Rueckgabe: PLY."""
+        self.karte.letzte_pose = self.kr.lok.pose
+        self.karte.kalibrierung = self.kr.kal.speichern()
+        self.karte.speichern()
+        return self.karte.ply()
+
+    def _sicherungs_ordner(self):
+        """Eindeutiger Name fuer die Sicherung der alten Karte (auch bei zwei Anfragen in derselben Sekunde)."""
+        basis = self.ordner + time.strftime('_alt_%Y%m%d_%H%M%S')
+        ziel, n = basis, 2
+        while os.path.exists(ziel):
+            ziel, n = f'{basis}_{n}', n + 1
+        return ziel
+
+    def neue_karte(self, auftrag=None):
+        """Alte Karte mit ihrem AKTUELLEN Stand sichern (umbenennen, nichts loeschen) und neu anfangen.
+        Erst alles vorbereiten, dann umschalten: geht etwas schief, bleibt die alte Karte aktiv und vollstaendig.
+        Ergebnis in self.karte_neu (fuers Panel, mit Auftragskennung)."""
+        sicherung = None
+        try:
+            with self.datei_lock:
+                with self.lock:
+                    kal = self.kr.kal.speichern()      # Gelerntes ueber die Sensoren gilt weiter
+                    karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
+                    karte.kalibrierung = kal
+                    kr = KR.Kartierer(karte, self.kartierer_cfg())
+                    ply = self._speichern_ohne_lock()    # neuester Stand, nicht nur der letzte Autosave
+                    schreibe_atomar(os.path.join(self.ordner, 'karte.ply'), ply)
+                    sicherung = self._sicherungs_ordner()
+                    shutil.move(self.ordner, sicherung)
+                    self.karte, self.kr = karte, kr
+                    self.angefangen = time.time()
+        except Exception as e:     # z. B. keine Schreibrechte: melden, Kartograf laeuft mit der alten Karte weiter
+            self.get_logger().error(f'Neue Karte geht nicht: {e!r}')
+            self.karte_neu = {'auftrag': auftrag, 'ok': False, 'text': f'Neue Karte geht nicht: {e}',
+                              'sicherung': sicherung if sicherung and os.path.isdir(sicherung) else None}
+            return self.karte_neu
+        self.geaendert = True
+        self.get_logger().info(f'Neue Karte angefangen, alte gesichert in {sicherung}')
+        self.karte_neu = {'auftrag': auftrag, 'ok': True, 'text': 'Neue Karte angefangen',
+                          'sicherung': os.path.basename(sicherung)}
+        return self.karte_neu
 
     # ---------------- Messfahrt aufzeichnen ----------------
     def _aufnahme_start(self):
@@ -432,23 +481,8 @@ class Kartograf(Node):
             self._aufnahme_start()
         elif befehl == 'aufnahme_stopp':
             self._aufnahme_stopp()
-        elif befehl == 'neu':
-            try:
-                with self.lock:
-                    if os.path.isdir(self.ordner):
-                        # nichts loeschen: alte Karte bleibt als Sicherung liegen
-                        shutil.move(self.ordner, self.ordner + time.strftime('_alt_%Y%m%d_%H%M%S'))
-                    kal = self.kr.kal.speichern()      # Gelerntes ueber die Sensoren gilt weiter
-                    self.karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
-                    self.karte.kalibrierung = kal
-                    self.kr = KR.Kartierer(self.karte, self.kartierer_cfg())
-                    self.angefangen = time.time()
-            except Exception as e:     # z. B. keine Schreibrechte: melden, Kartograf laeuft mit der alten Karte weiter
-                self.get_logger().error(f'Neue Karte geht nicht: {e!r}')
-                return
-            self.geaendert = True
-            self.get_logger().info('Neue Karte angefangen (alte als Sicherung umbenannt)')
-
+        elif befehl == 'neu' or befehl.startswith('neu:'):
+            self.neue_karte(befehl[4:] or None)
 
 def signale_abfangen():
     def ende(*_):

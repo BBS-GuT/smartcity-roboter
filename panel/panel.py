@@ -31,6 +31,7 @@ import sys
 import tarfile
 import threading
 import time
+import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -582,20 +583,25 @@ def mache_handler(node, prozesse, beenden=None):
             node.karte_kommando_pub.publish(String(data='speichern'))
             return 'Karte wird gespeichert'
         if name == 'karte_neu':
-            # nur Erfolg melden, wenn der Kartograf es bestaetigt (er laeuft evtl. gar nicht oder ist abgestuerzt)
+            # Erfolg nur, wenn der Kartograf GENAU DIESEN Auftrag bestaetigt (nicht: er wurde nur neu gestartet)
             vorher = node.get('karte', max_alter=3.0)
             if vorher is None:
                 return ('Kartograf laeuft nicht (oder meldet sich nicht) -> keine neue Karte. '
                         'Erst "Kartograf starten" (System), dann nochmal.\n' + log_ende('karte'))
-            node.karte_kommando_pub.publish(String(data='neu'))
-            if 'angefangen' not in vorher:      # alter Kartograf (vor dem Update gestartet) bestaetigt nicht
+            if 'karte_neu' not in vorher:      # alter Kartograf (vor dem Update gestartet) bestaetigt nicht
+                node.karte_kommando_pub.publish(String(data='neu'))
                 return 'Neue Karte angefordert (Kartograf neu starten, dann wird sie auch bestaetigt).'
-            ende = time.time() + 5.0
+            auftrag = uuid.uuid4().hex[:12]
+            node.karte_kommando_pub.publish(String(data=f'neu:{auftrag}'))
+            ende = time.time() + 8.0
             while time.time() < ende:
                 time.sleep(0.3)
-                k = node.get('karte', max_alter=3.0) or {}
-                if k.get('angefangen') is not None and k.get('angefangen') != vorher.get('angefangen'):
-                    return 'Neue Karte angefangen. Die alte liegt als Sicherung in karten/ (nichts geloescht).'
+                erg = (node.get('karte', max_alter=3.0) or {}).get('karte_neu') or {}
+                if erg.get('auftrag') == auftrag:
+                    if erg.get('ok'):
+                        return (f"Neue Karte angefangen. Die alte liegt als Sicherung in karten/{erg.get('sicherung')} "
+                                '(nichts geloescht).')
+                    return f"Neue Karte NICHT angefangen, alte Karte bleibt aktiv: {erg.get('text')}"
             return ('Kartograf hat die neue Karte NICHT bestaetigt. Letzte Zeilen aus logs/karte.log:\n'
                     + log_ende('karte'))
         if name == 'karte_aufnahme':
