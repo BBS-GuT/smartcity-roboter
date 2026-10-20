@@ -24,6 +24,22 @@ def pruefe(name, ok, info=''):
     print(f"{'OK  ' if ok else 'FEHLER'} {name} {info}")
 
 
+# ---------------- Ablagestellen ----------------
+alle = armlib.ablagestellen(-1, 0.03)
+pruefe('Ablagestellen: bevorzugte Seite zuerst, beide Seiten, ausserhalb des Fahrschlauchs',
+       alle[0][1] < 0 and any(a[1] > 0 for a in alle) and min(abs(a[1]) for a in alle) >= 0.17)
+frei = armlib.ablagestellen(-1, 0.03, belegt=[(0.10, -0.18)])
+pruefe('Ablagestellen: belegte Stelle (LiDAR) faellt weg', (0.10, -0.18, 0.03) not in frei and len(frei) < len(alle))
+kin = armlib.Kinematik()
+p = greifen.plane({'vor': 0.16, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.04}, -1, kin.inverse,
+                  [90, 120, 10, 20, 90, 30], 30, 130, erkunden=False)
+pruefe('Wegraeumen planbar (Standardmasse)', not p.get('fehler'), p.get('info', p.get('fehler')))
+p = greifen.plane({'vor': 0.16, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.04}, -1,
+                  lambda x, y, z: kin.inverse(x, y, z) if abs(y) < 0.1 else None,
+                  [90, 120, 10, 20, 90, 30], 30, 130, erkunden=False)
+pruefe('greifen ja, ablegen nein -> ablage_fehlt, kein Naeherfahren', p.get('ablage_fehlt') and not p.get('naeher'),
+       p.get('fehler'))
+
 # ---------------- Regel: wann ist gegriffen? ----------------
 pruefe('Greifer mittig im Wuerfel -> gegriffen', greifen.trifft((0.27, 0.0, 0.02), (0.27, 0.0), 0.045, 0.045)[0])
 pruefe('3 cm daneben -> nicht gegriffen', not greifen.trifft((0.30, 0.0, 0.02), (0.27, 0.0), 0.045, 0.045)[0])

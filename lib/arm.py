@@ -337,16 +337,31 @@ def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu):
             return {'schritte': greifen + ablegen + [('zurueck in Fahrstellung', fahr, 1.5)],
                     'info': f'greife bei {gx * 100:.0f} / {gy * 100:+.0f} / {gz * 100:.0f} cm, lege ab bei '
                             f'{ax * 100:.0f} / {ay * 100:+.0f} cm'}
-    return {'fehler': f'keine erreichbare Ablagestelle neben der Strasse ({fehler})'}
+    if not ablagen:
+        return {'fehler': 'keine freie Ablagestelle neben der Strasse (LiDAR sieht dort ueberall etwas)',
+                'ablage_fehlt': True}
+    return {'fehler': f'keine erreichbare Ablagestelle neben der Strasse ({fehler})', 'ablage_fehlt': True}
 
 
-def ablagestellen(seite, z):
+ABLAGE_X = (0.10, 0.06, 0.14, 0.18, 0.04, 0.22, 0.02, 0.26)   # vorne (m), beliebteste zuerst
+ABLAGE_Y = (0.18, 0.20, 0.17, 0.22, 0.25)                     # seitlich (m): ausserhalb des Fahrschlauchs
+ABLAGE_FREI = 0.06            # so nah (m) darf kein LiDAR-Punkt an einer Ablagestelle liegen
+
+
+def ablagestellen(seite, z, belegt=None):
     """Ablagestellen neben dem Roboter (Roboter-System), bevorzugte Seite zuerst (+1 links, -1 rechts).
-    So weit seitlich, dass es ausserhalb des Fahrschlauchs liegt."""
+    So weit seitlich, dass es ausserhalb des Fahrschlauchs liegt. Ein Gitter statt weniger fester Punkte:
+    welche der Arm wirklich erreicht, haengt von seinen (nicht nachgemessenen) Massen ab.
+    belegt: LiDAR-Punkte (x, y) - Stellen, an denen schon etwas steht, fallen weg."""
+    import numpy as np
+    pkt = None if belegt is None else np.asarray(belegt, dtype=float).reshape(-1, 2)
     aus = []
     for s in (seite, -seite):
-        for x, y in ((0.10, 0.20), (0.06, 0.20), (0.14, 0.19), (0.04, 0.18)):
-            aus.append((x, s * y, z))
+        for y in ABLAGE_Y:
+            for x in ABLAGE_X:
+                if pkt is not None and len(pkt) and np.hypot(pkt[:, 0] - x, pkt[:, 1] - s * y).min() < ABLAGE_FREI:
+                    continue
+                aus.append((x, s * y, z))
     return aus
 
 

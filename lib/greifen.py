@@ -243,6 +243,19 @@ def lernstand_dateien(lokal=LOKAL, vortrainiert=VORTRAINIERT):
     return aus
 
 
+def _merke(ik):
+    """ik mit Gedaechtnis: dieselben Punkte (z. B. Ablagestellen beim Durchprobieren) nur einmal rechnen -
+    Yahbooms Kinematik fragt jedes Mal einen ROS-Dienst."""
+    schon = {}
+
+    def neu(x, y, z):
+        k = (round(x, 4), round(y, 4), round(z, 4))
+        if k not in schon:
+            schon[k] = ik(x, y, z)
+        return schon[k]
+    return neu
+
+
 def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, boden=0.0, erkunden=True):
     """Armbewegung zum Wegraeumen: Zielpunkt (Messung) + gelernte Korrektur -> Servowinkel (ik).
     punkt: Zielpunkt schon umgerechnet (Yahboom-Kinematik), sonst aus obj. boden: Hoehe des Bodens im System
@@ -252,6 +265,12 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
     import arm as armlib
     h = obj['hoehe']
     basis = np.array(punkt if punkt is not None else greifpunkt(obj), dtype=float)
+    # Ablagestellen sind im Roboter-System gedacht; rechnet die Kinematik in einem anderen System (Yahboom:
+    # base_link), um denselben Versatz verschieben wie den Greifpunkt. Belegte Stellen (LiDAR) fallen weg.
+    versatz = basis[:2] - greifpunkt(obj)[:2] if punkt is not None else np.zeros(2)
+    ablagen = [(x + float(versatz[0]), y + float(versatz[1]), z)
+               for x, y, z in armlib.ablagestellen(seite, boden + h / 2 + 0.01, obj.get('belegt'))]
+    ik = _merke(ik)
     versuche = [np.zeros(3)]
     if politik is not None:
         a, mitte = politik.vorschlag(obj, rng, erkunden)
@@ -260,8 +279,7 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
     for a in versuche:
         g = basis + a
         g[2] = max(boden + Z_MIN, g[2])
-        plan = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), armlib.ablagestellen(seite, boden + h / 2 + 0.01),
-                                       h, fahr, auf, zu)
+        plan = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), ablagen, h, fahr, auf, zu)
         if not plan.get('fehler'):
             plan['schritte'] = armlib.begrenze_tempo(plan['schritte'], fahr)
             plan['korrektur'] = [float(v) for v in a]
@@ -271,6 +289,8 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
                                   'obj': {k: float(obj[k]) for k in ('vor', 'seite', 'breite', 'hoehe')}}
                 plan['info'] += (f", gelernte Korrektur {a[0] * 100:+.1f} / {a[1] * 100:+.1f} / {a[2] * 100:+.1f} cm")
             return plan
+        if plan.get('ablage_fehlt'):
+            return plan       # greifen ginge, ablegen nicht: naeher heranfahren hilft da nicht
     # Nicht erreichbar: Wuerde es gehen, wenn er naeher heranfaehrt? (der Arm reicht nicht beliebig weit)
     # Gerechnet mit der besten gelernten Korrektur. Er faehrt so weit, dass der Zielpunkt gut 3 cm im
     # erreichbaren Bereich liegt (damit auch Korrekturen beim Ausprobieren noch gehen).
@@ -279,10 +299,11 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
     for d in np.arange(0.01, NAEHER_MAX + 0.001, 0.01):
         g = basis + ziel - np.array([d, 0.0, 0.0])
         g[2] = max(boden + Z_MIN, g[2])
-        p2 = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), armlib.ablagestellen(seite, boden + h / 2 + 0.01),
-                                     h, fahr, auf, zu)
+        p2 = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), ablagen, h, fahr, auf, zu)
         if not p2.get('fehler'):
             geht.append(float(d))
+        elif p2.get('ablage_fehlt'):
+            return p2         # naeher dran griffe er, haette aber keine Ablagestelle
         elif geht:
             break
     if geht:
