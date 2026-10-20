@@ -42,5 +42,21 @@ Tests benutzen teilweise [ROS-Attrappen](../../tests/attrappen/LIESMICH.txt) und
 - Basis `5309b20854e81a217996da8ebb903feebaa7f8eb`, eigener D1-Checkout.
 - Windows / CPython 3.12.14, isolierte venv, pip 25.0.1: alle acht obigen Pakete installiert; `pip check` ohne Konflikt. Keine globale Installation.
 - `python tests/test_zustandsvertrag.py -v`: 20 Methoden bestanden, 0 Fehler, 0 Skips; `test_schema_selbst_gueltig` ausdrücklich ausgeführt.
-- Ubuntu 22.04/Python 3.10 lokal nicht verfügbar (kein WSL); der tatsächliche CI-Nachweis und der kombinierte Gesamtlauf werden mit [#37](https://github.com/davidheinrich73/smartcity-roboter/issues/37) ergänzt. Bis dahin ist diese Zielplattform nicht als bestanden bestätigt.
+- Kombinierter Windowslauf auf `df3d5d6` mit den D1a/b/c-Lieferungen: 11/11 Skripte bestanden; 176 ausgegebene Einzelprüfungen plus 48 unittest-Methoden, 0 Fehler/Timeouts/Skips. Kartentest: 87,44 s. Diese Zähler beschreiben den geprüften Stand und sind keine feste Sollanzahl.
 - Keine ROS-Gesamtsimulation und keine reale Geräte-/Brokerprüfung ausgeführt.
+
+## Tatsächlicher Linux-/CI-Nachweis
+
+Ubuntu 22.04 steht lokal nicht zur Verfügung (kein WSL). Stattdessen wurde die Zielumgebung tatsächlich in [PR #43](https://github.com/davidheinrich73/smartcity-roboter/pull/43) ausgeführt: Ubuntu 22.04.5 LTS, CPython **3.10.22**, isolierte venv, genau die acht oben festgelegten Paketversionen. `pip check` und der Pflichtimport von NumPy, OpenCV, PyYAML und jsonschema waren erfolgreich.
+
+Der [erfolgreiche Push-Lauf auf `6aff086`](https://github.com/davidheinrich73/smartcity-roboter/actions/runs/39399805111) prüft die Basis `df3d5d6cbd79b98829a69efd79086c70ae441235` samt D1a/b/c und Workflow. Ergebnis: 11/11 Skripte bestanden, 0 Fehler/Timeouts/Skips; Vertragsprüfung 20/20 Methoden mit installiertem jsonschema. Kartentest: 36,64 s. Der Runner prüft sich mit temporären künstlichen Skripten einschließlich Fehler, fehlendem Paket, Skip und Timeout; er startet keine ROS-Simulation.
+
+Nachgewiesene erfolgreiche Checknamen:
+
+- [D1 / Python-Syntax (3.10)](https://github.com/davidheinrich73/smartcity-roboter/actions/runs/39399805111/job/118551404292): 65 versionierte Pythondateien ohne ROS-Import kompiliert.
+- [D1 / Shell-Syntax (bash)](https://github.com/davidheinrich73/smartcity-roboter/actions/runs/39399805111/job/118551404903): 13 versionierte Shellskripte mit `bash -n` geprüft.
+- [D1 / Softwaretests (Ubuntu 22.04, Python 3.10)](https://github.com/davidheinrich73/smartcity-roboter/actions/runs/39399805111/job/118551404840): vollständiger Softwarelauf; Einzellogs und `pip freeze` als Actions-Artefakt, Aufbewahrung 14 Tage.
+
+Der erste Workflowversuch auf `dbde502` wurde vor Jobstart wegen eines unzulässigen Ausdruckskontexts abgewiesen. Auf `6aff086` ist dies korrigiert und mit actionlint 1.7.12 sowie dem obigen echten Lauf geprüft. Historische Fehlerprobes sind nicht als Regression ausgeführt worden. Offene Fachissues und C1-Vertragsreview bleiben von den grünen Infrastrukturchecks unberührt.
+
+Repositoryeigentümer müssen die gewünschten `main`-Regeln separat einrichten und bestätigen: PR-Review durch mindestens eine andere fachkundige Person, erledigte Gespräche, diese tatsächlich erfolgreichen Checks sowie gesperrte Force-Pushes/Löschungen. Diese Lieferung behauptet keine eingerichteten Regeln oder CODEOWNERS.
