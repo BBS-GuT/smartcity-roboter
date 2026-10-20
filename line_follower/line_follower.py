@@ -20,7 +20,7 @@
 #     0,3 s lang kein Befehl kommt (Watchdog).
 #   - Ohne Antwort der KI (ki_pflicht), ohne Kamerabilder oder ohne Linie: Stopp.
 #   - Notbremse ueber LiDAR, unabhaengig von der KI (blockiert vorwaerts und seitwaerts,
-#     Drehen auf der Stelle und rueckwaerts bleiben erlaubt).
+#     einschliesslich Drehen und Rueckwaerts).
 #
 # Einstellungen: -p name:=wert beim Start oder  ros2 param set /line_follower name wert
 import json
@@ -111,7 +111,7 @@ class LineFollower(Node):
         self.linie_breite = None         # wie breit die Linie in der Draufsicht aussieht (m)
         self.kamera_weg_bis = 0.0        # zuletzt schaute die Kamera (Arm) woanders hin (Zeit)
         self.gyro_null = 0.0             # Nullpunktfehler des Lagesensors (rad/s), im Stand gelernt
-        self.stempel_ok = True           # passt die Aufnahmezeit im Bild zur Uhr dieses Rechners?
+        self.stempel_ok = False          # erst ein gepruefter Aufnahmezeitstempel erlaubt Bewegung
         self.odom = (0.0, 0.0, 0.0, 0.0)  # (Zeit, vorwaerts, seitwaerts, drehen) gemessen
         self.imu = (0.0, 0.0)            # (Zeit, Drehrate) gemessen
         # Plausibilitaet: passt die Messung zur Richtung der Befehle? (Summe Produkt, Anzahl)
@@ -249,9 +249,20 @@ class LineFollower(Node):
         if jetzt - self.bild_zeit < 1.0 / self.p('max_bild_hz') - 0.005:
             return                    # Bild auslassen: entlastet den Rechner (Kamera liefert ~30/s)
         # Wann wurde das Bild aufgenommen? (Zeitstempel der Kamera, gleiche Uhr wie dieser Rechner)
-        stempel = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
-        self.stempel_ok = 0.0 <= jetzt - stempel < 5.0
-        aufnahme = stempel if self.stempel_ok else jetzt
+        try:
+            stamp = msg.header.stamp
+            aufnahme = stamp.sec + stamp.nanosec * 1e-9
+            stempel_ok = (stamp.sec >= 0 and 0 <= stamp.nanosec < 1_000_000_000
+                          and aufnahme > 0 and 0.0 <= jetzt - aufnahme < 5.0)
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            stempel_ok = False
+        if not stempel_ok:
+            # Keine Ersatz-Aufnahmezeit und keine ungueltigen Punkte im Gedaechtnis.
+            with self.lock:
+                self.stempel_ok = False
+                self.linie_gesehen = False
+                self.kamera_linie = (None, None)
+            return
         img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         # Schaut die Kamera gerade woanders hin (KI dreht den Arm zum Umschauen/Greifen)? Dann passt die
         # Umrechnung auf den Boden nicht -> Bild nicht ins Linien-Gedaechtnis (Roboter steht dabei).
@@ -269,8 +280,9 @@ class LineFollower(Node):
             erg.update({'gefunden': False, 'boden': [], 'punkte': []})
         with self.lock:
             # Punkte dort eintragen, wo der Roboter bei der AUFNAHME stand (Bild kommt verspaetet an)
+            self.stempel_ok = True
             self.gedaechtnis.hinzufuegen(erg['boden'], aufnahme)
-            self.bild_alter = time.time() - aufnahme
+            self.bild_alter = jetzt - aufnahme  # Alter am Empfang; entscheide addiert die verstrichene Zeit
             self.linie_gesehen = erg['gefunden']
             self.kamera_linie = (erg.get('quer'), erg.get('kurs')) if erg['gefunden'] else (None, None)
             if erg['gefunden'] and erg.get('breite') and erg['breite'][0]:
@@ -311,6 +323,8 @@ class LineFollower(Node):
         jetzt = time.time()
         with self.lock:
             bild_zeit = self.bild_zeit
+            stempel_ok = self.stempel_ok
+            bild_alter = self.bild_alter + max(0.0, jetzt - bild_zeit)
             ziel = self.gedaechtnis.linie(self.p('vorausschau'))
             # Die Motoren setzen einen Befehl erst nach ca. 'vorhersage' s um -> Linie dort ansehen,
             # wo der Roboter dann ist (er faehrt bis dahin ungefaehr wie zuletzt befohlen)
@@ -322,14 +336,13 @@ class LineFollower(Node):
         ki_zeit, ki = self.ki
         manoever = ki.get('manoever') if (ki and ki.get('aktion') == 'manoever' and jetzt - ki_zeit < 0.6) else None
         if grund:
-            if manoever and manoever.get('lin', 0) <= 0 and abs(manoever.get('quer', 0)) < 1e-6:
-                # Notbremse: nur Drehen auf der Stelle und Rueckwaerts sind noch erlaubt
-                return self._manoever(manoever, 'Manoever trotz Notbremse (nur drehen/rueckwaerts): ')
             return 0.0, 0.0, 0.0, grund + ' -> STOPP'
         if jetzt - bild_zeit > 0.5:
             return 0.0, 0.0, 0.0, 'KEINE KAMERABILDER -> STOPP'
-        if self.bild_alter > self.p('bild_alter_max'):
-            return 0.0, 0.0, 0.0, f'KAMERABILDER ZU ALT ({self.bild_alter:.2f} s) -> STOPP (Rechner ueberlastet?)'
+        if not stempel_ok:
+            return 0.0, 0.0, 0.0, 'KAMERA-ZEITSTEMPEL UNGUELTIG -> STOPP'
+        if bild_alter > self.p('bild_alter_max'):
+            return 0.0, 0.0, 0.0, f'KAMERABILDER ZU ALT ({bild_alter:.2f} s) -> STOPP (Rechner ueberlastet?)'
         faktor = 1.0
         if self.p('ki_pflicht'):
             if ki is None or jetzt - ki_zeit > 0.6:
@@ -340,7 +353,7 @@ class LineFollower(Node):
                 return self._manoever(manoever, 'KI-Manoever: ')
             faktor = float(ki.get('faktor', 1.0))
         tempo = self.p('speed') * faktor
-        if self.bild_alter > self.p('bild_alter_langsam'):   # Bilder kommen spaet -> langsamer
+        if bild_alter > self.p('bild_alter_langsam'):   # Bilder kommen spaet -> langsamer
             tempo *= 0.5
         v, dreh, status = self.lenkung.berechne(ziel, tempo, jetzt, lokal, k_voraus)
         gemessen = self.verzoegerung.ergebnis
