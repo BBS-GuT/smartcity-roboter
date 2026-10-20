@@ -209,5 +209,20 @@ messfahrt_pruefen('Messfahrt: /odom_raw ohne Geschwindigkeiten (nur Position)', 
 messfahrt_pruefen('Messfahrt: Haupt-LiDAR an der Ecke, Wenden auf der Stelle, Aufbau verdeckt 90 Grad', ecke,
                   lidar0_einbau=(0.12, 0.10, 0.0), lidar1_einbau=(-0.12, -0.10, 0.0), lidar_verdeckt=90.0, wenden=True)
 
+# Karte gespeichert, bevor der LiDAR-Einbau gelernt war ('einbau': None) -> Kartograf muss sie wieder laden koennen
+# (stuerzte sonst bei JEDEM Start ab, damit ging auch "Neue Karte" nicht mehr)
+with tempfile.TemporaryDirectory() as d:
+    k1 = K.Karte(d)
+    k1.kalibrierung = kartierer.Kalibrierung().speichern()
+    k1.speichern()
+    k2 = K.Karte(d)
+    try:
+        ok = k2.laden() and kartierer.Kartierer(k2).kal.einbau == (0.0, 0.0, 0.0)
+    except Exception as e:
+        ok = False
+        print(f'      {e!r}')
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} Karte ohne gelernten LiDAR-Einbau speichern und wieder laden")
+
 print('\nAlle Tests bestanden.' if not fehler else f'\n{fehler} Test(s) fehlgeschlagen.')
 sys.exit(1 if fehler else 0)

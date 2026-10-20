@@ -31,7 +31,7 @@
 | 4 | Kamera-KI sieht Person/Auto/… im Weg | STOPP |
 | 6 | Schild **"Einfahrt verboten"** (2 Bilder hintereinander) | **wenden**: auf der Stelle drehen, bis die Linie wieder genau vorne liegt (gemessen mit dem Lagesensor, mind. 150°) |
 | 7 | **Zebrastreifen** näher als 33 cm | anhalten, Kamera nach **links**, dann nach **rechts** drehen (Arm), zurück. Sieht er eine Person oder steht etwas am Zebrastreifen (LiDAR, ±30 cm seitlich): warten und neu schauen. Sonst weiter. Ohne Arm-Freigabe: anhalten und geradeaus schauen |
-| 8 | Ampel rot oder gelb | STOPP, bis **grün** erkannt wird (oder die Ampel 4 s nicht mehr zu sehen ist) |
+| 8 | Ampel rot oder gelb | STOPP, bis **grün** erkannt wird. Ampel nicht mehr zu sehen ist KEINE Freigabe (Zieldefinition: Rot verschwindet nicht durch Timeout) |
 | 9 | Stoppschild (nah, d. h. groß im Bild) | 3 s halten, dann weiter. Dasselbe Schild löst erst wieder aus, wenn es 2 s weg war |
 
 

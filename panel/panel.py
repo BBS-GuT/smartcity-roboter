@@ -19,7 +19,6 @@
 #                       Messfahrt aufzeichnen + herunterladen (zum Auswerten mit kartograf/abspielen.py)
 #   Arm              -> nur auf Knopfdruck, nie waehrend der Fahrt
 import argparse
-import io
 import json
 import os
 import re
@@ -28,9 +27,9 @@ import signal
 import socket
 import subprocess
 import sys
-import tarfile
 import threading
 import time
+import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -56,6 +55,7 @@ import lidar           # noqa: E402
 import arm as armlib   # noqa: E402
 import greifen         # noqa: E402
 import einstellungen   # noqa: E402
+import protokolle      # noqa: E402
 from entscheider import STANDARD as KI_STANDARD  # noqa: E402
 
 # Sensoren fuer die Statusseite: (Anzeigename, Topic, Mindestrate in Hz oder None = nur Info)
@@ -120,11 +120,7 @@ class Prozesse:
     def start(self, name, befehl, info='', env=None):
         if self.laeuft(name):
             return False
-        os.makedirs(LOGS, exist_ok=True)
-        datei = os.path.join(LOGS, f'{name}.log')
-        if os.path.exists(datei):
-            os.replace(datei, os.path.join(LOGS, f'{name}.alt.log'))   # vorigen Lauf aufheben
-        log = open(datei, 'w')
+        log = protokolle.neu_oeffnen(LOGS, name)   # vorigen Lauf als <name>.alt.log aufheben
         env = dict(os.environ if env is None else env, PYTHONUNBUFFERED='1')   # sofort ins Protokoll, nicht gepuffert
         # eigene Prozessgruppe, damit beim Beenden auch alle Unterprozesse beendet werden
         self.p[name] = subprocess.Popen(befehl, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=env)
@@ -557,6 +553,9 @@ def mache_handler(node, prozesse, beenden=None):
             time.sleep(2.5)       # sofort wieder beendet? Dann den Grund aus dem Protokoll zeigen
             if not prozesse.laeuft('fahren'):
                 return 'Linienfolger hat sich sofort beendet:\n' + log_ende('fahren')
+            if name == 'start':
+                # ausdruecklicher START: KI quittiert damit Manoever-Fehler und fehlgeschlagenes Wegraeumen
+                node.ki_kommando_pub.publish(String(data='start'))
             return ('Faehrt los.' if name == 'start' else 'Testmodus: zeigt alles, faehrt nicht.') + hinweis
         if name == 'tempo':
             zustand['tempo'] = max(0.05, min(0.4, float(daten.get('wert', 0.15))))
@@ -582,20 +581,25 @@ def mache_handler(node, prozesse, beenden=None):
             node.karte_kommando_pub.publish(String(data='speichern'))
             return 'Karte wird gespeichert'
         if name == 'karte_neu':
-            # nur Erfolg melden, wenn der Kartograf es bestaetigt (er laeuft evtl. gar nicht oder ist abgestuerzt)
+            # Erfolg nur, wenn der Kartograf GENAU DIESEN Auftrag bestaetigt (nicht: er wurde nur neu gestartet)
             vorher = node.get('karte', max_alter=3.0)
             if vorher is None:
                 return ('Kartograf laeuft nicht (oder meldet sich nicht) -> keine neue Karte. '
                         'Erst "Kartograf starten" (System), dann nochmal.\n' + log_ende('karte'))
-            node.karte_kommando_pub.publish(String(data='neu'))
-            if 'angefangen' not in vorher:      # alter Kartograf (vor dem Update gestartet) bestaetigt nicht
+            if 'karte_neu' not in vorher:      # alter Kartograf (vor dem Update gestartet) bestaetigt nicht
+                node.karte_kommando_pub.publish(String(data='neu'))
                 return 'Neue Karte angefordert (Kartograf neu starten, dann wird sie auch bestaetigt).'
-            ende = time.time() + 5.0
+            auftrag = uuid.uuid4().hex[:12]
+            node.karte_kommando_pub.publish(String(data=f'neu:{auftrag}'))
+            ende = time.time() + 8.0
             while time.time() < ende:
                 time.sleep(0.3)
-                k = node.get('karte', max_alter=3.0) or {}
-                if k.get('angefangen') is not None and k.get('angefangen') != vorher.get('angefangen'):
-                    return 'Neue Karte angefangen. Die alte liegt als Sicherung in karten/ (nichts geloescht).'
+                erg = (node.get('karte', max_alter=3.0) or {}).get('karte_neu') or {}
+                if erg.get('auftrag') == auftrag:
+                    if erg.get('ok'):
+                        return (f"Neue Karte angefangen. Die alte liegt als Sicherung in karten/{erg.get('sicherung')} "
+                                '(nichts geloescht).')
+                    return f"Neue Karte NICHT angefangen, alte Karte bleibt aktiv: {erg.get('text')}"
             return ('Kartograf hat die neue Karte NICHT bestaetigt. Letzte Zeilen aus logs/karte.log:\n'
                     + log_ende('karte'))
         if name == 'karte_aufnahme':
@@ -802,12 +806,12 @@ def mache_handler(node, prozesse, beenden=None):
                     with open(datei, 'rb') as f:      # stueckweise (kann gross sein)
                         shutil.copyfileobj(f, self.wfile)
                 elif pfad == '/logs.tar.gz':
-                    # alle Protokolle auf einmal (zum Weiterschicken bei Problemen)
-                    puffer = io.BytesIO()
-                    with tarfile.open(fileobj=puffer, mode='w:gz') as tar:
-                        if os.path.isdir(LOGS):
-                            tar.add(LOGS, arcname='logs')
-                    daten = puffer.getvalue()
+                    # alle Protokolle auf einmal (zum Weiterschicken bei Problemen), begrenzt, siehe lib/protokolle.py
+                    try:
+                        daten = protokolle.archiv(LOGS)
+                    except Exception as e:
+                        return self._senden(500, 'text/plain; charset=utf-8',
+                                            f'Logs konnten nicht gepackt werden: {e!r}'.encode())
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/gzip')
                     self.send_header('Content-Length', str(len(daten)))

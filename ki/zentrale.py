@@ -19,7 +19,8 @@
 #   /ki/bild/compressed     Kamerabild mit allem, was die KI sieht (fuer das Panel)
 #   /ki/antwort             std_msgs/String  Antwort auf /ki/kommando
 # Empfaengt:
-#   /ki/kommando            std_msgs/String  'umschauen' (Kartograf/Panel: kurz anhalten, links/rechts schauen),
+#   /ki/kommando            std_msgs/String  'start' (Panel: ausdruecklicher START, quittiert Fehler-/Hindernissperren),
+#                                            'umschauen' (Kartograf/Panel: kurz anhalten, links/rechts schauen),
 #                                            'greifen_zuruecksetzen' (Panel: Gelerntes vergessen)
 #   /arm6_joints            wohin der Arm geschickt wurde (von wem auch immer) -> wohin schaut die Kamera?
 import json
