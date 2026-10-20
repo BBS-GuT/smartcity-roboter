@@ -471,16 +471,53 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Umschauen im TEST-Modus abgelehnt")
 
 # ---------------- Gegenseitiges Blockieren (z. B. zwei Roboter) ----------------
-l = Lauf(cfg={'ausweichen': True})
 gegner = {'lidar': 0.3, 'objekte': [], 'tiefe_hindernis': True, 'lidar_hinten': 2.0}
-b = l.schritt(100, **gegner)                     # 10 s: wartet noch
-ok1 = b['aktion'] == 'stopp' and l.e.ablauf is None
-aktionen = [l.schritt(1, **gegner)['aktion'] for _ in range(160)]   # bis 26 s
-ok2 = 'manoever' in aktionen
-erstes = next((l2 for l2 in range(len(aktionen)) if aktionen[l2] == 'manoever'), None)
-fehler += not (ok1 and ok2)
-print(f"{'OK  ' if ok1 and ok2 else 'FEHLER'} Weg lange versperrt -> nach Zufallszeit ausweichen "
-      f"(nach {10 + (erstes or 0) / 10:.1f} s)")
+# #49: Die Frist beginnt erst NACH dem Anschauen, nicht bei Testzeit 100.
+# Nur diese beiden Faelle kontrollieren den Zufall; danach gilt wieder der echte Generator.
+import random
+from unittest.mock import patch
+
+echtes_uniform = random.uniform
+for frist in (12.0, 25.0):
+    with patch('entscheider.random.uniform', return_value=frist) as zufall:
+        l = Lauf(cfg={'ausweichen': True})
+        for _ in range(50):                    # begrenztes Warten auf den tatsaechlichen Timerstart
+            b = l.schritt(1, **gegner)
+            if l.e.blockiert_seit is not None:
+                break
+        beginn = l.e.blockiert_seit
+        timer_ok = (beginn is not None and b['aktion'] == 'stopp' and l.e.ablauf is None
+                    and l.e.blockiert_grenze == frist)
+        vorher_ok, nachher_ok, ablauf_nach, manoever_nach = False, False, None, None
+        if timer_ok:
+            # Alle 0,1-s-Schritte bis genau einen Schritt VOR der kontrollierten Frist pruefen.
+            vorher = []
+            for _ in range(round(frist / 0.1) - 1):
+                b = l.schritt(1, **gegner)
+                vorher.append(b['aktion'] == 'stopp' and l.e.ablauf is None
+                              and l.e.blockiert_seit == beginn)
+            vorher_ok = all(vorher) and 0 < frist - (l.t - beginn) < 0.101
+            # Bis zur Frist: ein Zusatzschritt nur fuer die Rundung der 0,1-s-Testuhr.
+            for _ in range(2):
+                b = l.schritt(1, **gegner)
+                if l.t - beginn >= frist:
+                    break
+            ablauf_ok = l.e.ablauf is not None and l.e.ablauf.name == 'ausweichen'
+            if ablauf_ok:
+                ablauf_nach = l.e.ablauf.seit - beginn
+            # Der erste Ablaufaufruf bekommt noch keine Wahrnehmung und haelt.
+            # Erst das naechste Bild liefert den hier ausdruecklich freien Rueckraum.
+            b = l.schritt(1, **gegner)
+            if b['aktion'] == 'manoever':
+                manoever_nach = l.t - beginn
+            nachher_ok = (ablauf_ok and frist <= ablauf_nach <= frist + 0.101
+                          and manoever_nach is not None and 0 < manoever_nach - ablauf_nach < 0.101)
+        zufall_ok = zufall.call_count == 1 and zufall.call_args.args == (12.0, 25.0)
+    ok = timer_ok and vorher_ok and nachher_ok and zufall_ok and random.uniform is echtes_uniform
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} Blockadefrist {frist:g} s: Timerstart={beginn}, "
+          f"Halt vor Frist={vorher_ok}, Ablauf nach {ablauf_nach} s, Manoever nach {manoever_nach} s, "
+          f"Zufall wiederhergestellt={random.uniform is echtes_uniform}")
 l = Lauf(cfg={'ausweichen': True})
 for _ in range(300):
     b = l.schritt(1, lidar=0.3, tiefe_hindernis=True, lidar_hinten=0.1)
