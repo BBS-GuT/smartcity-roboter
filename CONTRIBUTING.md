@@ -28,7 +28,7 @@ python -m pip check
 python scripts/pruefen.py --test-timeout test_karte.py=600
 ```
 
-Der Runner wird in [#35 / PR #41](https://github.com/davidheinrich73/smartcity-roboter/pull/41) geliefert, die Testumgebung in [#36 / PR #42](https://github.com/davidheinrich73/smartcity-roboter/pull/42). Bis zur Integration diese Abhängigkeiten im PR nennen; fehlende Dateien oder Pakete sind kein bestandener Test. Der Runner entdeckt `tests/test_*.py`; Fehler, Timeouts und ausgewiesene unittest-Skips verhindern Gesamterfolg. Relevante positive und negative Kontrollen ergänzen. Keine Fachschwellen verändern, um Tests grün zu machen.
+Runner und Testumgebung sind integriert. Die verbindliche [CI-Betriebs- und Eigentümeranleitung](docs/entwicklung/D1-ci-betrieb.md) beschreibt Aufruf, Checknamen, PR-/main-Nachweise, Downloadfehler und den noch offenen main-Schutz aus #50. Fehlende Dateien oder Pakete sind kein bestandener Test. Der Runner entdeckt `tests/test_*.py`; Fehler, Timeouts und ausgewiesene unittest-Skips verhindern Gesamterfolg. Relevante positive und negative Kontrollen ergänzen. Keine Fachschwellen verändern, um Tests grün zu machen.
 
 Erstelle kleine Commits und einen Draft-PR nach `main`. Verlinke das kleine Issue und das Elternissue; schließe ein Elternpaket erst mit dessen vollständigem Nachweis. Benenne die betroffenen GB-/A-Kennungen oder begründe, weshalb ein reiner Infrastrukturbeitrag keinen fachlichen Anspruch abnimmt. Keine Zugangsdaten, echten Brokeridentitäten oder lokalen Gerätekonfigurationen veröffentlichen.
 
