@@ -33,7 +33,12 @@ import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import cv2
+# Mathe-Bibliotheken nur einen Thread (gilt auch fuer alle vom Panel gestarteten Programme, sie erben die Umgebung):
+# sonst warten auf dem Jetson Threads auf allen Kernen aktiv (RM02 20.10.: Linienfolger bis 500 % CPU)
+for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
+    os.environ.setdefault(_v, '1')
+
+import cv2  # noqa: E402
 import numpy as np
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
