@@ -114,16 +114,22 @@ class LinienSucher:
     def _zu_boden(self, px, py):
         return self.VORNE[1] - py * self.RASTER, self.SEITE - px * self.RASTER
 
+    def vogel(self, img):
+        """Nur die Draufsicht (Maske dunkler Flaechen von oben), ohne Liniensuche - fuer den Zebrastreifen."""
+        h, w = img.shape[:2]
+        self._vogel(w, h)
+        oben = int(h * self.c['zeilen_oben'])
+        gray = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0)
+        maske = np.zeros((h, w), np.uint8)
+        maske[oben:] = (gray[oben:] < self.c['threshold']).astype(np.uint8) * 255
+        return cv2.warpPerspective(maske, self.H, self.vogel_groesse, flags=cv2.INTER_NEAREST)
+
     def suche(self, img):
         """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige."""
         h, w = img.shape[:2]
         c = self.c
-        self._vogel(w, h)
         oben = int(h * c['zeilen_oben'])
-        gray = cv2.GaussianBlur(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), (5, 5), 0)
-        maske = np.zeros((h, w), np.uint8)
-        maske[oben:] = (gray[oben:] < c['threshold']).astype(np.uint8) * 255
-        vogel = cv2.warpPerspective(maske, self.H, self.vogel_groesse, flags=cv2.INTER_NEAREST)
+        vogel = self.vogel(img)
         erg = {'gefunden': False, 'boden': [], 'punkte': [], 'fehler': None, 'zeilen': (oben, h - 1), 'vogel': vogel}
         n, etiketten, stat, _ = cv2.connectedComponentsWithStats(vogel)
         if n <= 1:

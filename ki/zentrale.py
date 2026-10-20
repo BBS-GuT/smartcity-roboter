@@ -33,6 +33,8 @@ import time
 import cv2
 import numpy as np
 import rclpy
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, CompressedImage, LaserScan, Imu
@@ -134,7 +136,10 @@ class Zentrale(Node):
         self.entscheider = Entscheider(cfg={n: self.p(n) for n in KI_STANDARD}, arm_erlaubt=arm_erlaubt,
                                        posen=self.posen, planer=self.planen if self.arm is not None else None,
                                        rueckmeldung=self.greif_ergebnis, planer_fehlt=planer_fehlt)
-        self.create_timer(2.0, self._arm_einstellung)
+        # Entscheiden (10x/s, sendet /ki/befehl) in eigener Gruppe: Sensor-Callbacks (IMU ~100/s, zwei LiDARs) duerfen
+        # es nicht verzoegern - sonst meldet der Linienfolger "KI-Zentrale antwortet nicht" (>0,6 s ohne Befehl)
+        self.gruppe = MutuallyExclusiveCallbackGroup()
+        self.create_timer(2.0, self._arm_einstellung, callback_group=self.gruppe)
         self.arm_beobachter = armlib.ArmBeobachter(self)
         self.kamera_cfg = {n: self.p(n) for n in ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x', 'threshold')}
         self.linien_sucher = linie.LinienSucher(self.kamera_cfg)   # Draufsicht fuer den Zebrastreifen
@@ -187,7 +192,7 @@ class Zentrale(Node):
         for i, t in enumerate(self.p('scan_topics')):
             self.create_subscription(LaserScan, t, lambda m, t=t, i=i: self._scan(m, t, i),
                                      qos_profile_sensor_data)
-        self.create_subscription(String, '/ki/kommando', self._kommando, 10)
+        self.create_subscription(String, '/ki/kommando', self._kommando, 10, callback_group=self.gruppe)
         self.pub_antwort = self.create_publisher(String, '/ki/antwort', 10)
         self.create_subscription(Imu, '/imu/data_raw', self._imu, qos_profile_sensor_data)
         self.create_subscription(Twist, '/cmd_vel', self._cmd, 10)
@@ -198,7 +203,9 @@ class Zentrale(Node):
         self.pub_befehl = self.create_publisher(String, '/ki/befehl', 10)
         self.pub_ereignis = self.create_publisher(String, '/ki/ereignis', 50)
         self.pub_bild = self.create_publisher(CompressedImage, '/ki/bild/compressed', 1)
-        self.create_timer(0.1, self._entscheiden)
+        self.create_timer(0.1, self._entscheiden, callback_group=self.gruppe)
+        self.takt_letzt, self.takt_max = None, 0.0   # Abstand zwischen zwei Entscheidungen (Diagnose)
+        self.bild_gesendet = 0.0
         self.laeuft = True
         threading.Thread(target=self._ki_schleife, daemon=True).start()
         backend = self.yolo.backend if self.yolo else 'ohne KI-Modell'
@@ -364,6 +371,10 @@ class Zentrale(Node):
                 self._auswerten(msg, tmsg)
             except Exception as e:
                 self.get_logger().error(f'KI-Fehler: {e}', throttle_duration_sec=5.0)
+            dauer = time.time() - start
+            if dauer > 0.5:
+                self.get_logger().warn(f'KI-Bild dauerte {dauer:.2f} s (Modell {self.ki_ms:.0f} ms) - Rechner ueberlastet?',
+                                       throttle_duration_sec=10.0)
             rest = 1.0 / self.p('rate') - (time.time() - start)
             if rest > 0:
                 time.sleep(rest)
@@ -405,7 +416,7 @@ class Zentrale(Node):
         einfahrt = schilder.finde_einfahrt_verboten(img) if fahrstellung else None
         zebra, vogel = None, None
         if fahrstellung:
-            vogel = self.linien_sucher.suche(img).get('vogel')
+            vogel = self.linien_sucher.vogel(img)     # nur die Draufsicht, die Linie sucht der Linienfolger
             zebra = finde_zebra(vogel, self.linien_sucher.RASTER, self.linien_sucher.VORNE[1])
 
         tiefe_hindernis, tiefe_obj = None, None
@@ -429,7 +440,11 @@ class Zentrale(Node):
                                 'zebra': zebra, 'einfahrt_verboten': einfahrt is not None}
             befehl = dict(self.befehl)
         self.letzte_extras = {'einfahrt': einfahrt, 'zebra': zebra, 'tiefe': tiefe_obj}
-        self._bild_senden(msg, img, objekte, led, form, ampel_farbe, ampel_quelle, schild, befehl)
+        # Bild fuers Panel (Zeichnen + JPEG kostet Rechenzeit): nur wenn jemand zuschaut, hoechstens 3x pro Sekunde
+        jetzt = time.time()
+        if jetzt - self.bild_gesendet >= 1.0 / 3 and self.pub_bild.get_subscription_count() > 0:
+            self.bild_gesendet = jetzt
+            self._bild_senden(msg, img, objekte, led, form, ampel_farbe, ampel_quelle, schild, befehl)
 
     def _bild_senden(self, msg, img, objekte, led, form, ampel_farbe, ampel_quelle, schild, befehl):
         view = img
@@ -473,6 +488,13 @@ class Zentrale(Node):
     # ---------------- Entscheiden (10x pro Sekunde) ----------------
     def _entscheiden(self):
         jetzt = time.time()
+        if self.takt_letzt is not None:
+            luecke = jetzt - self.takt_letzt
+            self.takt_max = max(self.takt_max * 0.98, luecke)
+            if luecke > 0.4:
+                self.get_logger().warn(f'Entscheiden kam {luecke:.2f} s zu spaet (soll 0,1 s) - Rechner ueberlastet?',
+                                       throttle_duration_sec=5.0)
+        self.takt_letzt = jetzt
         with self.lock:
             w = dict(self.wahrnehmung)
         w['lidar'], lid_obj, w['lidar_breit'] = self.lidar_pruefen()
@@ -507,6 +529,7 @@ class Zentrale(Node):
         info.update({
             'zeit': jetzt,
             'ki': self.yolo.backend if self.yolo else self.yolo_fehler, 'ki_ms': round(self.ki_ms),
+            'takt_max_ms': round(self.takt_max * 1000),
             'bild_alter': round(jetzt - w['bild_zeit'], 2) if w['bild_zeit'] else None,
             'lidar': None if w['lidar'] is None else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
             'ampel': w['ampel'], 'ampel_quelle': w.get('ampel_quelle'),
@@ -604,12 +627,15 @@ def main():
         rclpy.shutdown()
         sys.exit(1)
     node = Zentrale()
+    executor = MultiThreadedExecutor(num_threads=2)   # Sensoren | Entscheiden (siehe self.gruppe)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
         node.laeuft = False
+        executor.shutdown()
         node.destroy_node()
         try:
             rclpy.shutdown()

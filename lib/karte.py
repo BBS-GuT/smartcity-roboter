@@ -624,6 +624,7 @@ class Lokalisierung:
         self.pfad = []                  # gefahrene Strecke dieser Fahrt (Karte)
         self.unsicher_seit = None       # seit wann passt der Abgleich nicht (dann weiter suchen)
         self.zuletzt_sicher = None      # Zeit des letzten sicheren Abgleichs
+        self.odom_sicher = None         # Odometrie beim letzten sicheren Abgleich (wie weit seitdem gefahren?)
         self.letzter_abgleich = None    # fuer Selbstkalibrierung und Diagnose: zeit, pose, sicher, guete, fenster
         self.letzte_punkte = None       # letzter Scan (alle LiDARs zusammen, LiDAR-System) fuer die Anzeige
         # weitere LiDARs: Name -> LidarEinbau (gelernte Korrektur steht in der Karte, gilt fuer den naechsten Start)
@@ -704,19 +705,23 @@ class Lokalisierung:
                 pose_scan, sicher = neu, True
                 self.pose = verknuepfen(neu, bis_jetzt)
                 self.status, self.unsicher_seit, self.zuletzt_sicher = 'ok', None, jetzt
+                self.odom_sicher = self.odom
             else:
                 self.unsicher_seit = self.unsicher_seit or jetzt
                 self.status = f'Abgleich unsicher ({self.guete:.0%}) - rechne mit'
                 if fenster:
                     self.status += f', suche weiter (+-{SUCHFENSTER[fenster][1] * 100:.0f} cm)'
         else:
-            self.zuletzt_sicher = jetzt
+            self.zuletzt_sicher, self.odom_sicher = jetzt, self.odom
         self.letzter_abgleich = {'zeit': scan_zeit if scan_zeit is not None else jetzt, 'pose': pose_scan,
                                  'sicher': sicher and bel.bekannt(), 'guete': self.guete, 'fenster': fenster,
                                  'punkte': len(alle)}
         # Nur eintragen, was sicher ist: sonst wandert die Karte mit dem Fehler mit und dreht sich.
-        # Ausnahme: neues Gebiet (dort kann der Abgleich nicht passen, weil noch nichts in der Karte steht).
-        neues_gebiet = not sicher and bel.bekannt_anteil(pose_scan, alle) < 0.3
+        # Ausnahme: neues Gebiet (dort kann der Abgleich nicht passen, weil noch nichts in der Karte steht) - aber
+        # NUR direkt nach einem sicheren Abgleich. Ist die Position laenger unsicher (umgesetzt, Drehung verloren),
+        # faellt jeder Scan an der falschen Stelle ins Unbekannte und wuerde als "neues Gebiet" ein verdrehtes
+        # zweites Zimmer in die Karte malen (Roboter 20.10.).
+        neues_gebiet = not sicher and self._kurz_nach_sicher(jetzt) and bel.bekannt_anteil(pose_scan, alle) < 0.3
         if eintragen and (sicher or neues_gebiet) and self._weit_genug(jetzt):
             # leere Karte: erster Scan zaehlt doppelt, sonst passt der zweite evtl. schon nicht mehr genau darauf
             bel.eintragen(pose_scan, alle, gewicht=1.0 if bel.bekannt() else 2.0)
@@ -730,6 +735,13 @@ class Lokalisierung:
         if not self.pfad or math.hypot(self.pfad[-1][0] - self.pose[0], self.pfad[-1][1] - self.pose[1]) > 0.03:
             self.pfad.append((round(self.pose[0], 3), round(self.pose[1], 3)))
         return True
+
+    def _kurz_nach_sicher(self, jetzt, zeit=1.5, strecke=0.4, drehung=math.radians(15)):
+        """Letzter sicherer Abgleich ist hoechstens 'zeit' s her und seitdem kaum gefahren/gedreht?"""
+        if self.zuletzt_sicher is None or self.odom_sicher is None or jetzt - self.zuletzt_sicher > zeit:
+            return False
+        r = relativ(self.odom_sicher, self.odom)
+        return math.hypot(r[0], r[1]) < strecke and abs(r[2]) < drehung
 
     def _weit_genug(self, jetzt):
         if self.letzter_eintrag is None:

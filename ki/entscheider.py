@@ -131,6 +131,8 @@ class Entscheider:
         self.geprueft_frei = False    # Kamera hat genau hingeschaut: sieht nichts (nur LiDAR meldet etwas)
         self.bestaetigt = None        # Kamera hat es gesehen, wird nicht angefasst (Grund) -> warten bis frei
         self.bestaetigt_lebewesen = False  # ... weil eine Person/ein Tier in Sicht war -> nochmal schauen, wenn weg
+        self.hindernis_merk = None    # (Abstand m, Strecke dabei, seitdem vorgefahren): von der Kamera gesehen, nicht weggeraeumt. Ist es
+                                      # zu nah fuer die Kamera, gilt der Weg NICHT als frei (sonst faehrt er drueber)
         self.lebewesen_zuletzt = 0.0  # wann die Kamera-KI zuletzt eine Person/ein Tier/ein Fahrzeug gesehen hat
         # Arm
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
@@ -199,6 +201,7 @@ class Entscheider:
                 self._ereignis(jetzt, 'START quittiert: Fehler/Hindernis wird neu geprueft', 'info')
             self.fehler_halt = None
             self.aufheben_gesperrt, self.bestaetigt, self.bestaetigt_lebewesen = False, None, False
+            self.hindernis_merk = None
             self.meldung_seit, self.geprueft_frei = None, False
         if not self.fahrt_aktiv:
             # STOPP gedrueckt oder nur TEST: nichts am Arm bewegen, laufende Arm-Ablaeufe abbrechen.
@@ -330,12 +333,19 @@ class Entscheider:
         obj = w.get('objekt')
         tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < c['tiefe_halt']
         im_pruefbereich = d is not None and d < c['pruef_dist']
+        merk_rest = self._merk_rest(w)
+        if merk_rest is not None and not (tiefe_im_weg or im_pruefbereich) and merk_rest < c['kamera_min_sicht']:
+            # Vorhin gesehen, nicht weggeraeumt, jetzt zu nah fuer Kamera (und unter dem LiDAR): NICHT frei
+            self.weg_frei_seit = None
+            return self._b('stopp', f'Hindernis {max(0.0, merk_rest) * 100:.0f} cm voraus, zu nah fuer die Kamera '
+                                    '-> warte (wegnehmen, dann STOPP und START)')
         if not (tiefe_im_weg or im_pruefbereich):
             self.weg_frei_seit = self.weg_frei_seit or jetzt
             if jetzt - self.weg_frei_seit > c['frei_zeit']:
                 if self.meldung_seit is not None or self.bestaetigt:
                     self._ereignis(jetzt, 'Weg ist wieder frei', 'fahren')
                 self.meldung_seit, self.geprueft_frei, self.bestaetigt = None, False, None
+                self.hindernis_merk = None       # Kamera sieht die Stelle und sie ist frei
             if jetzt - self.weg_frei_seit > 2.0:
                 self.aufheben_gesperrt = False
         else:
@@ -459,6 +469,8 @@ class Entscheider:
                 self.fehler_halt = 'Wenden hat nicht geklappt'
         elif a.name == 'wegraeumen':
             self.hindernis_bis = 0.0
+            # nicht weggeraeumt (warten, Fehler, ...): Stelle merken, frei erst, wenn die Kamera sie frei sieht
+            self.hindernis_merk = a.merk if a.ergebnis != 'frei' else None
             if a.ergebnis == 'unbestaetigt':
                 self.geprueft_frei = True
             elif a.ergebnis == 'bestaetigt':
@@ -469,6 +481,22 @@ class Entscheider:
                 self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen hat nicht geklappt', False
             else:                        # frei: Fehlalarm oder weggeraeumt UND geprueft
                 self.meldung_seit = None
+
+    def _merk_rest(self, w):
+        """Wie weit liegt das gemerkte Hindernis noch voraus (m)? None = keins (mehr)."""
+        if self.hindernis_merk is None:
+            return None
+        vor, s0, vorgefahren = self.hindernis_merk
+        s1 = w.get('strecke')
+        if s0 is not None and s1 is not None:
+            rest = vor - (s1 - s0)
+        else:
+            # ohne Radzaehler: ist er seit der Messung vorwaerts gefahren, ist unbekannt wie weit -> direkt davor
+            rest = 0.0 if vorgefahren else vor
+        if rest < -0.25:              # weit dahinter: laengst vorbei
+            self.hindernis_merk = None
+            return None
+        return rest
 
     def _darf_arm(self):
         return self.arm_erlaubt and self.planer is not None and not self.aufheben_gesperrt

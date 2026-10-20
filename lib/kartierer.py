@@ -30,6 +30,7 @@ STANDARD = {
     'karte_min_abstand': 0.15,        # naeher (m) nicht in die Karte (eigene Teile, Beruehrung)
     'scan_dauer': 0.0,                # Dauer einer LiDAR-Umdrehung (s), falls der LiDAR sie nicht meldet. 0 = nicht entzerren
     'selbst_kalibrieren': True,       # gelernte Korrekturen (Lagesensor, LiDAR-Einbau) auch anwenden
+    'haupt_lidar': '',                # an diesem LiDAR haengt der Abgleich mit der Karte ('' = der erste)
 }
 
 
@@ -320,7 +321,12 @@ class Kartierer:
         self.c = dict(STANDARD)
         self.c.update({k: v for k, v in (cfg or {}).items() if v is not None})
         self.namen = list(self.c['scan_topics'])
-        self.kal = Kalibrierung(karte.kalibrierung)
+        # Haupt-LiDAR (Abgleich mit der Karte), die anderen werden daran ausgerichtet. Die Reihenfolge in
+        # scan_topics bleibt (scan_front_deg/scan_spiegeln gelten je Position in der Liste).
+        self.haupt = self.c['haupt_lidar'] if self.c.get('haupt_lidar') in self.namen else self.namen[0]
+        # Gespeicherte Selbstkalibrierung nur, wenn sie auch angewendet werden soll. Sonst Rohwerte wie eingestellt
+        # (eine einmal falsch gelernte Korrektur verdreht sonst jede weitere Karte)
+        self.kal = Kalibrierung(karte.kalibrierung if self.c['selbst_kalibrieren'] else None)
         self.lok = K.Lokalisierung(karte)
         self.uhren = {}
         self.scans = {}               # name -> Liste der letzten Scans (zeit, punkte, empfang)
@@ -332,6 +338,7 @@ class Kartierer:
         self.twist_gesehen = self.pose_gesehen = 0.0   # wann zuletzt Geschwindigkeit / Positionsaenderung
         self.imu_t = self.imu_empfang = None
         self.imu_offen = 0.0          # Drehung (korrigiert) seit der letzten Odometrie
+        self.imu_luecke = False       # seit der letzten Odometrie fehlten Lagesensor-Daten (Drehung unvollstaendig)
         self.imu_roh = 0.0            # Integral der rohen Drehrate (fuer die Kalibrierung)
         self.imu_winkel = 0.0         # Integral der korrigierten Drehrate
         self.odom_winkel = 0.0        # Drehung laut Raedern
@@ -389,6 +396,10 @@ class Kartierer:
             self.imu_az = (self.imu_az + [float(d['a'][2])])[-50:]
         if self.imu_t is not None:
             dt = t - self.imu_t
+            if dt >= 0.25:
+                # Luecke (Rechner hing, Nachrichten verloren): die Drehung waehrenddessen fehlt hier.
+                # Die Odometrie liefert dann die Drehung fuer dieses Stueck (siehe _odom_schritt).
+                self.imu_luecke = True
             if 0 < dt < 0.25:
                 if self.steht and abs(gz - self.kal.gyro_bias) < 0.05:
                     # Stand: der Sensor misst trotzdem etwas (Nullpunktfehler) -> lernen, Drehung = 0
@@ -421,24 +432,30 @@ class Kartierer:
         if dt <= 0:
             return
         self.odom_t, self.odom_empfang = t, empfang
-        dt = min(dt, 0.5)
         delta = K.relativ(alt[1], pose) if pose is not None and alt and alt[1] is not None else None
         if delta is not None and (abs(delta[0]) > 1e-5 or abs(delta[1]) > 1e-5 or abs(delta[2]) > 1e-5):
             self.pose_gesehen = empfang
         stempel_ok = self.uhren['odom'].art != 'Ankunftszeit'
-        if delta is not None and (empfang - self.twist_gesehen > 1.0 or not stempel_ok) and empfang - self.pose_gesehen < 1.0:
-            # keine Geschwindigkeiten (oder keine Zeitstempel): Positions-Unterschied nehmen, geht nichts verloren
+        if delta is not None and empfang - self.pose_gesehen < 1.0 and math.hypot(delta[0], delta[1]) < 0.5:
+            # Positions-Unterschied der Odometrie: geht auch ueber verlorene Nachrichten nichts verloren
+            # (Geschwindigkeit x Zeit verliert bei Luecken die Strecke - 20.10.: bis 2,3 s Luecken)
             dx, dy, dw_odom = delta
-            if dt > 0:
+            if not (empfang - self.twist_gesehen > 1.0 or not stempel_ok) and dt > 0:
+                pass                       # Geschwindigkeiten sind da und gelten weiter fuer self.v / steht
+            else:
                 vx, vy, wz = dx / dt, dy / dt, dw_odom / dt
         else:
+            dt = min(dt, 0.5)
             dx, dy, dw_odom = vx * dt, vy * dt, wz * dt
         self.v = math.hypot(vx, vy)
         self.steht = self.v < 0.01 and abs(wz) < 0.005     # langsamer als 1 cm/s und dreht nicht
         self.odom_winkel += dw_odom
-        if self.imu_empfang is not None and empfang - self.imu_empfang < 0.3:
+        if self.imu_empfang is not None and empfang - self.imu_empfang < 0.3 and not self.imu_luecke:
             dw = self.imu_offen       # Drehung lieber vom Lagesensor (Mecanum-Raeder rutschen beim Drehen)
             self.imu_offen = 0.0
+        elif self.imu_luecke:
+            dw = dw_odom              # Lagesensor hatte eine Luecke: Drehung dieses Stuecks von den Raedern
+            self.imu_offen, self.imu_luecke = 0.0, False
         else:
             dw = 0.0 if self.steht else dw_odom
             self.dreh = wz
@@ -522,7 +539,7 @@ class Kartierer:
     def verarbeiten(self, jetzt):
         """Neuesten Scan abgleichen und eintragen (5x pro Sekunde aufrufen).
         Rueckgabe: True, wenn die globale Suche (Position in vorhandener Karte) gestartet werden sollte."""
-        haupt = self.namen[0]
+        haupt = self.haupt
         liste = [s for s in self.scans.get(haupt, []) if jetzt - s[2] < 1.0]
         if not liste:
             return False
@@ -537,7 +554,7 @@ class Kartierer:
         zeit, punkte, _ = bereit[-1]
         self.scans[haupt] = [s for s in liste if s[0] > zeit]      # jeden Scan nur einmal verwenden
         weitere = {}
-        for name in self.namen[1:]:
+        for name in [n for n in self.namen if n != haupt]:
             andere = [s for s in self.scans.get(name, []) if jetzt - s[2] < 1.0 and s[0] <= zeit + 0.1]
             if andere:
                 z, p, _ = min(andere, key=lambda s: abs(s[0] - zeit))
@@ -573,6 +590,14 @@ class Kartierer:
         if u is None:
             return
         r_imu, r_odo = u
+        if not self.c['selbst_kalibrieren']:
+            # nur melden, nichts umstellen (Einstellungen pruefen: scan_spiegeln, IMU)
+            if r_imu is not None and not 0.7 <= r_imu <= 1.4:
+                text = f'Selbstpruefung: Scan dreht {r_imu:+.2f}x so viel wie der Lagesensor (Einstellungen pruefen)'
+                if not self.kal.meldungen or self.kal.meldungen[-1][1] != text:
+                    self.kal.melden(text, zeit)
+                    self.meldung = text
+            return
         az = float(np.median(self.imu_az)) if self.imu_az else 9.8
         if r_imu is not None and r_imu < -0.5:
             if (r_odo is not None and r_odo < -0.5) or (r_odo is None and az > 0):

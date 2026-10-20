@@ -242,6 +242,8 @@ class Wegraeumen(Ablauf):
         self.versuch = 1
         self.zurueck_gefahren = 0.0
         self.zuletzt_vermessen = None     # letzte Messung der Kamera in DIESEM Ablauf (bleibt ueber neues Anschauen)
+        self.merk = None                  # (Abstand vorne m, Strecke dabei) der letzten Kamera-Messung - fuer den
+                                          # Entscheider: wo liegt es, auch wenn die Kamera es nicht mehr sieht
         self.lebend_seit = self.lebend_zuletzt = None
         self.lebend_name = ''
         self.letzter_schritt = jetzt
@@ -272,6 +274,13 @@ class Wegraeumen(Ablauf):
         self.letzte = jetzt
         return ds
 
+    def _vorwaerts(self, b):
+        """Befehl b faehrt vorwaerts? Dann merken: die letzte Messung ist ohne Radzaehler nicht mehr aktuell."""
+        m = (b or {}).get('manoever') or {}
+        if self.merk is not None and m.get('lin', 0.0) > 0:
+            self.merk = (self.merk[0], self.merk[1], True)
+        return b
+
     def _ende(self, ergebnis, text, art):
         self.ergebnis = ergebnis
         self.ereignisse.append((text, art))
@@ -284,6 +293,8 @@ class Wegraeumen(Ablauf):
         neu = w.get('neues_bild')
         obj = w.get('objekt') if neu else None
         kamera_obj = obj if obj and obj.get('quelle') == 'tiefe' else None
+        if kamera_obj:
+            self.merk = (kamera_obj['vor'], w.get('strecke'), False)   # False: seitdem nicht vorwaerts gefahren
         lid = w.get('lidar')
         if self.phase in ('planen', 'naeher', 'ausfuehren', 'rueckweg'):
             # Person/Tier/Fahrzeug taucht auf: Arm und Roboter halten STILL (keine neue Bewegung, Greifer bleibt
@@ -335,7 +346,7 @@ class Wegraeumen(Ablauf):
             return befehl('manoever', 'Hindernis zu nah fuer die Kamera -> fahre etwas zurueck',
                           manoever={'lin': -c['zurueck_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'zurueck'})
         if self.phase == 'abstand':
-            return self._abstand(jetzt, kamera_obj)
+            return self._vorwaerts(self._abstand(jetzt, kamera_obj))
         if self.phase == 'planen':
             if self.plan is None:
                 if d > 6.0:
@@ -364,8 +375,9 @@ class Wegraeumen(Ablauf):
                 self._phase(jetzt, 'planen')
                 threading.Thread(target=self._planen, args=(o, self.seite), daemon=True).start()
                 return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
-            return befehl('manoever', f'Hindernis: fahre naeher heran ({self.vorgefahren * 100:.0f} cm)',
-                          manoever={'lin': c['naeher_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'naeher heran'})
+            return self._vorwaerts(befehl('manoever', f'Hindernis: fahre naeher heran ({self.vorgefahren * 100:.0f} cm)',
+                                          manoever={'lin': c['naeher_tempo'], 'quer': 0.0, 'dreh': 0.0,
+                                                    'text': 'naeher heran'}))
         if self.phase == 'rueckweg':
             self.vorgefahren += self._gefahren(w, jetzt, -c['naeher_tempo'])
             hinten = w.get('lidar_hinten')
