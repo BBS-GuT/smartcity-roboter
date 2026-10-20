@@ -45,3 +45,9 @@ Softwareabhängigkeiten laut O-Review vom 20.10.2026: #13 Statuswiederkehr kann 
 Relative Links der neuen Dateien, Tabellenbreiten, Datum-/Einheitenfelder, Status-/Quellenkennzeichnung, Dateigrenzen und Geheimnisfreiheit werden vor Lieferung geprüft; Ergebnis im PR. Keine Motor-, Arm-, Simulations- oder Produkttests für diesen Dokumentationsstand.
 
 Nächster Schritt: Carsten liefert vorhandene Spielfeldmaße/Regelunterlagen und zuständige Partnerrollen; kompakte Frage im E1-Chat gestellt. Danach Messregister und reale Zuordnung gezielt ergänzen. O bestätigt die RM01-Commitübergabe und die Zuständigkeiten für die offenen Partnerentscheidungen. Keine Nachrichten an andere Chats oder Partner gesendet.
+
+## Ergänzung aus Carstens Rückmeldung am 20.10.2026
+
+Beobachtet (Nutzerangabe im E1-Chat): Spielfeld ungefähr 240 × 220 cm; Verfahren, Unsicherheit, Aufbau-ID und Messbestätigung offen. Vereinbart als Zuständigkeitsgrenze: Spielfeld/Ampeln werden von außen gesteuert, von Carsten mit MQTT verbunden; verantwortliche Person/Team und konkretes Infrastrukturverfahren weiterhin offen. In Messplan und Verkehrsregeln aufgenommen.
+
+Liefernachweis: Draft-PR [#23](https://github.com/davidheinrich73/smartcity-roboter/pull/23), erster Commit b7de4382e6532881fb7647a43c6a6b773c839096; Ergänzung im Folgecommit. Relative Links und Tabellenspalten aller sieben Dateien geprüft: keine Fehler; git-Diffprüfung fehlerfrei. Keine Geheimnisse aufgenommen. Nächster Informationsblock: vorhandener Aufbau-/Ampelplan oder Kontaktrolle für die externe Infrastruktursteuerung; noch keine zusätzliche Befragung gestartet.

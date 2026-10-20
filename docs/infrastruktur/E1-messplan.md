@@ -2,7 +2,7 @@
 
 Stand 20.10.2026 · Entwurf v0.1 · Status **offen**, sofern nicht ausdrücklich anders bezeichnet. Keine Geräte- oder Bewegungsfreigabe.
 
-Bezug: [Zieldefinition](../zieldefinition-grundbetrieb.md), GB-02/03/05/09, A02/A04/A08. Es liegen keine freigegebenen E1-Maße vor. Die geschätzte Kamerahöhe 22 cm aus Software ist kein Messwert.
+Bezug: [Zieldefinition](../zieldefinition-grundbetrieb.md), GB-02/03/05/09, A02/A04/A08. Es liegen keine freigegebenen E1-Maße vor. Carsten nennt am 20.10.2026 im E1-Chat ungefähr 240 × 220 cm Spielfeldgröße; dies ist eine berichtete Näherung, keine bestätigte Vermessung. Die geschätzte Kamerahöhe 22 cm aus Software ist kein Messwert.
 
 ## Messregister
 
@@ -10,6 +10,7 @@ Je konkreter Stelle und RM01–RM04 eine eigene Zeile anlegen; Wiederholungen un
 
 | Mess-ID / Ort | Größe / Wert / Einheit | Verfahren / Messmittel | Datum / Person | Gerät / Aufbauversion | Unsicherheit | Quelle / Status |
 |---|---|---|---|---|---|---|
+| GEO-00 / gesamtes Spielfeld | ca. 240 × 220 cm | Angabe Carsten im E1-Chat; Messverfahren offen | 20.10.2026 / Carsten | aktuelles Spielfeld, Aufbau-ID offen | offen (cm) | beobachtet: Nutzerangabe; Messbestätigung offen |
 | GEO-01 / je Straßenabschnitt | nutzbare Breite; offen (mm) | quer zur Leitlinie, engste Stelle und beide Ränder | offen | Spielfeld offen | offen (mm) | offen |
 | GEO-02 / jede Kurve | innerer/äußerer Rand, Linienradius; offen (mm) | Rasteraufnahme + Maßband, engste Kurven separat | offen | Spielfeld offen | offen (mm) | offen |
 | GEO-03 / Linie und Plattenfuge | Linienbreite, Lücke, Versatz, Höhenstufe; offen (mm) | Lineal/Lehre und Detailfoto | offen | Spielfeld offen | offen (mm) | offen |

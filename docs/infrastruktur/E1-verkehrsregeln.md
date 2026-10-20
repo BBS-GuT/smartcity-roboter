@@ -51,3 +51,7 @@ Kurze Klärungsliste für Ampel-/Spielfeldteam (über Carsten):
 1. Welcher Aufbauplan und welche realen Zufahrt-/Signal-/Schildkennungen gelten, wer bestätigt sie?
 2. Welche Manöver, Haltelinien, Gelb-/Ausfall- und beiden Überwegregeln gelten je Zufahrt?
 3. Welcher Bereich wird verriegelt, wie wird seine Räumung einschließlich K4/K5, Stillstand und Rückstau nachgewiesen?
+
+## Partnerhinweis vom 20.10.2026
+
+Beobachtet: Carsten erklärt im E1-Chat, Spielfeld/Ampeln würden von außen gesteuert; MQTT beziehungsweise jemand außerhalb des Roboters sei dafür zuständig. Als Rollenabgrenzung vereinbart: Steuerungsverantwortung liegt außerhalb des Roboters. MQTT bezeichnet den genannten Kommunikationsweg, keine verantwortliche Person und keinen Räumungsnachweis. Konkrete Person/Team, realer Transport-/Topicvertrag und Freigabe-/Belegungsverfahren bleiben offen. Kein MQTT-Fernfahrweg für den Roboter daraus abgeleitet.
