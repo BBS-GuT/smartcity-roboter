@@ -137,6 +137,7 @@ class Entscheider:
         self.lebewesen_zuletzt = 0.0  # wann die Kamera-KI zuletzt eine Person/ein Tier/ein Fahrzeug gesehen hat
         # Arm
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
+        self.arm_zurueck_wegraeumen = False  # ... wegen eines Wegraeumens (dann erst zurueck, wenn niemand in Sicht ist)
         self.arm_warten_bis = 0.0
         self.letzte_aktion = None
         self.letzter_grund = None
@@ -188,9 +189,7 @@ class Entscheider:
             # Schalter "KI darf den Arm bewegen" waehrend eines Ablaufs ausgeschaltet: wie STOPP behandeln,
             # Arm faehrt zurueck in die Fahrstellung, bevor wieder gefahren wird
             self._ereignis(jetzt, f'{self.ablauf.name}: abgebrochen (Arm fuer die KI ausgeschaltet)', 'info')
-            if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
-                self.arm_zurueck_noetig = True
-            self.ablauf = None
+            self._ablauf_abbrechen()
         if self.start_quittung is not None and jetzt - self.start_quittung > 15.0:
             self.start_quittung = None   # Fahrprogramm ist nach dem START nicht angelaufen
         if self.start_quittung is not None and self.fahrt_aktiv:
@@ -215,9 +214,7 @@ class Entscheider:
             # Der Arm bleibt, wo er ist; beim naechsten START faehrt er zuerst in die Fahrstellung.
             if self.ablauf is not None and self.ablauf.braucht_arm:
                 self._ereignis(jetzt, f'{self.ablauf.name}: abgebrochen (Fahrprogramm aus)', 'info')
-                if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
-                    self.arm_zurueck_noetig = True
-                self.ablauf = None
+                self._ablauf_abbrechen()
         neues_bild = w.get('bild_nr', -1) != self.letzte_bild_nr
         if neues_bild:
             self.letzte_bild_nr = w.get('bild_nr', -1)
@@ -245,8 +242,14 @@ class Entscheider:
         befehl = self._blockade(jetzt, w, befehl)
         # Arm zuerst zurueck in Fahrstellung, bevor wieder gefahren wird
         # (nicht waehrend einer Notbremse: dann ist etwas sehr nah am Roboter)
-        if self.arm_zurueck_noetig and self.fahrt_aktiv and not befehl['grund'].startswith('NOTBREMSE'):
+        notbremse = befehl['grund'].startswith('NOTBREMSE')
+        if self.arm_zurueck_noetig and self.fahrt_aktiv and not notbremse and self._akteur_haelt_arm(jetzt):
+            # Arm kommt vom Wegraeumen und eine Person/ein Tier/ein Fahrzeug ist in Sicht: Arm bleibt, wo er ist,
+            # und der Roboter steht, bis 2 s niemand mehr zu sehen war (wie im Ablauf selbst)
+            befehl = self._b('stopp', 'Arm muss zurueck in Fahrstellung, aber jemand ist in Sicht -> warte')
+        elif self.arm_zurueck_noetig and self.fahrt_aktiv and not notbremse:
             self.arm_zurueck_noetig = False
+            self.arm_zurueck_wegraeumen = False
             self.arm_warten_bis = jetzt + self.c['arm_zeit']
             befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung', arm='fahrstellung')
         elif jetzt < self.arm_warten_bis and befehl['aktion'] != 'stopp':
@@ -310,9 +313,7 @@ class Entscheider:
                 # Wegraeumen pausiert waehrend der Notbremse (kein neuer Arm-Befehl). Dauert es zu lange: abbrechen.
                 # Der Arm faehrt erst nach der Notbremse zurueck (dann ist nichts mehr direkt am Roboter).
                 self._ereignis(jetzt, 'Wegraeumen abgebrochen: Notbremse dauert zu lange', 'stopp')
-                if a.arm_bewegt:
-                    self.arm_zurueck_noetig = True
-                self.ablauf = None
+                self._ablauf_abbrechen(nur_wenn_bewegt=True)
                 self.aufheben_gesperrt = True
                 self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen abgebrochen (Notbremse)', False
             return self._b('stopp', f'NOTBREMSE: LiDAR {d * 100:.0f} cm (ohne KI-Pruefung)')
@@ -462,11 +463,29 @@ class Entscheider:
         ablauf.ereignisse.clear()
         return self._mit_faktor(b) if b else self._b('stopp', ablauf.name)
 
+    def _ablauf_abbrechen(self, nur_wenn_bewegt=False):
+        """Laufenden Ablauf verwerfen (Arm ausgeschaltet, STOPP/Statusausfall, Notbremse zu lange). Beim Wegraeumen
+        bleibt die Stelle gemerkt, an der die Kamera das Hindernis zuletzt gesehen hat: Fehlende neue Treffer sind
+        danach keine Freisicht (sonst faehrt er nach der Armrueckkehr drueber). Frei erst wie sonst auch: Kamera sieht
+        die Stelle frei, oder ausdruecklicher START."""
+        a, self.ablauf = self.ablauf, None
+        if a.arm_bewegt or (a.name == 'wegraeumen' and not nur_wenn_bewegt):
+            self.arm_zurueck_noetig = True
+            self.arm_zurueck_wegraeumen = self.arm_zurueck_wegraeumen or a.name == 'wegraeumen'
+        if a.name == 'wegraeumen' and a.merk is not None:
+            self.hindernis_merk = a.merk
+
+    def _akteur_haelt_arm(self, jetzt):
+        """Armrueckkehr nach einem Wegraeumen zurueckhalten? Ja, solange in den letzten 2 s eine Person, ein Tier oder
+        ein Fahrzeug im Bild war."""
+        return self.arm_zurueck_wegraeumen and jetzt - self.lebewesen_zuletzt < 2.0
+
     def _ablauf_ende(self, jetzt):
         a = self.ablauf
         self.ablauf = None
         if a.arm_bewegt:
             self.arm_zurueck_noetig = True
+            self.arm_zurueck_wegraeumen = self.arm_zurueck_wegraeumen or a.name == 'wegraeumen'
         if a.name == 'zebra':
             self.zebra_gesperrt = True
             self.zebra_merk = None

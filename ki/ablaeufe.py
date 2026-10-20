@@ -237,6 +237,9 @@ class Wegraeumen(Ablauf):
               'fehler' (Wegraeumen hat nicht geklappt)."""
     name = 'wegraeumen'
     braucht_arm = True
+    # In diesen Phasen bewegt sich Roboter oder Arm (oder der naechste Schritt tut es): Person/Tier/Fahrzeug -> halten
+    HALT_PHASEN = ('vorpruefen', 'abstand', 'zurueck', 'pruefblick', 'pruef_zurueck', 'planen', 'naeher', 'ausfuehren',
+                   'rueckweg', 'kontrolle')
 
     def __init__(self, jetzt, c, planer=None, darf_greifen=None, rueckmeldung=None, ohne_arm='', pruefblick=False):
         super().__init__(jetzt, c)
@@ -305,7 +308,7 @@ class Wegraeumen(Ablauf):
         if kamera_obj:
             self.merk = (kamera_obj['vor'], w.get('strecke'), False)   # False: seitdem nicht vorwaerts gefahren
         lid = w.get('lidar')
-        if self.phase in ('abstand', 'zurueck', 'pruefblick', 'planen', 'naeher', 'ausfuehren', 'rueckweg'):
+        if self.phase in self.HALT_PHASEN:
             # Person/Tier/Fahrzeug taucht auf: Arm und Roboter halten STILL (keine neue Bewegung, Greifer bleibt
             # wie er ist - sonst fiele ein gehaltener Wuerfel irgendwo hin). Weiter erst, wenn 2 s niemand mehr da ist.
             lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE] if neu else []
@@ -345,6 +348,10 @@ class Wegraeumen(Ablauf):
             genug = d >= c['anschauen_min'] and self.bilder >= c['anschauen_bilder']
             if not genug and d < c['anschauen_max']:
                 return befehl('stopp', f'Hindernis: schaue es mir genau an ({self.bilder} Bilder)')
+            if neu and lebend and self.lebewesen is None:
+                # erst ein Bild mit Person/Tier/Fahrzeug: noch nicht entscheiden (das koennte Arm oder Roboter bewegen),
+                # das naechste Bild zeigt, ob es ein Fehlbild war
+                return befehl('stopp', f'Hindernis: {lebend[0]} in Sicht? schaue nochmal hin')
             return self._entscheiden(jetzt, w)
         if self.phase == 'pruefblick':
             # erst messen, wenn der Arm sicher steht (die Zentrale misst ohnehin erst dann im Pruefblick)
@@ -392,7 +399,7 @@ class Wegraeumen(Ablauf):
             self.ruhig, self.zuletzt_gesehen = 0, jetzt
             return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
-            return self._vorwaerts(self._abstand(jetzt, kamera_obj))
+            return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke')))
         if self.phase == 'planen':
             if self.plan is None:
                 if d > 6.0:
@@ -603,10 +610,11 @@ class Wegraeumen(Ablauf):
         aus['quelle'] = 'tiefe'
         return aus
 
-    def _abstand(self, jetzt, obj):
+    def _abstand(self, jetzt, obj, strecke=None):
         c = self.c
         if obj:
             self.objekt, self.zuletzt_gesehen = dict(obj), jetzt
+            self.objekt_strecke = strecke
             fehler_vor = obj['vor'] - c['greif_vor']
             seitlich = abs(obj['seite']) > c['greif_seite']
             self.ruhig = self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and not seitlich else 0
@@ -626,11 +634,19 @@ class Wegraeumen(Ablauf):
         if self.dauer(jetzt) > 15:
             return self._ende('fehler', 'Wegraeumen: in Greifweite fahren dauert zu lange', 'stopp')
         o = self.objekt
-        lin = max(-0.03, min(0.03, 0.6 * (o['vor'] - c['greif_vor'])))
+        vor = o['vor']
+        s0 = getattr(self, 'objekt_strecke', None)
+        if not obj and s0 is not None and strecke is not None:
+            # gerade nicht gesehen: mit den Radzaehlern weiterrechnen, sonst faehrt er mit der alten Messung ueber
+            # die Greifweite hinaus (blind)
+            vor -= strecke - s0
+            if abs(vor - c['greif_vor']) < c['greif_toleranz'] / 2:
+                return befehl('stopp', f"Hindernis: in Greifweite? schaue hin ({vor * 100:.0f} cm)")
+        lin = max(-0.03, min(0.03, 0.6 * (vor - c['greif_vor'])))
         quer = 0.0
-        if abs(o['seite']) > c['greif_seite'] * 0.6:
+        if obj and abs(o['seite']) > c['greif_seite'] * 0.6:     # seitlich nur nach frischer Messung (kein Zaehler)
             quer = max(-0.03, min(0.03, 0.6 * o['seite']))
-        return befehl('manoever', f"Hindernis: fahre in Greifweite ({o['vor'] * 100:.0f} cm)",
+        return befehl('manoever', f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm)",
                       manoever={'lin': lin, 'quer': quer, 'dreh': 0.0, 'text': 'in Greifweite'})
 
     letztes_w_xy = None
