@@ -12,6 +12,26 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 
 ---
 
+
+## 20.10.2026, Lauf 14:0x–14:27
+
+### Greifen: mal zu fest (Greifer knackt), mal zu schwach (Würfel bleibt stehen)
+- **Beleg:** `ki.log`: 15 Greifversuche, 2 Erfolge. Würfel 3 cm breit, 7 cm hoch. Die tatsächlich benutzte
+  Korrektur wich beim Ausprobieren bis 3,5 cm von der gelernten ab (z. B. „-0.0 / +3.5“).
+- **Ursache (vermutet):** Bei 8,5 cm Öffnung und 3 cm Würfel darf er höchstens ~2,75 cm danebenliegen. Weiter
+  daneben trifft eine Backe die Kante: Würfel rutscht weg oder wird verkantet gequetscht. Dazu fuhr der Greifer
+  immer mit voller Geschwindigkeit auf festen Wert 130.
+- **Lösung:** Ausprobieren auf 40 % des Spielraums begrenzt. Greifer erst schnell anlegen, dann langsam
+  zudrücken; Zielwert nach gemessener Breite (`config/arm.yaml`, Werte geschätzt).
+- **Status:** nur Test. Am Roboter: knackt es noch → `greifer_druecken` kleiner; rutscht er → größer.
+
+### „Zu nah für die Kamera“ statt Prüfblick
+- **Beleg:** „Hindernis vorhin gesehen, jetzt nicht mehr (zu nah?) -> fahre etwas zurueck“, mehrmals
+  „hinten nicht frei -> warte (wegnehmen, dann STOPP und START)“.
+- **Lösung:** Prüfblick wieder da (war seit dem Umbau auf berechnete Armbewegungen weg), jetzt mit Messung
+  (eigenes Kameramodell für die Pose). Siehe `docs/ki.md`.
+- **Status:** nur Test. Kameramodell im Prüfblick aus nicht nachgemessenen Armmaßen gerechnet.
+
 ## 20.10.2026, Lauf 11:54–12:00 (mit PR #44; Logs + Messfahrt `smartcity_20261020_115423`)
 
 ### Karte: gelöst

@@ -45,6 +45,7 @@ LOKAL = os.environ.get('SMARTCITY_GREIFEN', os.path.join(REPO, 'config', 'lokal'
 
 Z_MIN = 0.006           # Greifermitte nie tiefer als 6 mm ueber dem Boden (sonst stoesst er auf)
 OEFFNUNG = 0.085        # so weit ist der Greifer offen (m, geschaetzt) -> so viel darf er danebenliegen
+ERKUNDEN_ANTEIL = 0.4    # beim Ausprobieren hoechstens so viel des Spielraums von der besten Korrektur abweichen
 NAEHER_MAX = 0.12       # so weit faehrt er hoechstens blind naeher heran, wenn der Arm nicht hinreicht (m)
 # Gitter der Vermutungen (m): vorne, links, hoch
 GITTER_XY, GITTER_Z, SCHRITT = 0.04, 0.02, 0.005
@@ -256,7 +257,7 @@ def _merke(ik):
     return neu
 
 
-def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, boden=0.0, erkunden=True):
+def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, boden=0.0, erkunden=True, anlegen=None):
     """Armbewegung zum Wegraeumen: Zielpunkt (Messung) + gelernte Korrektur -> Servowinkel (ik).
     punkt: Zielpunkt schon umgerechnet (Yahboom-Kinematik), sonst aus obj. boden: Hoehe des Bodens im System
     der Kinematik. Rueckgabe wie arm.plane_wegraeumen, zusaetzlich 'lernen' (fuer politik.ergebnis) und
@@ -274,12 +275,17 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
     versuche = [np.zeros(3)]
     if politik is not None:
         a, mitte = politik.vorschlag(obj, rng, erkunden)
+        # Ausprobieren nur innerhalb des Spielraums: weiter daneben trifft eine Backe den Gegenstand (er rutscht
+        # weg oder wird verkantet gequetscht). RM02 20.10.: bis 3,5 cm seitlich ausprobiert -> 13 von 15 daneben.
+        r, zlo, zhi = spielraum(obj)
+        grenze = np.array([ERKUNDEN_ANTEIL * r, ERKUNDEN_ANTEIL * r, ERKUNDEN_ANTEIL * (zhi - zlo) / 2])
+        a = mitte + np.clip(np.asarray(a, dtype=float) - mitte, -grenze, grenze)
         versuche = [a, mitte, np.zeros(3)]
     plan = None
     for a in versuche:
         g = basis + a
         g[2] = max(boden + Z_MIN, g[2])
-        plan = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), ablagen, h, fahr, auf, zu)
+        plan = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), ablagen, h, fahr, auf, zu, anlegen)
         if not plan.get('fehler'):
             plan['schritte'] = armlib.begrenze_tempo(plan['schritte'], fahr)
             plan['korrektur'] = [float(v) for v in a]
@@ -299,7 +305,7 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
     for d in np.arange(0.01, NAEHER_MAX + 0.001, 0.01):
         g = basis + ziel - np.array([d, 0.0, 0.0])
         g[2] = max(boden + Z_MIN, g[2])
-        p2 = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), ablagen, h, fahr, auf, zu)
+        p2 = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), ablagen, h, fahr, auf, zu, anlegen)
         if not p2.get('fehler'):
             geht.append(float(d))
         elif p2.get('ablage_fehlt'):

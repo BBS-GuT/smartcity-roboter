@@ -16,7 +16,16 @@ ki_darf_arm_bewegen: true
 # Greifer (Servo 6). Yahboom-Kurse: 30 = offen, 120-130 = zugegriffen, 180 = ganz zu.
 # Im Panel (Seite Arm) mit "Greifer auf/zu" pruefen und bei Bedarf in config/lokal/arm.yaml aendern.
 greifer_auf: 30
-greifer_zu: 130
+greifer_zu: 130          # hoechstens so weit zu (auch bei sehr schmalen Dingen)
+# Greifkraft nach Breite (Wegraeumen): Greifer schnell bis kurz vors Beruehren, dann langsam auf
+# "beruehrt + greifer_druecken". Beruehren wird aus der gemessenen Breite geschaetzt:
+#   beruehrt = greifer_auf + (greifer_offen_m - Breite) * 100 * greifer_grad_pro_cm
+# Nachmessen (Panel -> Arm): Greifer auf, Wuerfel bekannter Breite dazwischen, Servo 6 langsam zu,
+# bis beide Backen gerade anliegen -> Wert notieren und greifer_grad_pro_cm so anpassen, dass es passt.
+# Knackt der Greifer: greifer_druecken kleiner. Rutscht der Wuerfel raus: groesser.
+greifer_offen_m: 0.085   # Oeffnung bei greifer_auf (m, geschaetzt)
+greifer_grad_pro_cm: 17.6
+greifer_druecken: 8
 # Masse fuer die eigene Rechnung (nur wenn Yahbooms Kinematik-Dienst nicht laeuft).
 # Findet die KI Yahbooms Robotermodell (URDF, Paket yahboom_M3Pro_description), nimmt sie die Masse von dort.
 # Selbst nachgemessene Masse in config/lokal/arm.yaml unter "geometrie:" gelten vor beidem.

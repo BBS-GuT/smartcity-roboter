@@ -38,6 +38,7 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 STANDARD_DATEI = os.path.join(REPO, 'config', 'arm.yaml')
 POSEN_DATEI = os.environ.get('SMARTCITY_ARM_YAML', os.path.join(REPO, 'config', 'lokal', 'arm.yaml'))
 BLICK_DREHUNG = 45   # Grad, um die Servo 1 zum Umschauen gedreht wird (blick_links/blick_rechts)
+PRUEF_NEIGUNG = 20   # Grad, um die Servo 4 fuer den Pruefblick verstellt wird (Kamera steiler nach unten)
 
 
 def pruefe(winkel, zeit_ms):
@@ -79,6 +80,26 @@ def greifer_werte():
     return int(e.get('greifer_auf', GREIFER_AUF)), int(e.get('greifer_zu', GREIFER_ZU))
 
 
+GREIFER_OFFEN_M = 0.085     # so weit ist der Greifer bei greifer_auf offen (m, geschaetzt)
+GREIFER_GRAD_PRO_CM = 17.6  # Servo 6: so viele Grad je cm weniger Oeffnung (geschaetzt: 150 Grad auf 8,5 cm)
+GREIFER_DRUECKEN = 8        # so viele Grad ueber das Beruehren hinaus zudruecken
+
+
+def greifer_fuer_breite(breite):
+    """(anlegen, zu) fuer Servo 6 bei einem Gegenstand dieser Breite (m).
+    anlegen: kurz bevor die Backen beruehren (schnell), zu: beruehren + greifer_druecken Grad (langsam).
+    Nie weiter als greifer_zu - ein fester Wert fuer alle Breiten drueckt schmale Dinge zu wenig und breite zu
+    fest (Greifer knackt). Masse in config/arm.yaml (greifer_offen_m, greifer_grad_pro_cm, greifer_druecken)."""
+    e = lade_einstellungen()
+    auf, zu_max = greifer_werte()
+    offen = float(e.get('greifer_offen_m', GREIFER_OFFEN_M))
+    pro_cm = float(e.get('greifer_grad_pro_cm', GREIFER_GRAD_PRO_CM))
+    beruehrt = auf + max(0.0, offen - float(breite)) * 100 * pro_cm
+    zu = min(zu_max, beruehrt + float(e.get('greifer_druecken', GREIFER_DRUECKEN)))
+    anlegen = min(zu, max(auf, beruehrt - 10))
+    return int(round(anlegen)), int(round(zu))
+
+
 def lade_posen():
     """Alle Posen: {name: [6 Winkel]}. Fehlen blick_links/blick_rechts, werden sie aus der
     Fahrstellung berechnet (Servo 1 um BLICK_DREHUNG Grad gedreht)."""
@@ -88,7 +109,31 @@ def lade_posen():
         for name, d in (('blick_links', BLICK_DREHUNG), ('blick_rechts', -BLICK_DREHUNG)):
             if not posen.get(name):
                 posen[name] = [max(0, min(180, fahr[0] + d))] + list(fahr[1:])
+        if not posen.get('pruefblick'):
+            # Kamera steiler nach unten: sieht Hindernisse, die zu nah fuer die Fahrstellung sind
+            posen['pruefblick'] = list(fahr[:3]) + [max(0, fahr[3] - PRUEF_NEIGUNG)] + list(fahr[4:])
     return posen
+
+
+def kamera_fuer_pose(kamera, fahr, pose, geo=None):
+    """Kameramasse (kamera_hoehe, kamera_neigung, kamera_x wie fuer die Fahrstellung gemessen) fuer eine andere
+    Armstellung umrechnen. Die Kamera sitzt fest an der Hand: sie dreht sich mit der Hand und wandert mit dem
+    Handgelenk. Gerechnet mit der eigenen Kinematik (Masse aus config/arm.yaml), nur fuer Servo 1 wie in der
+    Fahrstellung (nach vorne). None: geht nicht."""
+    if pose is None or abs(pose[0] - fahr[0]) > 1:
+        return None
+    kin = Kinematik(geo)
+    handgelenk = Kinematik(dict(kin.g, hand=0.0))
+    (w0x, _, w0z), _ = handgelenk.vorwaerts(fahr)
+    (w1x, _, w1z), _ = handgelenk.vorwaerts(pose)
+    dneig = kin.vorwaerts(pose)[1] - kin.vorwaerts(fahr)[1]       # Grad, + = Hand weiter nach unten
+    cx, cz = kamera['kamera_x'] - w0x, kamera['kamera_hoehe'] - w0z
+    d = math.radians(dneig)
+    aus = dict(kamera)
+    aus['kamera_x'] = w1x + cx * math.cos(d) + cz * math.sin(d)
+    aus['kamera_hoehe'] = w1z - cx * math.sin(d) + cz * math.cos(d)
+    aus['kamera_neigung'] = kamera['kamera_neigung'] + dneig
+    return aus
 
 
 def _speichere(aenderung):
@@ -308,10 +353,12 @@ class YahboomKinematik:
                 float(punkt[2]) + float(versatz.get('z_offset', 0.0)))
 
 
-def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu):
+def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu, anlegen=None):
     """Armbewegung zum Wegraeumen ausrechnen.
     ik(x, y, z) -> [s1..s5] oder None; greif: Mitte des Hindernisses (x, y, z); ablagen: moegliche Ablagestellen
     (x, y, z), die erste erreichbare gilt; hoehe: Hoehe des Hindernisses (m).
+    anlegen: Greiferwert kurz vor dem Beruehren - dann erst schnell bis dahin, danach langsam zudruecken
+    (schont Greifer und Gegenstand). None: in einem Schritt zu.
     Rueckgabe: {'schritte': [(Text, [6 Winkel], Dauer s), ...], 'info': Text} oder {'fehler': Text}."""
     gx, gy, gz = greif
 
@@ -325,7 +372,8 @@ def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu):
         return aus, None
     greifen, fehler = zug([('Greifer auf, ueber das Hindernis', (gx, gy, gz + hoehe / 2 + 0.06), auf, 1.5),
                            ('runter zum Hindernis', (gx, gy, gz), auf, 1.0),
-                           ('zugreifen', (gx, gy, gz), zu, 0.8),
+                           *([('Greifer anlegen', (gx, gy, gz), anlegen, 0.5)] if anlegen is not None else []),
+                           ('zugreifen', (gx, gy, gz), zu, 0.8 if anlegen is None else 1.2),
                            ('anheben', (gx, gy, gz + hoehe / 2 + 0.08), zu, 1.0)])
     if greifen is None:
         return {'fehler': f'Arm erreicht es nicht: {fehler}'}
@@ -429,6 +477,12 @@ class ArmBeobachter:
         t = re.match(r'\[([^\]]*)\]\s*(\d+)?', m.data)
         if t:
             self._neu([float(w) for w in t.group(1).split(',')], int(t.group(2) or 1000))
+
+    def in_pose(self, pose, jetzt):
+        """Steht der Arm still in dieser Pose (Servos 1-5 auf 3 Grad genau)?"""
+        if self.winkel is None or not pose or jetzt - self.zeit < self.dauer + 0.3:
+            return False
+        return all(abs(self.winkel[i] - pose[i]) <= 3 for i in range(5))
 
     def kamera(self, posen, jetzt):
         """(in_fahrstellung, gier_grad). gier_grad = Drehung von Servo 1 gegenueber der Fahrstellung,

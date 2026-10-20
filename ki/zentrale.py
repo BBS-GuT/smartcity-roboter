@@ -164,6 +164,17 @@ class Zentrale(Node):
         self.ki_ms = 0.0
         # Tiefenkamera prueft denselben Fahrweg wie der LiDAR (halbe Fahrschlauch-Breite)
         self.boden = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+        # Pruefblick (Kamera steiler nach unten, fuer Hindernisse zu nah fuer die Fahrstellung): eigenes Kameramodell
+        self.boden_pruef = None
+        if self.posen.get('fahrstellung') and self.posen.get('pruefblick'):
+            try:
+                cfg = armlib.kamera_fuer_pose(self.kamera_cfg, self.posen['fahrstellung'], self.posen['pruefblick'],
+                                              self.eigene_kin.g)
+            except Exception as e:      # Masse kaputt -> ohne Pruefblick
+                self.get_logger().warn(f'Pruefblick: Kameramodell nicht berechenbar ({e})')
+                cfg = None
+            if cfg:
+                self.boden_pruef = Bodenmodell(cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
         self.ampel_werte = lade_ampel_werte()
 
         self.yolo, self.yolo_fehler = None, ''
@@ -444,6 +455,15 @@ class Zentrale(Node):
             tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
             if tiefe_obj:
                 tiefe_obj['quelle'] = 'tiefe'
+        elif (tmsg is not None and self.boden_pruef is not None
+              and self.arm_beobachter.in_pose(self.posen['pruefblick'], time.time())):
+            # Arm steht im Pruefblick: mit dessen Kameramodell messen (Boden dort nicht gelernt -> nicht lernen)
+            d = self.bridge.imgmsg_to_cv2(tmsg, 'passthrough').astype(np.float32)
+            if tmsg.encoding != '32FC1':
+                d /= 1000.0
+            tiefe_hindernis, tiefe_obj = self.boden_pruef.pruefe(d, lernen=False)
+            if tiefe_obj:
+                tiefe_obj.update(quelle='tiefe', blick='pruef', blick_winkel=list(self.posen['pruefblick']))
 
         self.ki_ms = (time.time() - t0) * 1000
         with self.lock:
@@ -569,10 +589,11 @@ class Zentrale(Node):
         obj: gemessenes Hindernis (Tiefenkamera, Roboter-System), seite: Ablage +1 links / -1 rechts.
         Zielpunkt + gelernte Korrektur (lib/greifen.py), probiert dabei etwas aus (lernt daraus)."""
         fahr = self.posen['fahrstellung']
-        auf, zu = armlib.greifer_werte()
+        auf = armlib.greifer_werte()[0]
+        anlegen, zu = armlib.greifer_fuer_breite(obj['breite'])
         kin = self.yahboom_kin
         if kin is not None and kin.bereit() and obj.get('pixel') and obj.get('tiefe_m'):
-            p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], fahr)
+            p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], obj.get('blick_winkel') or fahr)
             if p is None:
                 return {'fehler': 'Yahboom-Kinematik antwortet nicht'}
             # Kamerapunkt liegt auf der Vorderseite/Oberseite -> etwas weiter hinein greifen.
@@ -588,11 +609,12 @@ class Zentrale(Node):
                         return w
                 return None
             plan = greifen.plane(obj, seite, ik, fahr, auf, zu,
-                                 self._politik('yahboom'), punkt=punkt, boden=boden)
-            plan['info'] = plan.get('info', '') + ' (Yahboom-Kinematik)'
+                                 self._politik('yahboom'), punkt=punkt, boden=boden, anlegen=anlegen)
+            plan['info'] = plan.get('info', '') + f' (Yahboom-Kinematik, Greifer {zu})'
             return plan
-        plan = greifen.plane(obj, seite, self.eigene_kin.inverse, fahr, auf, zu, self._politik(self.eigenes_modell))
-        plan['info'] = plan.get('info', '') + f' (eigene Kinematik, {self.kin_quelle})'
+        plan = greifen.plane(obj, seite, self.eigene_kin.inverse, fahr, auf, zu, self._politik(self.eigenes_modell),
+                             anlegen=anlegen)
+        plan['info'] = plan.get('info', '') + f' (eigene Kinematik, {self.kin_quelle}, Greifer {zu})'
         return plan
 
     def _arm_befehl(self, arm):

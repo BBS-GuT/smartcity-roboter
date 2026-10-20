@@ -216,6 +216,9 @@ class Wegraeumen(Ablauf):
     """Hindernis im Weg (LiDAR und/oder Kamera haben etwas gemeldet). Ablauf:
       1. anschauen   anhalten, mit der Tiefenkamera mehrere Bilder lang genau hinschauen (wartet ruhig laenger,
                      wenn die KI langsam ist: es zaehlen BILDER, nicht nur Sekunden). Was ist es, wo genau, wie gross?
+         pruefblick  Ist es zu nah fuer die Kamera (liegt unter ihrem Blickfeld), neigt er die Kamera nach unten
+                     (Pose 'pruefblick') und misst es dort, statt zurueckzufahren. Dann gleich 3. planen, und
+                     5. kontrolle ebenfalls im Pruefblick. Sieht er dort nichts: wie bisher (etwas zurueck).
          vorpruefen  noch im Stand: Armbewegung fuer die Greifweite schon einmal durchrechnen. Gibt es neben der
                      Strasse keine erreichbare, freie Ablagestelle (LiDAR schaut, wo schon etwas steht), gar nicht
                      erst heranfahren, sondern gleich warten.
@@ -235,13 +238,16 @@ class Wegraeumen(Ablauf):
     name = 'wegraeumen'
     braucht_arm = True
 
-    def __init__(self, jetzt, c, planer=None, darf_greifen=None, rueckmeldung=None, ohne_arm=''):
+    def __init__(self, jetzt, c, planer=None, darf_greifen=None, rueckmeldung=None, ohne_arm='', pruefblick=False):
         super().__init__(jetzt, c)
         self.planer = planer              # planer(objekt, ablage_seite) -> {'schritte': [...]} | {'fehler': Text}
         self.darf_greifen = darf_greifen  # darf_greifen(objekt, w) -> None (ja) oder Grund (nein)
         self.rueckmeldung = rueckmeldung  # rueckmeldung(plan, erfolg) -> Text (Greif-Lernen) oder None
         self.ohne_arm = ohne_arm or 'Arm nicht freigegeben'   # warum es keinen Planer gibt (fuers Panel)
         self.braucht_arm = planer is not None
+        self.pruefblick = pruefblick and planer is not None   # Pose 'pruefblick' da (Kamera steiler nach unten)
+        self.pruef_versucht = False       # schon im Pruefblick nachgesehen (einmal je Wegraeumen, sonst endlos)
+        self.im_pruef = False             # Hindernis wurde im Pruefblick vermessen -> auch dort kontrollieren
         self.versuch = 1
         self.zurueck_gefahren = 0.0
         self.zuletzt_vermessen = None     # letzte Messung der Kamera in DIESEM Ablauf (bleibt ueber neues Anschauen)
@@ -299,7 +305,7 @@ class Wegraeumen(Ablauf):
         if kamera_obj:
             self.merk = (kamera_obj['vor'], w.get('strecke'), False)   # False: seitdem nicht vorwaerts gefahren
         lid = w.get('lidar')
-        if self.phase in ('abstand', 'zurueck', 'planen', 'naeher', 'ausfuehren', 'rueckweg'):
+        if self.phase in ('abstand', 'zurueck', 'pruefblick', 'planen', 'naeher', 'ausfuehren', 'rueckweg'):
             # Person/Tier/Fahrzeug taucht auf: Arm und Roboter halten STILL (keine neue Bewegung, Greifer bleibt
             # wie er ist - sonst fiele ein gehaltener Wuerfel irgendwo hin). Weiter erst, wenn 2 s niemand mehr da ist.
             lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE] if neu else []
@@ -339,6 +345,29 @@ class Wegraeumen(Ablauf):
             genug = d >= c['anschauen_min'] and self.bilder >= c['anschauen_bilder']
             if not genug and d < c['anschauen_max']:
                 return befehl('stopp', f'Hindernis: schaue es mir genau an ({self.bilder} Bilder)')
+            return self._entscheiden(jetzt, w)
+        if self.phase == 'pruefblick':
+            # erst messen, wenn der Arm sicher steht (die Zentrale misst ohnehin erst dann im Pruefblick)
+            if d < c['arm_zeit'] + 0.5:
+                return befehl('stopp', 'Hindernis zu nah fuer die Kamera -> Pruefblick (Kamera nach unten)')
+            if neu:
+                self.bilder += 1
+                if kamera_obj and kamera_obj.get('blick') == 'pruef':
+                    self.messungen.append(kamera_obj)
+            t = d - c['arm_zeit'] - 0.5
+            if (t < c['anschauen_min'] or self.bilder < c['anschauen_bilder']) and t < c['anschauen_max']:
+                return befehl('stopp', f'Hindernis: Pruefblick ({self.bilder} Bilder)')
+            if len(self.messungen) >= 3:
+                return self._pruef_gesehen(jetzt, w)
+            # im Pruefblick nichts: Kamera zurueck nach vorne, dann wie bisher entscheiden (etwas zurueckfahren ...)
+            self.ereignisse.append(('Pruefblick: nichts gesehen -> Kamera zurueck nach vorne', 'info'))
+            self._phase(jetzt, 'pruef_zurueck')
+            return befehl('stopp', 'Pruefblick: Kamera zurueck', arm={'pose': 'fahrstellung'})
+        if self.phase == 'pruef_zurueck':
+            if d < c['arm_zeit']:
+                return befehl('stopp', 'Pruefblick: Kamera zurueck')
+            self.arm_bewegt = False
+            self.messungen = []
             return self._entscheiden(jetzt, w)
         if self.phase == 'zurueck':
             hinten = w.get('lidar_hinten')
@@ -426,9 +455,21 @@ class Wegraeumen(Ablauf):
             self.seit, self.warte = jetzt, dauer
             return befehl('stopp', f'Wegraeumen: {text}', arm={'winkel': winkel, 'zeit_ms': int(dauer * 1000)})
         if self.phase == 'kontrolle':
-            if d < c['arm_zeit'] * 0.5:
+            if self.im_pruef:
+                # Es lag zu nah fuer die Fahrstellung: dort saehe die Kamera es auch jetzt nicht -> im Pruefblick pruefen
+                if not self.kontrolle_pruef:
+                    self.kontrolle_pruef = True
+                    # Uhr so stellen, dass das Zaehlen (unten, ab arm_zeit/2) erst beginnt, wenn der Arm steht
+                    self._phase(jetzt + c['arm_zeit'] * 0.5 + 0.5, 'kontrolle')
+                    return befehl('stopp', 'Wegraeumen: pruefe im Pruefblick, ob der Weg frei ist',
+                                  arm={'pose': 'pruefblick'})
+                if d < c['arm_zeit'] * 0.5:
+                    return befehl('stopp', 'Wegraeumen: Pruefblick')
+                kamera_obj = kamera_obj if kamera_obj and kamera_obj.get('blick') == 'pruef' else None
+            elif d < c['arm_zeit'] * 0.5:
                 return befehl('stopp', 'Wegraeumen: Arm faehrt zurueck in Fahrstellung')
-            self.arm_bewegt = False      # ab jetzt schaut die Kamera wieder nach vorne
+            else:
+                self.arm_bewegt = False      # ab jetzt schaut die Kamera wieder nach vorne
             if neu:
                 self.kontrolle_bilder += 1
                 if (kamera_obj and kamera_obj['vor'] < c['kontrolle_bereich']) or (
@@ -444,6 +485,8 @@ class Wegraeumen(Ablauf):
                     self.versuch += 1
                     self.ereignisse.append((f'Weg noch nicht frei -> {self.versuch}. Versuch', 'stopp'))
                     self._anschauen(jetzt)
+                    if self.im_pruef:
+                        return self._pruefblick_start(jetzt)
                     return befehl('stopp', 'Hindernis: schaue nochmal hin')
                 return self._ende('fehler', f'Wegraeumen: liegt nach {self.versuch} Versuchen noch da -> warte',
                                   'stopp')
@@ -466,6 +509,12 @@ class Wegraeumen(Ablauf):
             self.ereignisse.append((f'Hindernis: {grund} -> schaue nochmal hin', 'info'))
             self._anschauen(jetzt)
             return befehl('stopp', f'Hindernis: {grund} -> schaue nochmal hin')
+        if len(self.messungen) < 3 and self.pruefblick and not self.pruef_versucht:
+            lid_nah = [x for x in self.lidar_werte if x < c['kamera_min_sicht']]
+            if self.zuletzt_vermessen is not None or len(lid_nah) >= 2:
+                # zu nah fuer die Kamera: erst mit dem Pruefblick (Kamera nach unten) hinschauen, nicht zurueckfahren
+                self.ereignisse.append(('Hindernis zu nah fuer die Kamera -> Pruefblick (Kamera nach unten)', 'info'))
+                return self._pruefblick_start(jetzt)
         if len(self.messungen) < 3 and self.zuletzt_vermessen is not None:
             # Vorhin hat die Kamera etwas gesehen, jetzt nicht mehr. Meist ist es nur zu nah (unter dem Blickfeld
             # der Kamera, z. B. weil er nach dem Halt noch etwas gerollt ist) -> zurueck, bis sie es wieder sieht.
@@ -510,6 +559,34 @@ class Wegraeumen(Ablauf):
         self._phase(jetzt, 'vorpruefen')
         threading.Thread(target=self._planen, args=(probe, self.seite), daemon=True).start()
         return befehl('stopp', 'Hindernis: suche eine Ablagestelle neben der Strasse ...')
+
+    def _pruefblick_start(self, jetzt):
+        self.pruef_versucht = True
+        self.messungen, self.bilder = [], 0
+        self.arm_bewegt = True
+        self._phase(jetzt, 'pruefblick')
+        return befehl('stopp', 'Hindernis zu nah fuer die Kamera -> Pruefblick (Kamera nach unten)',
+                      arm={'pose': 'pruefblick'})
+
+    def _pruef_gesehen(self, jetzt, w):
+        """Im Pruefblick vermessen: gleich planen (es liegt schon nah genug, Heranfahren sieht die Kamera nicht)."""
+        o = self._mittel()
+        winkel = [x['blick_winkel'] for x in self.messungen if x.get('blick_winkel')]
+        if winkel:
+            o['blick_winkel'] = winkel[-1]
+        self.objekt, self.im_pruef, self.kontrolle_pruef = o, True, False
+        self.ereignisse.append((f"Hindernis im Pruefblick gesehen: {o['vor'] * 100:.0f} cm voraus, "
+                                f"{o['seite'] * 100:+.0f} cm seitlich, {o['breite'] * 100:.0f} cm breit, "
+                                f"{o['hoehe'] * 100:.0f} cm hoch ({len(self.messungen)} von {self.bilder} Bildern)", 'info'))
+        nein = self.darf_greifen(o, w) if self.darf_greifen else None
+        if nein:
+            return self._ende('bestaetigt', f'Hindernis bestaetigt, {nein} -> warte', 'stopp')
+        o['belegt'] = self._belegt()
+        self.plan, self.objekt_plan = None, o
+        self._phase(jetzt, 'planen')
+        self.seite = seite = self._ablage_seite(self.letztes_w_xy)
+        threading.Thread(target=self._planen, args=(o, seite), daemon=True).start()
+        return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
 
     def _mittel(self):
         m = self.messungen

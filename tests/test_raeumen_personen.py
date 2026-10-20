@@ -34,6 +34,8 @@ class Lauf:
         raise AssertionError(f'{zielphase} nicht regulaer erreicht: {self.phasen}')
 
     def planer(self, objekt, seite):
+        if self.ablauf.phase == 'vorpruefen':     # Ablagesuche vor dem Heranfahren zaehlt nicht als Planung
+            return {'schritte': []}
         self.planungen += 1
         if self.naeher_noetig and self.planungen == 1:
             return {'naeher': 0.03}
@@ -84,7 +86,8 @@ class RaeumenPersonen(unittest.TestCase):
         for phase in NEUE_PHASEN:
             with self.subTest(phase=phase):
                 lauf = Lauf(phase)
-                self.assertEqual(lauf.phasen, ['anschauen', phase])
+                # vor dem Heranfahren sucht er im Stand eine Ablagestelle (Phase vorpruefen)
+                self.assertEqual(lauf.phasen, ['anschauen'] + (['vorpruefen'] if phase == 'abstand' else []) + [phase])
                 self.assertGreater(lauf.lidar, STANDARD['notbremse_dist'])
                 self.bewegung(lauf.schritt(), phase)
 

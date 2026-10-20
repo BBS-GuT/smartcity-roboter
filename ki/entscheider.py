@@ -378,7 +378,8 @@ class Entscheider:
             if not self.geprueft_frei:
                 planer = self.planer if self._darf_arm() else None
                 return self._ablauf_start(jetzt, Wegraeumen(jetzt, c, planer, self._darf_greifen, self.rueckmeldung,
-                                                            self.warum_kein_arm()))
+                                                            self.warum_kein_arm(),
+                                                            pruefblick=bool(self.posen.get('pruefblick'))))
             # Kamera hat hingeschaut und sieht nichts, nur der LiDAR meldet etwas (z. B. Hauskante in der Kurve)
             if d is not None and d < c['lidar_halt']:
                 return self._b('stopp', f'LiDAR: etwas {d * 100:.0f} cm im Weg, Kamera sieht nichts -> halte')
