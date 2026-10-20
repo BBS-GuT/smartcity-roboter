@@ -296,7 +296,7 @@ class Wegraeumen(Ablauf):
         if kamera_obj:
             self.merk = (kamera_obj['vor'], w.get('strecke'), False)   # False: seitdem nicht vorwaerts gefahren
         lid = w.get('lidar')
-        if self.phase in ('planen', 'naeher', 'ausfuehren', 'rueckweg'):
+        if self.phase in ('abstand', 'zurueck', 'planen', 'naeher', 'ausfuehren', 'rueckweg'):
             # Person/Tier/Fahrzeug taucht auf: Arm und Roboter halten STILL (keine neue Bewegung, Greifer bleibt
             # wie er ist - sonst fiele ein gehaltener Wuerfel irgendwo hin). Weiter erst, wenn 2 s niemand mehr da ist.
             lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE] if neu else []
