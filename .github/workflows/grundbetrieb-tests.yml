@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 40
     env:
-      D1_LOG_DIR: ${{ runner.temp }}/d1-testlogs
+      D1_LOG_DIR: ${{ github.workspace }}/d1-testlogs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -103,6 +103,6 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: d1-softwaretestlogs-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/d1-testlogs/
+          path: ${{ github.workspace }}/d1-testlogs/
           if-no-files-found: warn
           retention-days: 14
