@@ -399,10 +399,21 @@ class Kartograf(Node):
                         'marker': self.karte.marker.sichere(), 'punkte_3d': int(len(p))}
             os.makedirs(self.ordner, exist_ok=True)
             if bild is not None:
-                schreibe_atomar(os.path.join(self.ordner, 'karte.png'), cv2.imencode('.png', bild)[1].tobytes())
+                self._schreibe_wenn_neu('karte.png', cv2.imencode('.png', bild)[1].tobytes())
             kopf = np.array([len(p)], np.uint32).tobytes()
-            schreibe_atomar(os.path.join(self.ordner, 'wolke.bin'), kopf + p.astype('<f4').tobytes() + f.tobytes())
+            self._schreibe_wenn_neu('wolke.bin', kopf + p.astype('<f4').tobytes() + f.tobytes())
             schreibe_atomar(os.path.join(self.ordner, 'karte.json'), json.dumps(info).encode())
+
+    def _schreibe_wenn_neu(self, name, daten):
+        """Nur schreiben, wenn sich der Inhalt geaendert hat (im Stand sonst ca. 1 MB alle 3 s auf die SD-Karte)."""
+        pfad = os.path.join(self.ordner, name)
+        letzte = getattr(self, '_geschrieben', None)
+        if letzte is None:
+            letzte = self._geschrieben = {}
+        if letzte.get(pfad) == daten and os.path.exists(pfad):
+            return
+        schreibe_atomar(pfad, daten)
+        letzte[pfad] = daten
 
     def _speichern(self):
         with self.datei_lock:

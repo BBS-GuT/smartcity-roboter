@@ -107,6 +107,11 @@ def fahrschlauch(xy, weg=None, halbe_breite=0.15, laenge=0.8, nah=0.2, nah_halb_
     if len(xy) == 0:
         return None
     xy = np.asarray(xy, dtype=np.float64).reshape(-1, 2)
+    # Der Weg beginnt am Roboter: ein Punkt im Schlauch ist hoechstens (Strecke entlang) + (Abstand zum Weg) entfernt.
+    # Weiter entfernte Punkte koennen nie drin sein -> vorher weglassen (Ergebnis gleich, viel weniger Rechnung).
+    xy = xy[np.hypot(xy[:, 0], xy[:, 1]) < max(laenge, nah) + halbe_breite + 0.01]
+    if len(xy) == 0:
+        return None
     quer, entlang = abstand_zum_weg(xy, weg, laenge)
     im_kegel = np.abs(np.arctan2(xy[:, 1], xy[:, 0])) <= math.radians(nah_halb_deg)
     drin = (quer < halbe_breite) & (entlang > 0.0) & (entlang <= laenge) & ((entlang > nah) | im_kegel)

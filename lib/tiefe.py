@@ -72,12 +72,17 @@ class Bodenmodell:
         x, y, z = self.punkte(tiefe_m)
         weg = (x > 0.05) & (x < self.c['weg_laenge']) & (np.abs(y) < self.c['weg_breite'])
         if lernen:
-            # Bodenkorrektur je Zeile: Median der Hoehe der Bodenpunkte im Fahrweg
-            for zeile in range(z.shape[0]):
-                werte = z[zeile][weg[zeile]]
-                werte = werte[np.isfinite(werte)]
-                if len(werte) > 5:
-                    self.korrektur[zeile] += 0.3 * (np.median(werte) - self.korrektur[zeile])
+            # Bodenkorrektur je Zeile: Median der Hoehe der Bodenpunkte im Fahrweg (alle Zeilen auf einmal:
+            # ungueltige Werte als inf ans Ende sortieren, dann die Mitte wie np.median)
+            gut = weg & np.isfinite(z)
+            n = gut.sum(axis=1)
+            zeilen = np.nonzero(n > 5)[0]
+            if len(zeilen):
+                s = np.sort(np.where(gut[zeilen], z[zeilen], np.inf), axis=1)
+                nn, i = n[zeilen], np.arange(len(zeilen))
+                unten, oben = s[i, (nn - 1) // 2], s[i, nn // 2]
+                med = np.where(nn % 2 == 1, oben, (unten + oben) / s.dtype.type(2))
+                self.korrektur[zeilen] += 0.3 * (med - self.korrektur[zeilen])
             self.gelernt += 1
         if self.gelernt < self.c['lern_bilder']:
             return None, None

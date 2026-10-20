@@ -37,6 +37,7 @@ for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ.setdefault(_v, '1')
 
 import cv2  # noqa: E402
+cv2.setNumThreads(1)   # OpenCV-Threads (pthreads, OMP_NUM_THREADS wirkt nicht): gleiche Wandzeit, halbe CPU
 import numpy as np
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup

@@ -40,6 +40,7 @@ for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ.setdefault(_v, '1')
 
 import cv2  # noqa: E402
+cv2.setNumThreads(1)   # OpenCV-Threads (pthreads, OMP_NUM_THREADS wirkt nicht): gleiche Wandzeit, halbe CPU
 import numpy as np
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -95,8 +96,13 @@ def lade_lidar_einstellungen():
         return {}
 
 
+_IPS = [0.0, []]   # (Zeit, Adressen): das Panel fragt alle 0,4 s, ein Unterprozess je Abfrage waere unnoetig
+
+
 def ip_adressen():
-    """Aktuelle IPv4-Adressen des Roboters (ohne 127.x). Aendert sich z. B. mit den VLANs."""
+    """Aktuelle IPv4-Adressen des Roboters (ohne 127.x). Aendert sich z. B. mit den VLANs (hoechstens 10 s alt)."""
+    if time.monotonic() - _IPS[0] < 10.0:
+        return list(_IPS[1])
     ips = []
     try:
         aus = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=3).stdout
@@ -111,7 +117,8 @@ def ip_adressen():
             s.close()
         except Exception:
             pass
-    return ips
+    _IPS[:] = [time.monotonic(), ips]
+    return list(ips)
 
 
 class Prozesse:
@@ -759,6 +766,7 @@ def mache_handler(node, prozesse, beenden=None):
         akku = node.get('akku', max_alter=5.0)
         sensoren = node.sensor_status()
         posen = armlib.lade_posen()
+        e = armlib.lade_einstellungen()
         return {
             'fahren': prozesse.laeuft('fahren'), 'modus': prozesse.info.get('fahren', ''),
             'ki_prozess': prozesse.laeuft('ki'),
@@ -777,9 +785,9 @@ def mache_handler(node, prozesse, beenden=None):
             'karte': node.get('karte', max_alter=2.0), 'kartograf': prozesse.laeuft('karte'),
             'arm': {'grenzen': armlib.GRENZEN, 'namen': armlib.NAMEN, 'posen': posen,
                     'letzte': node.arm.letzte if node.arm else None,
-                    'ki_darf': bool(armlib.lade_einstellungen().get('ki_darf_arm_bewegen')),
+                    'ki_darf': bool(e.get('ki_darf_arm_bewegen')),
                     'lernen': greifen_stand(),
-                    'gespeichert': sorted(k for k, v in (armlib.lade_einstellungen().get('posen') or {}).items() if v)},
+                    'gespeichert': sorted(k for k, v in (e.get('posen') or {}).items() if v)},
         }
 
     class Handler(BaseHTTPRequestHandler):

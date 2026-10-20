@@ -54,13 +54,27 @@ def pruefe(winkel, zeit_ms):
     return None
 
 
+_GELESEN = {}   # datei -> ((mtime_ns, groesse, inode), inhalt): Panel fragt mehrmals je Sekunde
+
+
 def _lies(datei):
+    """YAML-Datei als dict (Kopie, darf veraendert werden). Neu gelesen nur, wenn sich die Datei geaendert hat."""
+    import copy
     try:
-        import yaml
-        with open(datei) as f:
-            return yaml.safe_load(f) or {}
+        st = os.stat(datei)
     except FileNotFoundError:
         return {}
+    stand = (st.st_mtime_ns, st.st_size, st.st_ino)
+    alt = _GELESEN.get(datei)
+    if alt is None or alt[0] != stand:
+        try:
+            import yaml
+            with open(datei) as f:
+                alt = (stand, yaml.safe_load(f) or {})
+        except FileNotFoundError:
+            return {}
+        _GELESEN[datei] = alt
+    return copy.deepcopy(alt[1])
 
 
 def lade_einstellungen():
@@ -232,6 +246,7 @@ def kamera_fuer_pose(kamera, fahr, pose, geo=None):
 
 def _speichere(aenderung):
     import yaml
+    _GELESEN.pop(POSEN_DATEI, None)
     eigene = _lies(POSEN_DATEI)
     aenderung(eigene)
     os.makedirs(os.path.dirname(POSEN_DATEI), exist_ok=True)
@@ -239,6 +254,7 @@ def _speichere(aenderung):
         f.write('# Eigene Arm-Posen dieses Roboters (gespeichert ueber das Panel, Seite Arm).\n'
                 '# Nicht im Repository. Standardwerte: config/arm.yaml\n')
         yaml.safe_dump(eigene, f, allow_unicode=True, sort_keys=False)
+    _GELESEN.pop(POSEN_DATEI, None)
 
 
 def speichere_pose(name, winkel):

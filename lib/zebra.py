@@ -25,24 +25,24 @@ def finde_zebra(vogel, raster, vorne_max, cfg=None):
     c.update(cfg or {})
     if vogel is None:
         return None
+    # Balkenanfaenge/-enden aller Zeilen auf einmal (schnell); genauer pruefen nur Zeilen mit genug passenden Balken
+    d = np.diff(np.pad((vogel > 0).astype(np.int8), ((0, 0), (1, 1))), axis=1)
+    ay, ax = np.nonzero(d == 1)
+    ey, ex = np.nonzero(d == -1)               # zeilenweise sortiert: zu jedem Anfang gehoert das Ende daneben
+    breiten = (ex - ax) * raster
+    passt = (breiten >= c['balken_min']) & (breiten <= c['balken_max'])
+    zahl = np.bincount(ay[passt], minlength=vogel.shape[0])
     treffer = []
-    for py in range(vogel.shape[0]):
-        zeile = vogel[py] > 0
-        if zeile.sum() == 0:
-            continue
-        d = np.diff(np.concatenate([[0], zeile.astype(np.int8), [0]]))
-        anfang, ende = np.where(d == 1)[0], np.where(d == -1)[0]
-        breite = (ende - anfang) * raster
-        ok = (breite >= c['balken_min']) & (breite <= c['balken_max'])
-        if ok.sum() < c['min_balken']:
-            continue
+    for py in np.nonzero(zahl >= c['min_balken'])[0]:
+        sel = ay == py
+        anfang, ende, ok = ax[sel], ex[sel], passt[sel]
         mitten = ((anfang + ende) / 2.0)[ok] * raster
         abst = np.diff(mitten)
         if len(abst) == 0 or abst.mean() <= 0:
             continue
         regelmaessig = np.abs(abst - np.median(abst)) <= c['abstand_toleranz'] * np.median(abst)
         if regelmaessig.sum() + 1 >= c['min_balken']:
-            treffer.append((py, int(ok.sum())))
+            treffer.append((int(py), int(ok.sum())))
     if len(treffer) < c['min_zeilen']:
         return None
     naechste = max(p for p, _ in treffer)          # unterste Zeile = am naechsten am Roboter
