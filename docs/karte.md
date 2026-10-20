@@ -132,6 +132,7 @@ Andere Karte (z. B. andere Stadt): Panel mit `scripts/panel.sh --karte werkstatt
 | `scan_spiegeln` | [false, false] | LiDAR zählt die Winkel im Uhrzeigersinn. Erkennt der Kartograf auch selbst (Hinweis im Panel) |
 | `scan_dauer` | 0.0 | Dauer einer LiDAR-Umdrehung (s), nur falls der LiDAR weder `time_increment` noch `scan_time` meldet. 0 = nicht entzerren |
 | `max_reichweite` | 8.0 | LiDAR-Punkte weiter weg nicht verwenden (m) |
+| `haupt_lidar` | `/scan1` (config) | an diesem LiDAR hängt der Abgleich mit der Karte; `''` = erster in `scan_topics`. Auf RM02 gemessen: `/scan0` sitzt versetzt (siehe [Problemprotokoll](problemprotokoll.md)) |
 | `selbst_kalibrieren` | false | gelernte Korrekturen (Lagesensor, Räder, LiDAR-Einbau, gespiegelt) anwenden |
 | `aufnahme_bild_hz` | 2.0 | so viele Kamerabilder je Sekunde in die Messfahrt (0 = keine) |
 | `arm_basis_x` | 0.05 | Drehachse von Servo 1 vor der Robotermitte (m), für Bilder beim Umschauen. Geschätzt |

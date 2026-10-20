@@ -57,7 +57,7 @@ import linie            # noqa: E402
 KAMERA_NAMEN = ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x')
 # diese Einstellungen gehen an den Kartierer (und in den Kopf jeder Aufnahme)
 KARTIERER_NAMEN = ('scan_topics', 'scan_front_deg', 'scan_spiegeln', 'obstacle_min_range', 'lidar_x',
-                   'karte_min_abstand', 'scan_dauer', 'selbst_kalibrieren')
+                   'karte_min_abstand', 'scan_dauer', 'selbst_kalibrieren', 'haupt_lidar')
 
 
 def schreibe_atomar(datei, daten):
@@ -79,6 +79,7 @@ class Kartograf(Node):
         dp('karte', 'smartcity')                 # Name der Karte (Ordner karten/<name>)
         dp('ordner', os.path.join(REPO, 'karten'))
         dp('scan_topics', ['/scan0', '/scan1'])
+        dp('haupt_lidar', '')                    # Abgleich mit der Karte an diesem LiDAR ('' = erster in scan_topics)
         dp('scan_front_deg', [0.0, 0.0])
         dp('scan_spiegeln', [False, False])      # LiDAR zaehlt die Winkel andersherum (erkennt er auch selbst)
         dp('obstacle_min_range', 0.08)
