@@ -8,14 +8,14 @@ Jede Auftragsdatei ist als Startnachricht für einen Entwicklungs-Chat verwendba
 
 ## Jetzt vorbereitete Aufträge
 
-| Auftrag | Empfänger | Erster Liefergegenstand | Startstatus |
+| Auftrag | Empfänger | Erster Liefergegenstand | Status und GitHub-Aufgabe |
 |---|---|---|---|
 | **O** | Dieser Orchestrator-Chat | Aufgabenregister, Übergaben, fachliches Review und Integrationsreihenfolge | Aktiv; keine Produktentwicklung hier |
-| **[A1 Sicherheit](A-sicherheit-und-motorfreigabe.md)** | Unser separater Entwicklungs-Chat | Sichere Bildzeit-/Pflichtprüfung im Linienfolger mit Regressionstests | Zur Übernahme in den eigenen Entwicklungs-Chat |
-| **[B1 Fahrentscheidungen](B-verkehr-und-navigation.md)** | Weiterer Entwickler / Entwicklungs-Chat | Rot-Halt, sicherer Wende-Fehlerübergang und Grenzen autonomer Hindernisaktionen | Vergabefertig; kann parallel zu A1 starten |
-| **[C1 Zustandsvertrag](C-zustand-mqtt-und-panel.md)** | Weiterer Entwickler / Entwicklungs-Chat | Ein gemeinsamer prüfbarer Vertrag mit Beispielen und Typen | Vergabefertig; priorisierte Schnittstellenlieferung |
-| **[D1 Testinfrastruktur](D-tests-ci-und-repository.md)** | Weiterer Entwickler oder anschließend ausdrücklich zugeordneter Bereich | Ein Testaufruf, CI und Beitragsvorlagen | Vergabefertig; bei nur drei Entwicklern separat einplanen |
-| **[E1 Geräte und Infrastruktur](E-geraete-und-infrastruktur.md)** | Geräte-, Spielfeld-, Ampel- und Brokerteams | Geräteinventar, Mess-/Regelplan und Partnerfestlegungen | Erhebung kann sofort beginnen; kein autonomer Fahrauftrag |
+| **[A1 Sicherheit](A-sicherheit-und-motorfreigabe.md)** | Unser separater Entwicklungs-Chat, Konto `letsc4` | Sichere Bildzeit-/Pflichtprüfung im Linienfolger mit Regressionstests | Entwicklungs-Chat angelegt und aktiv; [#12](https://github.com/davidheinrich73/smartcity-roboter/issues/12) |
+| **[B1 Fahrentscheidungen](B-verkehr-und-navigation.md)** | Weiterer Entwickler / Entwicklungs-Chat | Rot-Halt, sicherer Wende-Fehlerübergang und Grenzen autonomer Hindernisaktionen | Vergabefertig, parallel zu A1; [#13](https://github.com/davidheinrich73/smartcity-roboter/issues/13) |
+| **[C1 Zustandsvertrag](C-zustand-mqtt-und-panel.md)** | Weiterer Entwickler / Entwicklungs-Chat | Ein gemeinsamer prüfbarer Vertrag mit Beispielen und Typen | Vergabefertig, priorisierte Schnittstellenlieferung; [#14](https://github.com/davidheinrich73/smartcity-roboter/issues/14) |
+| **[D1 Testinfrastruktur](D-tests-ci-und-repository.md)** | Weiterer Entwickler oder anschließend ausdrücklich zugeordneter Bereich | Ein Testaufruf, CI und Beitragsvorlagen | Vergabefertig, bei nur drei Entwicklern separat einplanen; [#15](https://github.com/davidheinrich73/smartcity-roboter/issues/15) |
+| **[E1 Geräte und Infrastruktur](E-geraete-und-infrastruktur.md)** | Geräte-, Spielfeld-, Ampel- und Brokerteams | Geräteinventar, Mess-/Regelplan und Partnerfestlegungen | Erhebung bereit zur Vergabe, kein autonomer Fahrauftrag; [#16](https://github.com/davidheinrich73/smartcity-roboter/issues/16) |
 
 Namentliche Empfänger für B–E sind noch nicht eingesetzt. „Vergabefertig“ bedeutet nicht, dass bereits jemand daran arbeitet. Erst nach Übernahme wird ein Auftrag als aktiv geführt. Weitere Aufträge werden hier ergänzt; neue Personen beginnen nicht ungeplant in bereits reservierten Dateien.
 
