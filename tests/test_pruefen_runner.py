@@ -73,11 +73,17 @@ class Runner(unittest.TestCase):
                     " @unittest.skip('missing required package')\n def test_schema(self): pass\n"
                     " @unittest.expectedFailure\n def test_known(self): self.fail('known')\n"
                     "unittest.main()\n")
+        self.script('test_expected_only.py', "import unittest\n"
+                    "print('Produktlog: OK (skipped=1, expected failures=1)')\n"
+                    "class Check(unittest.TestCase):\n"
+                    " @unittest.expectedFailure\n def test_known(self): self.fail('known')\n"
+                    "unittest.main()\n")
         result = self.run_runner()
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout.count('UNVOLLSTAENDIG'), 2)
         self.assertIn('skipped=1', result.stdout)
         self.assertIn('expected failures=1', result.stdout)
+        self.assertIn('1/3 Skripte bestanden', result.stdout)
 
     def test_timeout_keeps_partial_output_and_continues(self):
         self.script('test_a.py', "import subprocess, sys, time\n"
