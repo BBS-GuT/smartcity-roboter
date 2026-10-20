@@ -2,6 +2,8 @@
 
 **Stand 20.10.2026.** Für drei oder mehr aktive Entwickler empfiehlt sich eine Aufteilung in Betrieb/Sicherheit, Wahrnehmung/Navigation und Zustandsdaten/MQTT/Panel. Jede Aufgabe erhält einen verantwortlichen Menschen, einen eigenen Branch, vereinbarte Dateien und ein überprüfbares Ergebnis. Die gemeinsame Integration erfolgt über kleine Pull Requests.
 
+Die konkreten ersten Entwicklungsaufträge, exakten Dateireservierungen und Übergabebedingungen stehen inzwischen im [Auftragsregister](auftraege/README.md). Es konkretisiert die folgende allgemeine Aufteilung; Bereich A wird in unserem separaten Entwicklungs-Chat umgesetzt, dieser Chat bleibt für die Orchestrierung.
+
 Ausgangspunkt sind der [Repositoryabgleich](pruefung-grundbetrieb-2026-10-20.md) und die [Zieldefinition](zieldefinition-grundbetrieb.md). Diese Datei schlägt den Teamablauf und die nächsten Pakete vor. Die namentliche Besetzung und die noch offenen Infrastrukturregeln werden im Team festgelegt; vorhandene GitHub-Einstellungen werden durch diese Dokumentation nicht aktiviert.
 
 ## Drei parallele Entwicklungsbereiche
