@@ -42,6 +42,7 @@ def neu():
     jetzt = time.time()
     gerade_linie(n)
     n.bild_zeit = jetzt
+    n.stempel_ok = True  # gueltiges frisches Bild fuer diese Entscheidungspruefungen
     n.ki = (jetzt, {'aktion': 'fahren', 'faktor': 1.0, 'grund': 'Weg frei'})
     n.on_scan(scan(1.0), '/scan0', 0)
     return n
@@ -96,9 +97,9 @@ check('Notbremse sperrt Vorwaerts-Manoever', n.entscheide(), False)
 n.ki = (time.time(), {'aktion': 'manoever', 'grund': 'wenden',
                       'manoever': {'lin': 0.0, 'quer': 0.0, 'dreh': 0.8, 'text': 'wenden'}})
 lin, quer, dreh, status = n.entscheide()
-ok = lin == 0 and dreh > 0
+ok = lin == 0 and quer == 0 and dreh == 0
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} Notbremse erlaubt Drehen auf der Stelle: {status}")
+print(f"{'OK  ' if ok else 'FEHLER'} GB-14: Notbremse sperrt auch Drehen auf der Stelle: {status}")
 n = neu()
 n.set_parameters([lf.Parameter('kamera_neigung', value=30.0)])
 ok = n.sucher.c['kamera_neigung'] == 30.0 and n.sucher.groesse is None
