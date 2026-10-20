@@ -1,0 +1,108 @@
+name: Grundbetrieb - Softwarepruefung
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, 'chore/gb-*', 'fix/gb-*', 'test/gb-*']
+
+permissions:
+  contents: read
+
+jobs:
+  python-syntax:
+    name: D1 / Python-Syntax (3.10)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.10'
+      - name: Alle versionierten Pythondateien ohne ROS-Imports kompilieren
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          print(sys.version)
+          files = subprocess.check_output(['git', 'ls-files', '-z', '--', '*.py']).split(b'\0')
+          paths = [Path(os.fsdecode(name)) for name in files if name]
+          assert paths, 'Keine Pythondateien gefunden'
+          for path in paths:
+              compile(path.read_bytes(), str(path), 'exec')
+          print(f'{len(paths)} Pythondateien syntaktisch geprueft; nichts importiert/ausgefuehrt.')
+          PY
+
+  shell-syntax:
+    name: D1 / Shell-Syntax (bash)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Alle versionierten Shellskripte mit bash -n pruefen
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash --version
+          count=0
+          while IFS= read -r -d '' path; do
+            bash -n "$path"
+            count=$((count + 1))
+          done < <(git ls-files -z -- '*.sh')
+          test "$count" -gt 0
+          printf '%s Shellskripte syntaktisch geprueft.\n' "$count"
+
+  softwaretests:
+    name: D1 / Softwaretests (Ubuntu 22.04, Python 3.10)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    env:
+      D1_LOG_DIR: ${{ github.workspace }}/d1-testlogs
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.10'
+      - name: Isolierte festgelegte Testpakete installieren
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/d1-venv"
+          echo "$RUNNER_TEMP/d1-venv/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/d1-venv/bin/python" -m pip install -r requirements-test.txt
+          "$RUNNER_TEMP/d1-venv/bin/python" -m pip check
+      - name: Plattform und tatsaechliche Pakete belegen (jsonschema ist Pflicht)
+        shell: bash
+        run: |
+          mkdir -p "$D1_LOG_DIR"
+          cat /etc/os-release | tee "$D1_LOG_DIR/umgebung.log"
+          python - <<'PY' | tee -a "$D1_LOG_DIR/umgebung.log"
+          import platform
+          import sys
+          import cv2
+          import jsonschema
+          import numpy
+          import yaml
+          print(platform.platform())
+          print(sys.version)
+          assert sys.version_info[:2] == (3, 10)
+          print('numpy/cv2/yaml/jsonschema erfolgreich importiert')
+          PY
+          python -m pip freeze | tee -a "$D1_LOG_DIR/umgebung.log"
+      - name: Alle Softwaretestskripte im gemeinsamen Runner ausfuehren
+        run: python scripts/pruefen.py --timeout 120 --test-timeout test_karte.py=600 --log-dir "$D1_LOG_DIR"
+      - name: Einzellogs auch bei Testfehlern aufbewahren
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: d1-softwaretestlogs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ github.workspace }}/d1-testlogs/
+          if-no-files-found: warn
+          retention-days: 14
