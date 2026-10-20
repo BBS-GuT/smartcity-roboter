@@ -12,6 +12,32 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 
 ---
 
+## 20.10.2026, Prüfung PR #78 und Gesamtcode (ohne Roboter)
+
+### Greifkraft nur geschätzt
+- **Ursache:** Der Roboter meldet die Servostellung nicht zurück. Die Umrechnung Breite → Servo 6 war aus einer
+  geschätzten Öffnung gerechnet; beim 3-cm-Würfel kam wieder der feste Wert 130 heraus.
+- **Lösung:** Panel → Arm → „Greifer einmessen“ (Messpunkte Breite → Servo 6 beim Anliegen). Eingemessene Breiten
+  nimmt die KI genau, die KI meldet die Quelle bei jedem Plan. Siehe `docs/greifarm.md`.
+- **Status:** nur Test. Am Roboter einmessen (Würfel und Breite 0).
+
+### Personenhalt in neuen Wegräum-Phasen fehlte (#79, #76, #74), Erinnerung bei Abbruch (#52)
+- **Beleg:** Reproduktionen der Orchestrierung (Review PR #78) mit echtem Entscheider.
+- **Lösung:** Halt auch in Vorprüfung, Prüfblick-Rückkehr und Kontrolle; Armrückkehr nach Abbruch wartet auf 2 s ohne
+  Person; Abbruch behält die gemerkte Hindernisstelle.
+- **Status:** nur Test (Regressionen in `tests/`, auf dem alten Stand rot).
+
+### Veraltete Zähler im 2. Versuch nach Prüfblick, LiDAR-only-„langsam“ blieb hängen
+- **Beleg:** Skripte (Code-Prüfung): falsches „frei“ trotz LiDAR 18 cm, endloses Neustarten bei Versuch 1;
+  Kontrolle ignorierte die Kamera; dauerhaft „langsam“, obwohl die Tiefenkamera einen Würfel sah.
+- **Lösung:** nach dem Prüfblick frisch anschauen, Prüfblick-Zustand je Versuch zurücksetzen, LiDAR-only-Prüfung endet,
+  sobald die Tiefenkamera etwas sieht; Anschauen zählt keine Bilder, solange der Arm zurückfährt.
+- **Status:** nur Test (`tests/test_raeumen_zustand.py`).
+
+### Rechenlast
+- **Lösung:** Zebra, Fahrschlauch, Tiefen-Bodenkorrektur, Kartenabgleich und Panel-Statusabfrage schneller bei
+  gleichen Ergebnissen; OpenCV in KI und Panel mit einem Thread; Kartendateien nur bei Änderung schreiben.
+- **Status:** nur Test (Vergleich alt/neu bitgleich). Am Roboter mit `system.log` vorher/nachher vergleichen.
 
 ## 20.10.2026, Lauf 14:0x–14:27
 
