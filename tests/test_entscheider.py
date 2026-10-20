@@ -460,6 +460,34 @@ arme, b, _ = wegraeumen(l, 60, NAH)
 ok = not l.e.aufheben_gesperrt and len(arme) > 0
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} nach fehlgeschlagenem Wegraeumen: STOPP + START -> neuer Versuch ({len(arme)} Arm-Befehle)")
+# Roboter-Log 20.10.: beim Heranfahren aus den Augen verloren (zu nah fuer die Kamera, unter dem LiDAR) ->
+# "Weg ist wieder frei" -> drueber gefahren. Jetzt: gemerkte Stelle gilt nicht als frei, bis START.
+for strecke in (False, True):
+    l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+    s = {'strecke': 0.0} if strecke else {}
+    b = l.schritt(15, objekt=dict(WUERFEL, vor=0.30), **s)           # anschauen -> in Greifweite fahren
+    ok_anfang = l.e.ablauf is not None and l.e.ablauf.phase == 'abstand'
+    if strecke:
+        s = {'strecke': 0.10}                                          # 10 cm naeher heran: 20 cm, Kamera blind
+    folge = [l.schritt(1, **s) for _ in range(80)]                     # Kamera + LiDAR sehen nichts mehr
+    # noch bis 2,5 s blind weiter heran (Greifweite), aber nie 'fahren'; am Ende Halt mit Grund
+    ok = (ok_anfang and all(x['aktion'] != 'fahren' for x in folge) and folge[-1]['aktion'] == 'stopp'
+          and 'zu nah fuer die Kamera' in folge[-1]['grund'])
+    l.e.fahrt_aktiv = False
+    l.schritt(1, **s)
+    l.e.kommando(l.t, 'start')
+    l.e.fahrt_aktiv = True
+    ok = ok and l.schritt(15, **s)['aktion'] == 'fahren'               # bewusster START (weggenommen)
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} Hindernis aus den Augen verloren ({'mit' if strecke else 'ohne'} Radzaehler)"
+          f" -> bleibt stehen bis START, faehrt nicht drueber ({folge[-1]['grund']})")
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+s = {'strecke': 0.0}
+l.schritt(15, objekt=dict(WUERFEL, vor=0.30), **s)
+folge = [l.schritt(1, strecke=-0.05) for _ in range(40)]               # zurueckgerollt: 35 cm, Kamera sieht Stelle
+ok = folge[-1]['aktion'] == 'fahren' and l.e.hindernis_merk is None
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} gemerkte Stelle weit genug weg und Kamera sieht sie frei -> weiter ({folge[-1]['grund']})")
 l = Lauf(arm_erlaubt=True, posen=POSEN)
 l.e.fahrt_aktiv = False                          # nur TEST
 arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3})
