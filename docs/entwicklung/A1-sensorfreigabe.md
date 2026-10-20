@@ -27,6 +27,8 @@ Reine Softwaretests mit vorhandenen ROS-Attrappen; Python 3.12.14 aus dem gebün
 - `tests/test_entscheider.py`: 82 Einzelprüfungen bestanden.
 - `tests/test_greifen.py`: 20 Einzelprüfungen bestanden. Erster Lauf durch gesperrtes Sandbox-Temp-Verzeichnis abgebrochen; Wiederholung mit TEMP/TMP unter `C:\SmartCity\entwicklung\a1-testtmp` bestanden.
 - `tests/test_schilder.py`: fünf Einzelprüfungen bestanden.
+- `tests/test_karte.py`: 22 Einzelprüfungen bestanden (synthetische Messfahrten/Replay, keine Gerätefahrt).
+- Gegenprobe: Neue Regressionen gegen den unveränderten Quelltext von `origin/main` ausgeführt; die unsicheren Freigaben wurden reproduziert. Der Arbeitsbaum wurde dafür nicht verändert.
 - `git diff --check`: bestanden.
 
 Aufruf: Python aus dem Runtime mit `PYTHONPATH=C:\SmartCity\research\review-deps-20261002`, jeweils `python tests/<skript>.py`; für temporäre Dateien obiges TEMP/TMP verwenden.
