@@ -215,10 +215,14 @@ class LineFollower(Node):
         return self.p('vorhersage')
 
     def on_ki(self, msg):
+        jetzt, alt = time.time(), self.ki[0]
         try:
-            self.ki = (time.time(), json.loads(msg.data))
+            self.ki = (jetzt, json.loads(msg.data))
         except ValueError:
             return
+        if alt and jetzt - alt > 0.6:     # Diagnose: wie lange war die KI still? (dann stand er)
+            self.get_logger().warn(f"KI-Zentrale war {jetzt - alt:.1f} s still (KI-Bild {self.ki[1].get('ki_ms')} ms, "
+                                   f"Takt max {self.ki[1].get('takt_max_ms')} ms)")
         if self.ki[1].get('kamera_ok') is False:
             self.kamera_weg_bis = self.ki[0]      # bis hierhin schaute die Kamera woanders hin
 
