@@ -6,6 +6,8 @@ Du entwickelst am Team-Repository `https://github.com/davidheinrich73/smartcity-
 
 ## Auftrag D1
 
+**Geprüfter Status am 20.10.2026:** Ursprünglicher Runner, Testumgebung, CI und Beitragsvorlagen sind integriert; main `d991765` ist mit 13/13 Softwaretestskripten grün. Maßgeblich für den laufenden Betrieb ist die [CI-Betriebs- und Eigentümeranleitung](../entwicklung/D1-ci-betrieb.md). Status dieses Bearbeitungsstands: **Ergänzungen #68/#69 in Arbeit; #50 administrativ offen**. Fortschreibung und Gesamtabschluss erfolgen über #15; ein grüner Lauf bestätigt keinen aktiven main-Schutz oder Gerätebetrieb. Die folgende Beschreibung des Ausgangsstands bleibt als Auftragsgrundlage erhalten.
+
 Mache die vorhandenen reinen Softwareprüfungen reproduzierbar und auf Pull Requests automatisch sichtbar. Der Ausgangsstand hat sechs einzelne Testskripte und keine GitHub-Actions-Workflows. Keine Fahrlogik, Testszenarioerwartungen oder fachlichen Grenzwerte ändern, um einen grünen Lauf herzustellen.
 
 Liefergegenstände:
@@ -35,7 +37,7 @@ Lieferung: kleiner Draft-PR mit Runner/CI/Vorlagen, getesteter Umgebung, tatsäc
 
 ## Konkreter Zusatzauftrag an den Repositoryeigentümer
 
-Sobald die CI-Checknamen tatsächlich existieren und erfolgreich gelaufen sind, für `main` PR-Prüfung mit mindestens einer fachkundigen anderen Person, erledigte Gespräche und die passenden erfolgreichen Checks einrichten. Force-Push und Löschen sperren. Vereinbarte Regeln auch bei administrativer Integration beachten.
+Sobald die CI-Checknamen tatsächlich existieren und erfolgreich gelaufen sind, für `main` PR-Prüfung mit mindestens einer fachkundigen anderen berechtigten GitHub-Reviewperson, verfallenden alten Freigaben, erledigten Gesprächen und den drei passenden erfolgreichen Checks einrichten. Required Checks müssen eine **aktuelle main-Basis** verlangen (`Require branches to be up to date before merging` / `strict=true`). Force-Push und Löschen sperren; Regeln auch für Administratoren ohne Bypass anwenden. Konkrete Einrichtung und Abnahmebelege für #50/#15 stehen in der [Betriebsanleitung](../entwicklung/D1-ci-betrieb.md).
 
 Codeowner können anschließend mit echten GitHub-Konten und einer Vertretung pro Bereich eingerichtet werden. `CODEOWNERS` reserviert keine Dateien. Der gespeicherte Zugang `letsc4` hat Schreib-, aber keine Administrationsrechte; dieses Einstellen der Regeln muss ein berechtigter Eigentümer übernehmen. Die Bestätigung der tatsächlich aktivierten Regeln gehört in die Übergabe.
 
