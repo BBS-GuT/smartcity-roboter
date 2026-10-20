@@ -68,8 +68,9 @@ STANDARD = {
     'aufheben_max_hoehe': 0.12,
     'aufheben_max_quer': 0.08,  # nur wegraeumen, was so nah an der Linie liegt (m) - am Rand steht vielleicht jemand
     'zebra_kein_aufheben': 3.0,  # so lange nach einem gesehenen Zebrastreifen nichts anfassen (s): Fussgaenger!
-    'greif_vor': 0.25,         # so weit vor der Robotermitte soll die Vorderkante liegen (m): Arm erreicht es,
-                               # Kamera sieht es noch
+    'greif_vor': 0.28,         # so weit vor der Robotermitte soll die Vorderkante liegen (m): Kamera sieht es
+                               # noch sicher (RM02 20.10.: bei 27 cm gesehen, unter ~25 cm verloren). Reicht der
+                               # Arm nicht hin, faehrt er danach blind naeher (naeher_max)
     'greif_toleranz': 0.02,    # +- so genau (m)
     'greif_seite': 0.06,       # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm)
     'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)
@@ -199,6 +200,12 @@ class Entscheider:
             self.start_quittung = None
             if self.fehler_halt or self.aufheben_gesperrt or self.bestaetigt:
                 self._ereignis(jetzt, 'START quittiert: Fehler/Hindernis wird neu geprueft', 'info')
+            if self.ampel_halt:
+                # Bewusste Freigabe durch den Bediener (z. B. Gruen nicht erkennbar, Ampel ausser Sicht).
+                # Ohne START bleibt Rot stehen (kein Timeout, B1). Sieht er gleich wieder Rot, haelt er wieder.
+                self._ereignis(jetzt, 'START quittiert: Rot-Halt aufgehoben (Bediener)', 'info')
+                self.ampel_halt = False
+                self.ampel_kand, self.ampel_n = None, 0
             self.fehler_halt = None
             self.aufheben_gesperrt, self.bestaetigt, self.bestaetigt_lebewesen = False, None, False
             self.hindernis_merk = None
@@ -334,7 +341,7 @@ class Entscheider:
         tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < c['tiefe_halt']
         im_pruefbereich = d is not None and d < c['pruef_dist']
         merk_rest = self._merk_rest(w)
-        if merk_rest is not None and not (tiefe_im_weg or im_pruefbereich) and merk_rest < c['kamera_min_sicht']:
+        if merk_rest is not None and not (tiefe_im_weg or im_pruefbereich) and merk_rest < self._merk_sicht():
             # Vorhin gesehen, nicht weggeraeumt, jetzt zu nah fuer Kamera (und unter dem LiDAR): NICHT frei
             self.weg_frei_seit = None
             return self._b('stopp', f'Hindernis {max(0.0, merk_rest) * 100:.0f} cm voraus, zu nah fuer die Kamera '
@@ -417,6 +424,8 @@ class Entscheider:
                 self.umschauen_wunsch = None
         # 5./6. Verkehrsregeln
         if self.ampel_halt:
+            if jetzt - self.ampel_zuletzt_rot > 4.0:
+                return self._b('stopp', 'Rote Ampel nicht mehr zu sehen -> warte auf Gruen (oder STOPP, dann START)')
             return self._b('stopp', 'Rote Ampel -> warte auf Gruen')
         if jetzt < self.schild_bis:
             return self._b('stopp', f'Stoppschild -> halte noch {self.schild_bis - jetzt:.0f} s')
@@ -481,6 +490,12 @@ class Entscheider:
                 self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen hat nicht geklappt', False
             else:                        # frei: Fehlalarm oder weggeraeumt UND geprueft
                 self.meldung_seit = None
+
+    def _merk_sicht(self):
+        """Ab diesem Abstand sieht die Kamera die gemerkte Stelle sicher: so weit wie bei der letzten Messung, bei
+        der sie es WIRKLICH gesehen hat (1 cm Spiel fuer Messrauschen). Ist er naeher dran, gilt 'Kamera sieht
+        nichts' nicht als frei - dort hat sie es (RM02 20.10.) schon einmal verloren."""
+        return max(self.c['kamera_min_sicht'], self.hindernis_merk[0] - 0.01)
 
     def _merk_rest(self, w):
         """Wie weit liegt das gemerkte Hindernis noch voraus (m)? None = keins (mehr)."""

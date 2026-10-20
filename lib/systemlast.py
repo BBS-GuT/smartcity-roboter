@@ -8,12 +8,14 @@ import time
 
 
 class Systemlast:
-    def __init__(self, wurzel='/'):
+    def __init__(self, wurzel='/', kerne=None):
         self.proc = os.path.join(wurzel, 'proc')
         self.sys = os.path.join(wurzel, 'sys')
         self.alt_cpu = None            # (gesamt, leerlauf, iowait)
         self.alt_prozesse = {}         # pid -> Rechenzeit (Ticks)
+        self.alt_threads = {}          # (pid, tid) -> Rechenzeit (Ticks), nur fuer das staerkste Programm
         self.namen = {}
+        self.kerne = kerne or os.cpu_count() or 1
 
     def _lies(self, *pfad):
         try:
@@ -55,6 +57,33 @@ class Systemlast:
             except (IndexError, ValueError):
                 pass
         return aus
+
+    def _threads(self, pid, je_kern):
+        """Welche Threads im staerksten Programm rechnen? [(Name, Prozent), ...] (erste Messung: leer).
+        Viele Threads um 100 % bei wenig Arbeit = aktiv wartende Mathe-Bibliothek (OpenBLAS/OpenMP)."""
+        basis = os.path.join(self.proc, pid, 'task')
+        try:
+            tids = os.listdir(basis)
+        except OSError:
+            return []
+        neu, aus = {k: v for k, v in self.alt_threads.items() if k[0] != pid}, []
+        for tid in tids:
+            st = self._lies(basis, tid, 'stat')
+            if not st:
+                continue
+            felder = st[st.rfind(')') + 2:].split()
+            try:
+                t = int(felder[11]) + int(felder[12])
+            except (IndexError, ValueError):
+                continue
+            neu[(pid, tid)] = t
+            if (pid, tid) in self.alt_threads:
+                prozent = 100.0 * (t - self.alt_threads[(pid, tid)]) / je_kern
+                if prozent >= 10:
+                    name = (self._lies(basis, tid, 'comm') or '?').strip()
+                    aus.append((name, round(prozent)))
+        self.alt_threads = neu
+        return sorted(aus, key=lambda x: -x[1])[:6]
 
     def _speicher(self):
         m = {}
@@ -104,11 +133,14 @@ class Systemlast:
             if d_ges > 0:
                 aus['cpu_prozent'] = round(100.0 * (1 - (cpu[1] - self.alt_cpu[1] + cpu[2] - self.alt_cpu[2]) / d_ges), 1)
                 aus['iowait_prozent'] = round(100.0 * (cpu[2] - self.alt_cpu[2]) / d_ges, 1)
-                kerne = max(1, os.cpu_count() or 1)
-                je_kern = d_ges / kerne       # Ticks, die ein Kern in dieser Zeit hatte
+                je_kern = d_ges / self.kerne  # Ticks, die ein Kern in dieser Zeit hatte
                 diff = sorted(((t - self.alt_prozesse[p], p) for p, t in prozesse.items() if p in self.alt_prozesse),
                               reverse=True)[:top]
                 aus['top'] = [(self._name(p), round(100.0 * d / je_kern)) for d, p in diff if d > 0]
+                if diff:
+                    threads = self._threads(diff[0][1], je_kern)    # immer mitmessen (Vergleich naechstes Mal)
+                    if 100.0 * diff[0][0] / je_kern > 120:
+                        aus['threads'] = threads
         self.alt_cpu, self.alt_prozesse = cpu, prozesse
         for pid in list(self.namen):
             if pid not in prozesse:
@@ -138,4 +170,6 @@ def zeile(m, zu_spaet=None):
         teile.append(f"{m['temperatur']:.0f} Grad")
     if m.get('top'):
         teile.append('| ' + ', '.join(f'{n} {p}%' for n, p in m['top']))
+    if m.get('threads'):
+        teile.append(f"| Threads von {m['top'][0][0]}: " + ', '.join(f'{n} {p}%' for n, p in m['threads']))
     return '  '.join(teile)

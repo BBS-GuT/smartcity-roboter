@@ -61,6 +61,27 @@ pruefe('Gelb -> Stopp', l.schritt(2, ampel='gelb'), 'stopp')
 # GB/B1: Rot verschwindet nicht durch Timeout - Ampel nicht mehr zu sehen ist keine Freigabe
 pruefe('Ampel weg, auch lange -> weiter Halt (kein Timeout)', l.schritt(100, ampel=None), 'stopp')
 pruefe('erst Gruen gibt frei', l.schritt(2, ampel='gruen'), 'fahren')
+# Rot, Ampel danach ausser Sicht: haelt, sagt warum - bis der Bediener STOPP + START drueckt
+l = Lauf()
+l.schritt(2, ampel='rot')
+b = l.schritt(60, ampel=None)
+pruefe('Rot ausser Sicht -> Halt mit Hinweis auf START', b, 'stopp')
+ok = 'STOPP, dann START' in b['grund']
+l.e.fahrt_aktiv = False
+l.schritt(1)
+l.e.kommando(l.t, 'start')
+l.e.fahrt_aktiv = True
+b = l.schritt(3, ampel=None)
+ok = ok and b['aktion'] == 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Rot-Halt: ausdruecklicher START gibt frei ({b['grund']})")
+l.e.fahrt_aktiv = False                          # Statusausfall ohne START gibt Rot NICHT frei
+l2 = Lauf()
+l2.schritt(2, ampel='rot')
+l2.e.fahrt_aktiv = False
+l2.schritt(15, ampel=None)
+l2.e.fahrt_aktiv = True
+pruefe('Rot + Statusausfall/Wiederkehr ohne START -> weiter Halt', l2.schritt(3, ampel=None), 'stopp')
 # zwei Haltegruende gleichzeitig: Gruen hebt den Hindernishalt nicht auf
 KLOTZ = {'vor': 0.3, 'seite': 0.0, 'breite': 0.05, 'hoehe': 0.05, 'quelle': 'tiefe'}   # Kamera sieht ihn
 l = Lauf()
@@ -465,10 +486,10 @@ print(f"{'OK  ' if ok else 'FEHLER'} nach fehlgeschlagenem Wegraeumen: STOPP + S
 for strecke in (False, True):
     l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
     s = {'strecke': 0.0} if strecke else {}
-    b = l.schritt(15, objekt=dict(WUERFEL, vor=0.30), **s)           # anschauen -> in Greifweite fahren
+    b = l.schritt(15, objekt=dict(WUERFEL, vor=0.34), **s)           # anschauen -> in Greifweite fahren
     ok_anfang = l.e.ablauf is not None and l.e.ablauf.phase == 'abstand'
     if strecke:
-        s = {'strecke': 0.10}                                          # 10 cm naeher heran: 20 cm, Kamera blind
+        s = {'strecke': 0.04}                                          # 4 cm naeher heran: 30 cm, Kamera verliert es
     folge = [l.schritt(1, **s) for _ in range(80)]                     # Kamera + LiDAR sehen nichts mehr
     # noch bis 2,5 s blind weiter heran (Greifweite), aber nie 'fahren'; am Ende Halt mit Grund
     ok = (ok_anfang and all(x['aktion'] != 'fahren' for x in folge) and folge[-1]['aktion'] == 'stopp'
@@ -483,8 +504,8 @@ for strecke in (False, True):
           f" -> bleibt stehen bis START, faehrt nicht drueber ({folge[-1]['grund']})")
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 s = {'strecke': 0.0}
-l.schritt(15, objekt=dict(WUERFEL, vor=0.30), **s)
-folge = [l.schritt(1, strecke=-0.05) for _ in range(40)]               # zurueckgerollt: 35 cm, Kamera sieht Stelle
+l.schritt(15, objekt=dict(WUERFEL, vor=0.34), **s)
+folge = [l.schritt(1, strecke=-0.05) for _ in range(40)]               # zurueckgerollt: weiter weg als beim Sehen
 ok = folge[-1]['aktion'] == 'fahren' and l.e.hindernis_merk is None
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} gemerkte Stelle weit genug weg und Kamera sieht sie frei -> weiter ({folge[-1]['grund']})")
