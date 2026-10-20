@@ -30,7 +30,13 @@ import sys
 import threading
 import time
 
-import cv2
+# Mathe-Bibliotheken (OpenBLAS/OpenMP) nur einen Thread: sonst warten auf dem Jetson Threads auf allen Kernen aktiv
+# (RM02 20.10.: Linienfolger 200-500 % CPU, Rechner haengt, KI-Befehle kommen nicht an). Vor numpy/cv2 setzen!
+for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
+    os.environ.setdefault(_v, '1')
+
+import cv2  # noqa: E402
+cv2.setNumThreads(1)   # Bildgroessen hier klein: ein Thread reicht, die anderen Kerne bleiben frei
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor

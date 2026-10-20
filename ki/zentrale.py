@@ -24,13 +24,19 @@
 #                                            'greifen_zuruecksetzen' (Panel: Gelerntes vergessen)
 #   /arm6_joints            wohin der Arm geschickt wurde (von wem auch immer) -> wohin schaut die Kamera?
 import json
+import math
 import os
 import signal
 import sys
 import threading
 import time
 
-import cv2
+# Mathe-Bibliotheken (OpenBLAS/OpenMP) nur einen Thread: sonst warten auf dem Jetson Threads auf allen Kernen aktiv
+# (RM02 20.10.: Linienfolger 200-500 % CPU, Rechner haengt, KI-Befehle kommen nicht an). Vor numpy/cv2 setzen!
+for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
+    os.environ.setdefault(_v, '1')
+
+import cv2  # noqa: E402
 import numpy as np
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -198,6 +204,7 @@ class Zentrale(Node):
         self.create_subscription(Twist, '/cmd_vel', self._cmd, 10)
         # gefahrene Strecke (Radzaehler) fuer das blinde Heranfahren beim Wegraeumen
         self.strecke, self.odom_zeit = 0.0, 0.0
+        self.odom_pose = None           # letzte Odometrie-Position (x, y, w)
         self.create_subscription(Odometry, '/odom_raw', self._odom, qos_profile_sensor_data)
         self.create_subscription(String, '/line_follower/status', self._linie, 10)
         self.pub_befehl = self.create_publisher(String, '/ki/befehl', 10)
@@ -290,7 +297,15 @@ class Zentrale(Node):
         jetzt = time.time()
         dt = min(0.2, jetzt - self.odom_zeit) if self.odom_zeit else 0.0
         self.odom_zeit = jetzt
-        self.strecke += msg.twist.twist.linear.x * dt
+        p, q = msg.pose.pose.position, msg.pose.pose.orientation
+        w = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+        alt, self.odom_pose = self.odom_pose, (p.x, p.y, w)
+        if alt is not None and math.hypot(p.x - alt[0], p.y - alt[1]) < 0.5:
+            # Positions-Unterschied in Fahrtrichtung: geht auch ueber verlorene Nachrichten nichts verloren
+            # (Geschwindigkeit x Zeit verlor bei Rechner-Haengern von 1-3 s Strecke, 20.10.)
+            self.strecke += (p.x - alt[0]) * math.cos(alt[2]) + (p.y - alt[1]) * math.sin(alt[2])
+        else:
+            self.strecke += msg.twist.twist.linear.x * dt
 
     def _linie(self, msg):
         try:

@@ -12,6 +12,53 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 
 ---
 
+## 20.10.2026, Lauf 11:54–12:00 (mit PR #44; Logs + Messfahrt `smartcity_20261020_115423`)
+
+### Karte: gelöst
+- **Beleg (Messfahrt abgespielt):** Abgleich sicher **94 %** (vorher 19 %), Minute 1–7: 100/100/99/92/78/89/100 %,
+  längste unsichere Zeit 7,8 s (vorher 176 s). Scan dreht ×0,98 / ×0,97 wie Lagesensor / Räder.
+  Der Kartograf hat den Versatz von `/scan0` gegenüber `/scan1` selbst gelernt: **−26,6 cm / +18,5 cm, −0,2°**
+  (passt zur eigenen Messung vom Lauf davor, ca. −23 / +13 cm).
+- **Status:** am Roboter bestätigt (Panelbild: ein Raum, kein Doppelbild) + mit Aufnahme geprüft.
+
+### Ursache der Hänger gefunden: Linienfolger braucht 200–500 % CPU
+- **Beleg (`system.log`):** Sobald der Linienfolger läuft: dauerhaft ~200 %, alle paar Sekunden 6–10 s lang
+  **~500 %** → CPU 100 %, Last 12–14. Ohne Linienfolger: CPU 30–55 %.
+- **Beleg (Linienfolger-Log + Messfahrt):** „KI-Zentrale war 6,9 s still“, aber die KI meldet „Takt max 100 ms“ und
+  der Kartograf hat in denselben Sekunden 50 KI-Befehle empfangen. Die KI hat also geliefert, der **Linienfolger** kam
+  nicht dazu, sie zu lesen.
+- **Ursache (wahrscheinlich, noch nicht bewiesen):** Python kann höchstens ~100 % nutzen. 500 % kommen aus nativen
+  Threads, typischerweise aus Mathe-Bibliotheken (OpenBLAS/OpenMP), die auf allen Kernen aktiv warten. Der Linienfolger
+  rechnet bei jedem Bild SVD/polyfit (NumPy). Die Arbeit selbst ist klein (Liniensuche hier gemessen: ~2 ms pro Bild).
+- **Lösung:** `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, `MKL_NUM_THREADS=1` in Linienfolger, KI, Kartograf und
+  Panel (die gestarteten Programme erben es), `cv2.setNumThreads(1)` in Linienfolger und Kartograf.
+  `system.log` zeigt jetzt zusätzlich die Threads des stärksten Programms.
+- **Zusätzlich:** `gnome-shell` + `gnome-remote-desktop-daemon` brauchen zusammen 50–130 %. Das ist der Fernzugriff auf den
+  Bildschirm. Besser das Panel im Laptop-Browser öffnen (`http://<Roboter-IP>:8080`) und die Bildschirmfreigabe beenden.
+- **Status:** offen bis zum nächsten Lauf (`system.log` muss Linienfolger deutlich unter 100 % zeigen).
+
+### Hindernis wieder überfahren (trotz PR #44)
+- **Beleg (`ki.log`):** „Hindernis gesehen: 27 cm“ → „fahre in Greifweite“ → 2,5 s später „aus den Augen verloren“ →
+  „Weg frei“ → Notbremse 9 cm.
+- **Ursache 1:** Die gemerkte Stelle galt ab 22 cm (`kamera_min_sicht`) als „für die Kamera sichtbar“. Die Kamera hat das
+  Hindernis aber schon bei ~25 cm verloren. → Jetzt gilt „Kamera sieht nichts = frei“ nur, wenn der Roboter **nicht
+  näher** dran ist als bei der letzten echten Sichtung (1 cm Spiel).
+- **Ursache 2:** Die KI hat die gefahrene Strecke als Geschwindigkeit × Zeit gerechnet (Zeit auf 0,2 s begrenzt). Bei
+  Hängern fehlte Strecke, er glaubte sich weiter weg. → Jetzt aus der Odometrie-Position.
+- **Ursache 3:** Greifweite 25 cm lag im toten Winkel der Kamera: Heranfahren konnte nie gelingen. → `greif_vor` 28 cm.
+  Danach fährt er wie vorgesehen blind näher, wenn der Arm nicht hinreicht.
+- **Status:** nur Test (`test_entscheider.py`: Szenario „mit Radzähler“ schlägt auf dem Stand von PR #44 fehl).
+
+### Rote Ampel: bleibt stehen, bis Grün erkannt wird
+- **Ursache:** B1-Regel „Rot verschwindet nicht durch Timeout“ (#13). Sieht er Grün nicht (Ampel außer Sicht), stand er
+  für immer, nur ein Neustart der KI half.
+- **Lösung:** STOPP, dann START im Panel (bewusste Freigabe) hebt den Rot-Halt auf. Ein Statusausfall ohne START tut das
+  nicht. Nach 4 s ohne sichtbare Ampel zeigt das Panel: „Rote Ampel nicht mehr zu sehen -> warte auf Gruen (oder STOPP,
+  dann START)“.
+- **Status:** nur Test.
+
+---
+
 ## 20.10.2026, Lauf 11:20–11:31 (Logs + Messfahrt `smartcity_20261020_112619`)
 
 **Wichtig vorab:** Dieser Lauf lief **ohne** die Fixes aus PR #44 (nicht gemerged). Dass „Hindernis überfahren“ und
