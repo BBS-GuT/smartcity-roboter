@@ -580,7 +580,14 @@ class Zentrale(Node):
             versatz = obj.get('vor_gemessen', obj['vor']) - obj['vor']
             punkt = (p[0] + obj['breite'] / 4 - versatz, p[1], p[2])
             boden = p[2] - obj['hoehe'] / 2
-            plan = greifen.plane(obj, seite, lambda x, y, z: kin.inverse(x, y, z, aktuell=fahr), fahr, auf, zu,
+            def ik(x, y, z):
+                # Yahboom rechnet mit fester Handneigung; zur Seite (Ablage) reicht 80 Grad oft nicht -> flacher
+                for neigung in (80.0, 65.0, 50.0):
+                    w = kin.inverse(x, y, z, neigung=neigung, aktuell=fahr)
+                    if w is not None:
+                        return w
+                return None
+            plan = greifen.plane(obj, seite, ik, fahr, auf, zu,
                                  self._politik('yahboom'), punkt=punkt, boden=boden)
             plan['info'] = plan.get('info', '') + ' (Yahboom-Kinematik)'
             return plan

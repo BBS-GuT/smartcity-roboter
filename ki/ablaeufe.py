@@ -216,6 +216,9 @@ class Wegraeumen(Ablauf):
     """Hindernis im Weg (LiDAR und/oder Kamera haben etwas gemeldet). Ablauf:
       1. anschauen   anhalten, mit der Tiefenkamera mehrere Bilder lang genau hinschauen (wartet ruhig laenger,
                      wenn die KI langsam ist: es zaehlen BILDER, nicht nur Sekunden). Was ist es, wo genau, wie gross?
+         vorpruefen  noch im Stand: Armbewegung fuer die Greifweite schon einmal durchrechnen. Gibt es neben der
+                     Strasse keine erreichbare, freie Ablagestelle (LiDAR schaut, wo schon etwas steht), gar nicht
+                     erst heranfahren, sondern gleich warten.
       2. abstand     so weit heran/zurueck, dass der Arm es erreicht und die Kamera es noch sieht (geregelt nach
                      dem, was die Kamera misst, nicht nach der Zeit)
       3. planen      ausrechnen, wie der Arm sich bewegen muss (Kinematik + gelernte Korrektur, lib/greifen.py)
@@ -345,6 +348,20 @@ class Wegraeumen(Ablauf):
                 return befehl('stopp', 'Hindernis: schaue nochmal hin')
             return befehl('manoever', 'Hindernis zu nah fuer die Kamera -> fahre etwas zurueck',
                           manoever={'lin': -c['zurueck_tempo'], 'quer': 0.0, 'dreh': 0.0, 'text': 'zurueck'})
+        if self.phase == 'vorpruefen':
+            if self.plan is None:
+                if d > 6.0:
+                    return self._ende('fehler', 'Wegraeumen: Ablagestelle suchen dauert zu lange -> warte', 'stopp')
+                return befehl('stopp', 'Hindernis: suche eine Ablagestelle neben der Strasse ...')
+            if self.plan.get('ablage_fehlt'):
+                return self._ende('fehler', f"Wegraeumen geht nicht (vor dem Heranfahren geprueft): "
+                                            f"{self.plan['fehler']} -> warte", 'stopp')
+            if not self.plan.get('fehler'):
+                self.ereignisse.append((f"Ablagestelle gefunden: {self.plan.get('info', '')}", 'info'))
+            self.plan = None
+            self._phase(jetzt, 'abstand')
+            self.ruhig, self.zuletzt_gesehen = 0, jetzt
+            return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
             return self._vorwaerts(self._abstand(jetzt, kamera_obj))
         if self.phase == 'planen':
@@ -370,7 +387,7 @@ class Wegraeumen(Ablauf):
             self.vorgefahren += self._gefahren(w, jetzt, c['naeher_tempo'])
             if self.vorgefahren >= self.naeher_ziel - 1e-4:
                 o = dict(self.objekt_plan, vor=self.objekt_plan['vor'] - self.vorgefahren,
-                         vor_gemessen=self.objekt_plan['vor'])
+                         vor_gemessen=self.objekt_plan['vor'], belegt=self._belegt())
                 self.plan = None
                 self._phase(jetzt, 'planen')
                 threading.Thread(target=self._planen, args=(o, self.seite), daemon=True).start()
@@ -486,9 +503,13 @@ class Wegraeumen(Ablauf):
         nein = self.darf_greifen(o, w) if self.darf_greifen else None
         if nein:
             return self._ende('bestaetigt', f'Hindernis bestaetigt, {nein} -> warte', 'stopp')
-        self._phase(jetzt, 'abstand')
-        self.ruhig, self.zuletzt_gesehen = 0, jetzt
-        return befehl('stopp', 'Hindernis: fahre in Greifweite')
+        # Vor dem Heranfahren: wohin damit? Plan so rechnen, als stuende er schon in Greifweite.
+        self.plan = None
+        self.seite = self._ablage_seite(self.letztes_w_xy)
+        probe = dict(o, vor=c['greif_vor'], vor_gemessen=o['vor'], belegt=self._belegt())
+        self._phase(jetzt, 'vorpruefen')
+        threading.Thread(target=self._planen, args=(probe, self.seite), daemon=True).start()
+        return befehl('stopp', 'Hindernis: suche eine Ablagestelle neben der Strasse ...')
 
     def _mittel(self):
         m = self.messungen
@@ -518,6 +539,7 @@ class Wegraeumen(Ablauf):
             return self._ende('fehler', 'Wegraeumen: Hindernis beim Heranfahren aus den Augen verloren -> warte', 'stopp')
         if self.ruhig >= 3:
             o = self._mittel()
+            o['belegt'] = self._belegt()
             self.plan = None
             self.objekt_plan = o
             self._phase(jetzt, 'planen')
@@ -535,6 +557,13 @@ class Wegraeumen(Ablauf):
                       manoever={'lin': lin, 'quer': quer, 'dreh': 0.0, 'text': 'in Greifweite'})
 
     letztes_w_xy = None
+
+    def _belegt(self):
+        """LiDAR-Punkte (Roboter-System) fuer die Ablagesuche - ohne das Hindernis selbst (das liegt ja vorne)."""
+        if self.letztes_w_xy is None:
+            return None
+        xy = np.asarray(self.letztes_w_xy, dtype=float).reshape(-1, 2)
+        return xy[np.abs(xy[:, 1]) > 0.12]
 
     def _melden(self, erfolg):
         """Ergebnis des Greifversuchs an das Lernen geben (nur einmal je Versuch)."""

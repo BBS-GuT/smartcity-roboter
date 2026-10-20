@@ -104,6 +104,15 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 ### Wegräumen: „keine erreichbare Ablagestelle“
 - **Beleg:** `ki.log` mehrfach „zur Seite (4 / 18 / 19–20 cm)“: keine der 8 Ablagestellen erreichbar.
 - **Status:** offen. Braucht Messung am Arm (welche Seitenpositionen erreicht er in Fahrstellung?).
+- **Nachtrag Lauf 12:27–12:39:** wieder 4× „zur Seite (4 / ±18 / 18–20 cm)“, jedes Mal erst NACH dem Heranfahren.
+  „Umschauen“ im Arm-Tab hilft dabei nicht: das ist das Umschauen für die Karte, nicht die Ablagesuche.
+- **Ursache (vermutet):** Mit den eigenen Standardmaßen wären die alten Punkte erreichbar. Gerechnet hat aber
+  Yahbooms Kinematik-Dienst: feste Handneigung 80° und eigenes Koordinatensystem (base_link), in das die
+  Ablagepunkte nicht umgerechnet wurden.
+- **Lösung:** 80 statt 8 Ablagestellen (Gitter), Ablagepunkte um denselben Versatz verschoben wie der Greifpunkt,
+  Yahboom-IK mit 80°/65°/50°, vom LiDAR belegte Stellen fallen weg. Vor dem Heranfahren geprüft (Phase
+  `vorpruefen`); ohne Ablagestelle fährt er gar nicht erst los.
+- **Status:** nur Test. Am Roboter prüfen: Ereignis „Ablagestelle gefunden: … lege ab bei x / y cm“.
 
 ---
 

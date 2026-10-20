@@ -295,6 +295,24 @@ print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> {STANDARD['versuche
       f"({len(arme)} Armbewegungen, {b['grund']})")
 pruefe('kein dritter Versuch, solange er da liegt', l.schritt(30, objekt=NAH), 'stopp', None)
 pruefe('Wuerfel weg -> weiter', l.schritt(30), 'fahren')
+# Keine Ablagestelle: schon VOR dem Heranfahren erkennen und gar nicht erst losfahren
+l = Lauf(arm_erlaubt=True, posen=POSEN,
+         planer=lambda o, s: {'fehler': 'keine erreichbare Ablagestelle (Test)', 'ablage_fehlt': True})
+l.schritt(1, objekt=WUERFEL)
+arme, b, gruende = wegraeumen(l, 60)
+ok = (not arme and not any('Greifweite' in g for g in gruende) and b['aktion'] == 'stopp'
+      and any('vor dem Heranfahren' in t for _, t, _ in l.e.ereignisse))
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} keine Ablagestelle -> vorher erkannt, kein Manoever ({b['grund']})")
+gesehen = []
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lambda o, s: gesehen.append(o) or planer(o, s))
+l.schritt(1, objekt=WUERFEL)
+wegraeumen(l, 400, lidar_xy=np.array([[0.10, 0.25], [0.30, 0.0]]))
+ok = (len(gesehen) >= 2 and gesehen[0].get('belegt') is not None and len(gesehen[0]['belegt']) == 1
+      and abs(gesehen[0]['vor'] - STANDARD['greif_vor']) < 1e-9)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Vorpruefung rechnet fuer die Greifweite und bekommt LiDAR-Punkte neben der Strasse")
+
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lambda o, s: {'fehler': 'Test: nicht erreichbar'})
 l.schritt(1, objekt=NAH)
 arme, b, gruende = wegraeumen(l, 100, NAH, danach=NAH)
@@ -363,7 +381,7 @@ print(f"{'OK  ' if ok else 'FEHLER'} Erfolg wird ans Lernen gemeldet und als Ere
 meldungen.clear()
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lernplaner, rueckmeldung=merke)
 l.schritt(1, objekt=NAH)
-wegraeumen(l, 600, NAH, danach=NAH)
+wegraeumen(l, 700, NAH, danach=NAH)
 ok = meldungen == [False] * STANDARD['versuche']
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> alle Fehlversuche ans Lernen gemeldet: {meldungen}")
