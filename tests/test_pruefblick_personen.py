@@ -94,20 +94,36 @@ class PruefblickPersonen(unittest.TestCase):
         self.assertIn('pruefblick', posen)
         self.assertEqual(b['aktion'], 'fahren')
 
-    def test_akteur_bleibt_30s_kein_arm_danach_halt_bis_start(self):
+    def test_akteur_lange_vor_pruefblick_dann_weiter(self):
+        """35 s Person vor dem Pruefblick der Kontrolle: kein Armbefehl, danach regulaer pruefen und weiter."""
         w = Welt(bleibt=False)
         w.bis_kontrolle()
         start = w.lauf.t
         while w.lauf.t - start < 35.0:
             b = w.schritt(akteur='Person', im_weg=False)
             self.assertFalse(bewegt(b), f'{w.lauf.t - start:.1f} s: {b}')
+        posen, b = [], None
+        for _ in range(200):
+            b = w.schritt()
+            if isinstance(b['arm'], dict) and b['arm'].get('pose'):
+                posen.append(b['arm']['pose'])
+            if b['aktion'] == 'fahren':
+                break
+        self.assertIn('pruefblick', posen)
+        self.assertEqual(b['aktion'], 'fahren')
+
+    def test_wiederholung_akteur_30s_aufgeben_bis_start(self):
+        """Liegt noch da, Person bleibt: nach 30 s kein neuer Versuch, sondern aufgeben (warten auf START)."""
+        w = Welt(bleibt=True)
+        w.bis_kontrolle()
+        start = w.lauf.t
+        for _ in range(30):
+            w.schritt()                                   # Pruefblick anfahren, Kontrolle laeuft
+        while w.lauf.t - start < 40.0:
+            b = w.schritt(akteur='Person', im_weg=False)
+            self.assertFalse(bewegt(b), f'{w.lauf.t - start:.1f} s: {b}')
         self.assertIsNone(w.lauf.e.ablauf)
         self.assertTrue(any('bleibt in Sicht' in t for _, t, _ in w.lauf.e.ereignisse))
-        aktionen = [w.schritt()['aktion'] for _ in range(100)]
-        self.assertNotIn('fahren', aktionen)          # aufgegeben: wartet auf STOPP + START
-        w.lauf.e.kommando(w.lauf.t, 'start')
-        aktionen = [w.schritt()['aktion'] for _ in range(100)]
-        self.assertIn('fahren', aktionen)
 
     def test_wiederholung_nach_freipruefung(self):
         w = Welt(bleibt=True)

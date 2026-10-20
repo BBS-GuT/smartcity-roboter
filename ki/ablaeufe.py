@@ -473,8 +473,6 @@ class Wegraeumen(Ablauf):
             return befehl('stopp', f'Wegraeumen: {text}', arm={'winkel': winkel, 'zeit_ms': int(dauer * 1000)})
         if self.phase == 'kontrolle':
             warten = self._kontrolle_akteur(jetzt, w, neu)
-            if self.ergebnis is not None:             # 30 s lang jemand in Sicht: aufgegeben
-                return None
             if self.im_pruef:
                 # Es lag zu nah fuer die Fahrstellung: dort saehe die Kamera es auch jetzt nicht -> im Pruefblick pruefen
                 if not self.kontrolle_pruef and warten:
@@ -505,7 +503,11 @@ class Wegraeumen(Ablauf):
             self.kontrolle_unsicher = False
             if self.kontrolle_da >= 2:
                 if self.versuch < c['versuche'] and warten:
-                    return warten                     # naechster Versuch bewegt Arm/Roboter: erst, wenn niemand da ist
+                    # naechster Versuch bewegt Arm/Roboter: erst, wenn niemand da ist (hoechstens 30 s, dann aufgeben)
+                    if jetzt - self.akteur_seit > 30.0:
+                        return self._ende('fehler', f'Wegraeumen abgebrochen: {self.lebend_name} bleibt in Sicht',
+                                          'stopp')
+                    return warten
                 if self.versuch < c['versuche']:
                     self.versuch += 1
                     self.ereignisse.append((f'Weg noch nicht frei -> {self.versuch}. Versuch', 'stopp'))
@@ -521,7 +523,8 @@ class Wegraeumen(Ablauf):
 
     def _kontrolle_akteur(self, jetzt, w, neu):
         """Kontrolle: Person/Tier/Fahrzeug in den letzten 2 s gesehen? Dann Befehl zum Warten (vor neuen Arm- oder
-        Fahrbewegungen), sonst None. Nur Zuschauen (Bilder zaehlen) geht weiter. Laenger als 30 s: aufgeben."""
+        Fahrbewegungen), sonst None. Nur Zuschauen (Bilder zaehlen) geht weiter. Vor dem Pruefblick wartet er ohne
+        Zeitgrenze (Arm steht in Fahrstellung, haelt nichts fest); vor einem neuen Versuch hoechstens 30 s."""
         lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE] if neu else []
         if lebend:
             if self.akteur_seit is None:
@@ -531,8 +534,6 @@ class Wegraeumen(Ablauf):
         if self.akteur_zuletzt is None or jetzt - self.akteur_zuletzt >= 2.0:
             self.akteur_seit = None
             return None
-        if jetzt - self.akteur_seit > 30.0:
-            return self._ende('fehler', f'Wegraeumen abgebrochen: {self.lebend_name} bleibt in Sicht', 'stopp')
         return befehl('stopp', f'Wegraeumen: {self.lebend_name} in Sicht -> Arm haelt still, warte')
 
     def _entscheiden(self, jetzt, w):
