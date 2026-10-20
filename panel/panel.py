@@ -56,6 +56,7 @@ import arm as armlib   # noqa: E402
 import greifen         # noqa: E402
 import einstellungen   # noqa: E402
 import protokolle      # noqa: E402
+import systemlast      # noqa: E402
 from entscheider import STANDARD as KI_STANDARD  # noqa: E402
 
 # Sensoren fuer die Statusseite: (Anzeigename, Topic, Mindestrate in Hz oder None = nur Info)
@@ -857,6 +858,26 @@ def mache_handler(node, prozesse, beenden=None):
     return Handler, ki_starten
 
 
+def systemlast_protokollieren(alle=2.0):
+    """Alle 2 s eine Zeile nach logs/system.log: CPU, Speicher, Temperatur, GPU und wer die Rechenzeit braucht.
+    Kommt die Messung deutlich zu spaet, hing der ganze Rechner ('HING x s')."""
+    messer = systemlast.Systemlast()
+    log = protokolle.neu_oeffnen(LOGS, 'system')
+    soll = time.monotonic()
+    while True:
+        soll += alle
+        time.sleep(max(0.0, soll - time.monotonic()))
+        zu_spaet = time.monotonic() - soll
+        if zu_spaet > 2.0:                 # weit zurueck: neu anfangen statt aufzuholen
+            soll = time.monotonic()
+        try:
+            log.write(systemlast.zeile(messer.messen(), zu_spaet if zu_spaet > 0.5 else None) + '\n')
+            log.flush()
+        except Exception as e:
+            print(f'Systemlast: {e}')
+            return
+
+
 def main():
     ap = argparse.ArgumentParser(description='Control-Panel')
     ap.add_argument('--port', type=int, default=8080)
@@ -872,6 +893,7 @@ def main():
     executor = SingleThreadedExecutor()
     executor.add_node(node)
     threading.Thread(target=executor.spin, daemon=True).start()
+    threading.Thread(target=systemlast_protokollieren, daemon=True).start()
     server = None
 
     def beenden():
