@@ -103,10 +103,12 @@ def greifer_fuer_breite(breite):
 def lade_posen():
     """Alle Posen: {name: [6 Winkel]}. Fehlen blick_links/blick_rechts, werden sie aus der
     Fahrstellung berechnet (Servo 1 um BLICK_DREHUNG Grad gedreht)."""
-    posen = {k: v for k, v in (lade_einstellungen().get('posen') or {}).items()}
+    e = lade_einstellungen()
+    posen = {k: v for k, v in (e.get('posen') or {}).items()}
     fahr = posen.get('fahrstellung')
     if fahr:
-        for name, d in (('blick_links', BLICK_DREHUNG), ('blick_rechts', -BLICK_DREHUNG)):
+        links = -1 if (e.get('geometrie') or {}).get('servo1_links', 1) < 0 else 1   # Drehrichtung Servo 1
+        for name, d in (('blick_links', BLICK_DREHUNG * links), ('blick_rechts', -BLICK_DREHUNG * links)):
             if not posen.get(name):
                 posen[name] = [max(0, min(180, fahr[0] + d))] + list(fahr[1:])
         if not posen.get('pruefblick'):
@@ -456,6 +458,8 @@ class ArmBeobachter:
 
     def __init__(self, node):
         self.winkel, self.zeit, self.dauer = None, 0.0, 0.0
+        # Drehrichtung von Servo 1 (config/arm.yaml geometrie.servo1_links): gier soll immer "links = +" sein
+        self.links = -1 if (lade_einstellungen().get('geometrie') or {}).get('servo1_links', 1) < 0 else 1
         from std_msgs.msg import String
         try:
             from rosidl_runtime_py.utilities import get_message
@@ -497,5 +501,5 @@ class ArmBeobachter:
         if all(gleich):
             return True, 0.0
         if all(gleich[1:]):
-            return False, self.winkel[0] - fahr[0]
+            return False, (self.winkel[0] - fahr[0]) * self.links
         return False, None

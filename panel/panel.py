@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -844,11 +845,23 @@ def mache_handler(node, prozesse, beenden=None):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def _fremde_seite(self):
+            """Kommt der Auftrag von einer fremden Webseite im selben Browser (CSRF)? Das Panel schickt JSON;
+            eine fremde Seite kann das nicht ohne Rueckfrage des Browsers. Origin muss zur eigenen Adresse passen."""
+            if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
+                return True
+            herkunft = self.headers.get('Origin')
+            if herkunft and herkunft != 'null':
+                return urllib.parse.urlsplit(herkunft).netloc != (self.headers.get('Host') or '')
+            return False
+
         def do_POST(self):
             if not self._erlaubt():
                 return
             if not self.path.startswith('/api/'):
                 return self._senden(404, 'text/plain', b'?')
+            if self._fremde_seite():
+                return self._senden(403, 'text/plain; charset=utf-8', 'Auftrag nicht vom Panel'.encode())
             laenge = int(self.headers.get('Content-Length', 0))
             try:
                 daten = json.loads(self.rfile.read(laenge) or b'{}')

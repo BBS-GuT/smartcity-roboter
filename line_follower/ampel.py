@@ -64,7 +64,7 @@ def finde_ampel(img, cfg):
     return {'farbe': farbe, 'lampen': lampen}
 
 
-def farbe_in_box(img, box, val_min=200, sat_min=80, min_pixel=6):
+def farbe_in_box(img, box, val_min=200, sat_min=80, min_pixel=6, cfg=None):
     """Welche Lampe leuchtet in einem Kasten (z. B. Ampel, die die KI gefunden hat)?
 
     Zaehlt helle, kraeftig farbige Pixel je Farbe. Rueckgabe 'rot' | 'gelb' | 'gruen' | None.
@@ -75,7 +75,7 @@ def farbe_in_box(img, box, val_min=200, sat_min=80, min_pixel=6):
     if teil.size == 0:
         return None
     hsv = cv2.cvtColor(teil, cv2.COLOR_BGR2HSV)
-    c = STANDARD
+    c = dict(STANDARD, **(cfg or {}))     # eingestellte Farbtoene (config/ampel.yaml) wie bei der LED-Erkennung
     zahl = {}
     for f in FARBEN:
         m = sum(cv2.countNonZero(cv2.inRange(hsv, (lo, sat_min, val_min), (hi, 255, 255)))

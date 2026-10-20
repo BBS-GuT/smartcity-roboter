@@ -266,6 +266,7 @@ class Wegraeumen(Ablauf):
 
     def _anschauen(self, jetzt):
         self._phase(jetzt, 'anschauen')
+        self.im_pruef = self.kontrolle_pruef = False   # neu hinschauen: gilt erst wieder nach Pruefblick-Messung
         self.messungen, self.lidar_werte, self.bilder, self.lebewesen = [], [], 0, None
         self.lebewesen_n = 0              # in so vielen Bildern Person/Tier/Fahrzeug gesehen
         self.gesehen = 0                  # Bilder, in denen die Tiefenkamera etwas sah (auch ohne Vermessung)
@@ -327,9 +328,13 @@ class Wegraeumen(Ablauf):
                     return befehl('stopp', f'Wegraeumen: {self.lebend_name} in Sicht -> Arm haelt still, warte')
                 self.lebend_seit = None
                 self.ereignisse.append(('Wegraeumen: niemand mehr in Sicht -> mache weiter', 'info'))
-        self.letzter_schritt = jetzt
+        vorher, self.letzter_schritt = self.letzter_schritt, jetzt
         c, d = self.c, self.dauer(jetzt)
         if self.phase == 'anschauen':
+            if w.get('kamera_vorne') is False:
+                # Arm faehrt noch in die Fahrstellung: Kamera misst noch nicht -> Bilder zaehlen nicht, Uhr steht
+                self.seit += jetzt - vorher
+                return befehl('stopp', 'Hindernis: warte, bis die Kamera wieder nach vorne schaut')
             if neu:
                 self.bilder += 1
                 if kamera_obj:
@@ -374,8 +379,10 @@ class Wegraeumen(Ablauf):
             if d < c['arm_zeit']:
                 return befehl('stopp', 'Pruefblick: Kamera zurueck')
             self.arm_bewegt = False
-            self.messungen = []
-            return self._entscheiden(jetzt, w)
+            # in Fahrstellung frisch hinschauen (LiDAR, Kamera): die alten Zaehler koennen aus einem frueheren
+            # Versuch stammen. Pruefblick nicht noch einmal (pruef_versucht).
+            self._anschauen(jetzt)
+            return befehl('stopp', 'Hindernis: schaue nochmal hin')
         if self.phase == 'zurueck':
             hinten = w.get('lidar_hinten')
             self.zurueck_gefahren -= self._gefahren(w, jetzt, -c['zurueck_tempo'])
@@ -491,8 +498,9 @@ class Wegraeumen(Ablauf):
                 if self.versuch < c['versuche']:
                     self.versuch += 1
                     self.ereignisse.append((f'Weg noch nicht frei -> {self.versuch}. Versuch', 'stopp'))
+                    im_pruef = self.im_pruef
                     self._anschauen(jetzt)
-                    if self.im_pruef:
+                    if im_pruef:
                         return self._pruefblick_start(jetzt)
                     return befehl('stopp', 'Hindernis: schaue nochmal hin')
                 return self._ende('fehler', f'Wegraeumen: liegt nach {self.versuch} Versuchen noch da -> warte',

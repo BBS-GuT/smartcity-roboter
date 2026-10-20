@@ -449,7 +449,8 @@ kopfHoehe();
 // ---------- Aktionen ----------
 async function aktion(name, daten = {}, ziel = 'antwort') {
   try {
-    const r = await fetch('/api/' + name, { method: 'POST', body: JSON.stringify(daten) });
+    const r = await fetch('/api/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(daten) });
     $(ziel).textContent = (await r.json()).antwort;
   } catch (e) { $(ziel).textContent = 'Keine Verbindung zum Panel-Programm!'; }
 }

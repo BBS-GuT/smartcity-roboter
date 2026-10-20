@@ -236,7 +236,10 @@ class Entscheider:
                     self.zebra_merk = (w['zebra']['abstand'], w.get('strecke'), jetzt)
         if self.zebra_gesperrt and self.ablauf is None and jetzt - self.zebra_zuletzt > self.c['zebra_weg']:
             self.zebra_gesperrt = False  # ueber den Zebrastreifen drueber
-        w = dict(w, neues_bild=neues_bild)
+        # Kamera (am Arm) schaut gleich wieder nach vorne, faehrt aber noch dahin? Dann zaehlt ein Ablauf die Bilder
+        # noch nicht (Zentrale misst dann keine Tiefe). Ohne Fahrt (TEST/STOPP) faehrt der Arm gar nicht zurueck.
+        arm_kommt = (self.arm_zurueck_noetig and self.fahrt_aktiv) or jetzt < self.arm_warten_bis
+        w = dict(w, neues_bild=neues_bild, kamera_vorne=not arm_kommt)
 
         befehl = self._entscheide(jetzt, w)
         befehl = self._blockade(jetzt, w, befehl)
@@ -376,6 +379,10 @@ class Entscheider:
                 self.bestaetigt, self.bestaetigt_lebewesen = None, False
             if self.bestaetigt:
                 return self._b('stopp', f'{self.bestaetigt} -> warte, bis der Weg frei ist')
+            if tiefe_im_weg and self.geprueft_frei:
+                # vorhin nur der LiDAR (Kamera sah nichts), jetzt sieht die Tiefenkamera etwas: neu anschauen
+                self._ereignis(jetzt, 'Tiefenkamera sieht jetzt etwas -> schaue nochmal hin', 'info')
+                self.geprueft_frei = False
             if not self.geprueft_frei:
                 planer = self.planer if self._darf_arm() else None
                 return self._ablauf_start(jetzt, Wegraeumen(jetzt, c, planer, self._darf_greifen, self.rueckmeldung,
@@ -568,8 +575,9 @@ class Entscheider:
     def arm_in_fahrstellung(self):
         """Schaut die Kamera (am Arm) normal nach vorne? Nur dann stimmen Draufsicht, Linie und
         Tiefenkamera-Bodenmodell. Waehrend der Arm zurueckfaehrt (arm_warten_bis) noch nicht."""
+        a = self.ablauf                    # einmal lesen: die KI fragt aus einem anderen Thread
         return (not self.arm_zurueck_noetig and self.jetzt >= self.arm_warten_bis
-                and not (self.ablauf is not None and self.ablauf.arm_bewegt))
+                and not (a is not None and a.arm_bewegt))
 
     @staticmethod
     def _b(aktion, grund, faktor=None, arm=None):

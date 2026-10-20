@@ -287,7 +287,8 @@ class Kartograf(Node):
             gier = 0.0                           # ohne KI: Arm steht in Fahrstellung (wie nach dem Start)
         with self.lock:
             # Position ZUR AUFNAHMEZEIT des Bildes (Bilder kommen oft spaet an), nur wenn der Abgleich sicher ist
-            pose, _ = self.kr.bild_pose(empfang, stempel(bild_msg))
+            kr = self.kr
+            pose, _ = kr.bild_pose(empfang, stempel(bild_msg))
         if pose is None or gier is None:
             return
         bild = self.bridge.imgmsg_to_cv2(bild_msg, 'bgr8')
@@ -301,6 +302,8 @@ class Kartograf(Node):
         if tiefe is not None:
             xyz, farben3 = K.raum_aus_tiefe(tiefe, bild, self.k_cfg, gier)
         with self.lock:
+            if self.kr is not kr:     # inzwischen "Neue Karte": Pose gehoert zur alten Karte
+                return
             self.karte.boden.eintragen(pose, xy, farben)
             if xyz is not None:
                 self.karte.wolke.eintragen(pose, xyz, farben3)
@@ -320,9 +323,9 @@ class Kartograf(Node):
         with self.lock:
             pose = self.kr.roboter_pose_bei()
             fahrt = self.karte.fahrten
+            m = self.karte.marker     # zusammen mit der Pose: nach "Neue Karte" nicht in die neue eintragen
         if pose is None or not ki.get('kamera_ok'):
             return
-        m = self.karte.marker
         if ki.get('zebra'):
             x, y = K.in_karte(pose, [[ki['zebra']['abstand'] + 0.04, 0.0]])[0]
             m.melden('zebra', x, y, fahrt=fahrt)

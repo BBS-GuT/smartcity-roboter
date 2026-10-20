@@ -419,7 +419,7 @@ class Zentrale(Node):
                                and self.p('weg_links') <= mitte <= self.p('weg_rechts')
                                and (y + bh) / h >= self.p('weg_unten_min') and bh / h >= self.p('weg_min_hoehe'))
             if o['name'] == 'Ampel' and bh / h >= self.p('ampel_min_hoehe'):
-                o['farbe'] = ampel.farbe_in_box(img, o['box'])
+                o['farbe'] = ampel.farbe_in_box(img, o['box'], cfg=self.ampel_werte)
                 if o['farbe'] and ampel_farbe is None:
                     ampel_farbe, ampel_quelle = o['farbe'], f"KI {o['sicher']:.0%}"
             if o['name'] == 'Stoppschild' and bh / h >= self.p('schild_min_hoehe'):
