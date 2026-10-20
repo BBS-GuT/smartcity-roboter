@@ -18,14 +18,20 @@ ki_darf_arm_bewegen: true
 greifer_auf: 30
 greifer_zu: 130          # hoechstens so weit zu (auch bei sehr schmalen Dingen)
 # Greifkraft nach Breite (Wegraeumen): Greifer schnell bis kurz vors Beruehren, dann langsam auf
-# "beruehrt + greifer_druecken". Beruehren wird aus der gemessenen Breite geschaetzt:
-#   beruehrt = greifer_auf + (greifer_offen_m - Breite) * 100 * greifer_grad_pro_cm
-# Nachmessen (Panel -> Arm): Greifer auf, Wuerfel bekannter Breite dazwischen, Servo 6 langsam zu,
-# bis beide Backen gerade anliegen -> Wert notieren und greifer_grad_pro_cm so anpassen, dass es passt.
+# "beruehrt + greifer_druecken". Wann die Backen anliegen, kommt in dieser Reihenfolge aus:
+#   1. EINGEMESSEN (Panel -> Arm -> "Greifer einmessen"): Gegenstand bekannter Breite zwischen die Backen,
+#      Servo 6 in kleinen Schritten zu, bis sie anliegen, "Anliegen merken". Landet in config/lokal/arm.yaml als
+#      greifer_messpunkte: [[Breite m, Servo 6], ...]. Misst die Kamera fast dieselbe Breite (+- greifer_fang),
+#      nimmt die KI genau diesen Wert (die Kamera misst Breiten etwas zu klein, das spielt dann keine Rolle).
+#      Ein Punkt mit Breite 0 (Backen beruehren sich gerade) ist die Grenze, weiter geht der Greifer nie zu.
+#   2. zwischen eingemessenen Punkten gerade verbunden
+#   3. GESCHAETZT (nichts eingemessen): beruehrt = greifer_auf + (greifer_offen_m - Breite) * 100 * greifer_grad_pro_cm,
+#      hoechstens greifer_zu. Die KI meldet beim Start und bei jedem Plan, welche Quelle sie nimmt.
 # Knackt der Greifer: greifer_druecken kleiner. Rutscht der Wuerfel raus: groesser.
 greifer_offen_m: 0.085   # Oeffnung bei greifer_auf (m, geschaetzt)
-greifer_grad_pro_cm: 17.6
+greifer_grad_pro_cm: 17.6  # geschaetzt: 150 Grad auf 8,5 cm
 greifer_druecken: 8
+greifer_fang: 0.008      # Kamera-Breite so nah (m) an einer eingemessenen Breite -> deren Messwert
 # Masse fuer die eigene Rechnung (nur wenn Yahbooms Kinematik-Dienst nicht laeuft).
 # Findet die KI Yahbooms Robotermodell (URDF, Paket yahboom_M3Pro_description), nimmt sie die Masse von dort.
 # Selbst nachgemessene Masse in config/lokal/arm.yaml unter "geometrie:" gelten vor beidem.

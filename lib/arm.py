@@ -83,21 +83,113 @@ def greifer_werte():
 GREIFER_OFFEN_M = 0.085     # so weit ist der Greifer bei greifer_auf offen (m, geschaetzt)
 GREIFER_GRAD_PRO_CM = 17.6  # Servo 6: so viele Grad je cm weniger Oeffnung (geschaetzt: 150 Grad auf 8,5 cm)
 GREIFER_DRUECKEN = 8        # so viele Grad ueber das Beruehren hinaus zudruecken
+GREIFER_FANG = 0.008        # Kamera-Breite so nah (m) an einer eingemessenen Breite -> deren Messwert nehmen
+
+
+def greifer_messpunkte(e=None):
+    """Eingemessene Punkte [(Breite m, Servo 6 beim Anliegen)], nach Breite sortiert (Panel -> Arm -> Greifer
+    einmessen, gespeichert in config/lokal/arm.yaml unter greifer_messpunkte). Breite 0 = Backen beruehren sich."""
+    e = lade_einstellungen() if e is None else e
+    pkt = []
+    for p in e.get('greifer_messpunkte') or []:
+        try:
+            b, w = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if 0.0 <= b <= 0.15 and GRENZEN[6][0] <= w <= GRENZEN[6][1]:
+            pkt.append((b, w))
+    return sorted(pkt)
+
+
+def greifer_plan(breite, e=None):
+    """Greiferwerte fuer einen Gegenstand dieser Breite (m, von der Kamera gemessen):
+    {'anlegen', 'zu', 'beruehrt', 'quelle', 'text'}.
+    anlegen: kurz bevor die Backen beruehren (schnell), zu: beruehren + greifer_druecken Grad (langsam).
+    Wann die Backen beruehren, kommt in dieser Reihenfolge aus:
+      1. eingemessen: Breite liegt nahe an einem eingemessenen Gegenstand (z. B. eurem Wuerfel) -> genau dessen
+         Messwert. Die Kamera misst Breiten etwas zu klein (Kanten); bei bekannten Dingen ist das so egal.
+      2. zwischen eingemessenen Punkten gerade verbunden (ab 2 Punkten; 1 Punkt: Steigung geschaetzt)
+      3. geschaetzt aus greifer_offen_m / greifer_grad_pro_cm (noch nichts eingemessen)
+    Nie weiter zu als die eingemessene Stellung "Backen beruehren sich" bzw. greifer_zu, wenn die nicht gemessen
+    ist - ausser fuer einen eingemessenen Gegenstand (dort ist das Anliegen nachgewiesen)."""
+    e = lade_einstellungen() if e is None else e
+    auf = int(e.get('greifer_auf', GREIFER_AUF))
+    zu_max = float(e.get('greifer_zu', GREIFER_ZU))
+    druecken = float(e.get('greifer_druecken', GREIFER_DRUECKEN))
+    fang = float(e.get('greifer_fang', GREIFER_FANG))
+    pro_m = float(e.get('greifer_grad_pro_cm', GREIFER_GRAD_PRO_CM)) * 100
+    richtung = 1 if zu_max >= auf else -1   # -1: Greifer andersherum eingebaut (greifer_auf groesser als greifer_zu)
+    pro_m *= richtung
+    breite = max(0.0, float(breite))
+    pkt = greifer_messpunkte(e)
+    null = [w for b, w in pkt if b < 0.002]
+    if null:
+        zu_max = null[0]
+    gegenstand = [(abs(b - breite), b, w) for b, w in pkt if b >= 0.002]
+    naechst = min(gegenstand) if gegenstand else None
+    if naechst is not None and naechst[0] <= fang:
+        _, b, beruehrt = naechst
+        quelle = f"eingemessen ({b * 100:.1f} cm)".replace('.', ',')
+        if richtung > 0:
+            zu_max = max(zu_max, min(GRENZEN[6][1], beruehrt + druecken))
+        else:
+            zu_max = min(zu_max, max(GRENZEN[6][0], beruehrt - druecken))
+    elif len(pkt) >= 2:
+        i = 1
+        while i < len(pkt) - 1 and pkt[i][0] < breite:
+            i += 1
+        (b0, w0), (b1, w1) = pkt[i - 1], pkt[i]
+        beruehrt = w0 + (w1 - w0) * (breite - b0) / (b1 - b0) if b1 > b0 else w0
+        quelle = 'aus Messpunkten gerechnet'
+    elif pkt:
+        b0, w0 = pkt[0]
+        beruehrt = w0 + (b0 - breite) * pro_m
+        quelle = 'aus 1 Messpunkt gerechnet (Steigung geschaetzt)'
+    else:
+        offen = float(e.get('greifer_offen_m', GREIFER_OFFEN_M))
+        beruehrt = auf + max(0.0, offen - breite) * pro_m
+        quelle = 'geschaetzt (Greifer nicht eingemessen)'
+    def begrenzt(w):                      # zwischen auf und zu_max
+        return min(max(w, min(auf, zu_max)), max(auf, zu_max))
+    zu = begrenzt(beruehrt + richtung * druecken)
+    anlegen = begrenzt(beruehrt - richtung * 10)
+    if richtung * (anlegen - zu) > 0:
+        anlegen = zu
+    text = f'Greifer {int(round(anlegen))} -> {int(round(zu))}, {quelle}'
+    gedrueckt = richtung * (zu - beruehrt)
+    if gedrueckt < 0:
+        text += f' - erreicht den Gegenstand evtl. nicht (Grenze {int(round(zu_max))})'
+    elif gedrueckt < druecken - 0.5:
+        text += f' - drueckt nur {gedrueckt:.0f} Grad (Grenze {int(round(zu_max))})'
+    return {'anlegen': int(round(anlegen)), 'zu': int(round(zu)), 'beruehrt': float(beruehrt), 'quelle': quelle,
+            'text': text}
+
+
+def greifer_stand(e=None):
+    """Kurztext: eingemessen oder geschaetzt (fuer Startmeldung und Panel)."""
+    pkt = greifer_messpunkte(e)
+    if not pkt:
+        return 'NICHT eingemessen (Werte geschaetzt, Panel -> Arm -> Greifer einmessen)'
+    teile = [('Backen zu' if b < 0.002 else f'{b * 100:.1f} cm'.replace('.', ',')) + f' = {int(w)}' for b, w in pkt]
+    return 'eingemessen: ' + ', '.join(teile)
 
 
 def greifer_fuer_breite(breite):
-    """(anlegen, zu) fuer Servo 6 bei einem Gegenstand dieser Breite (m).
-    anlegen: kurz bevor die Backen beruehren (schnell), zu: beruehren + greifer_druecken Grad (langsam).
-    Nie weiter als greifer_zu - ein fester Wert fuer alle Breiten drueckt schmale Dinge zu wenig und breite zu
-    fest (Greifer knackt). Masse in config/arm.yaml (greifer_offen_m, greifer_grad_pro_cm, greifer_druecken)."""
-    e = lade_einstellungen()
-    auf, zu_max = greifer_werte()
-    offen = float(e.get('greifer_offen_m', GREIFER_OFFEN_M))
-    pro_cm = float(e.get('greifer_grad_pro_cm', GREIFER_GRAD_PRO_CM))
-    beruehrt = auf + max(0.0, offen - float(breite)) * 100 * pro_cm
-    zu = min(zu_max, beruehrt + float(e.get('greifer_druecken', GREIFER_DRUECKEN)))
-    anlegen = min(zu, max(auf, beruehrt - 10))
-    return int(round(anlegen)), int(round(zu))
+    """(anlegen, zu) fuer Servo 6 bei einem Gegenstand dieser Breite (m), siehe greifer_plan."""
+    g = greifer_plan(breite)
+    return g['anlegen'], g['zu']
+
+
+def speichere_greifer_messpunkt(breite, winkel):
+    """Messpunkt (Breite m, Servo 6 beim Anliegen) in config/lokal/arm.yaml; ersetzt einen bei gleicher Breite."""
+    def aendern(d):
+        alt = [p for p in (d.get('greifer_messpunkte') or []) if abs(float(p[0]) - breite) > 0.002]
+        d['greifer_messpunkte'] = sorted(alt + [[round(float(breite), 4), int(winkel)]])
+    _speichere(aendern)
+
+
+def loesche_greifer_messpunkte():
+    _speichere(lambda d: d.pop('greifer_messpunkte', None))
 
 
 def lade_posen():

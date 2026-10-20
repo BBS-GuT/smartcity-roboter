@@ -232,7 +232,7 @@ class Zentrale(Node):
         st = pol.lernstand()
         self._sende_ereignis(time.time(), f"Arm: {'KI darf ihn bewegen' if arm_erlaubt else 'fuer die KI AUS'}; "
                              f"Kinematik: {self.kinematik_text()}; Greif-Lernen: {st['herkunft']}, "
-                             f"{st['versuche']} eigene Versuche", 'info')
+                             f"{st['versuche']} eigene Versuche; Greifer: {armlib.greifer_stand()}", 'info')
 
     # ---------------- Arm, Greifen, Lernen ----------------
     def _arm_einstellung(self):
@@ -590,7 +590,8 @@ class Zentrale(Node):
         Zielpunkt + gelernte Korrektur (lib/greifen.py), probiert dabei etwas aus (lernt daraus)."""
         fahr = self.posen['fahrstellung']
         auf = armlib.greifer_werte()[0]
-        anlegen, zu = armlib.greifer_fuer_breite(obj['breite'])
+        g = armlib.greifer_plan(obj['breite'])
+        anlegen, zu = g['anlegen'], g['zu']
         kin = self.yahboom_kin
         if kin is not None and kin.bereit() and obj.get('pixel') and obj.get('tiefe_m'):
             p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], obj.get('blick_winkel') or fahr)
@@ -610,11 +611,11 @@ class Zentrale(Node):
                 return None
             plan = greifen.plane(obj, seite, ik, fahr, auf, zu,
                                  self._politik('yahboom'), punkt=punkt, boden=boden, anlegen=anlegen)
-            plan['info'] = plan.get('info', '') + f' (Yahboom-Kinematik, Greifer {zu})'
+            plan['info'] = plan.get('info', '') + f" (Yahboom-Kinematik, {g['text']})"
             return plan
         plan = greifen.plane(obj, seite, self.eigene_kin.inverse, fahr, auf, zu, self._politik(self.eigenes_modell),
                              anlegen=anlegen)
-        plan['info'] = plan.get('info', '') + f' (eigene Kinematik, {self.kin_quelle}, Greifer {zu})'
+        plan['info'] = plan.get('info', '') + f" (eigene Kinematik, {self.kin_quelle}, {g['text']})"
         return plan
 
     def _arm_befehl(self, arm):

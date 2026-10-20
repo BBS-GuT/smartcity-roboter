@@ -624,6 +624,10 @@ def mache_handler(node, prozesse, beenden=None):
             time.sleep(0.5)
             return 'KI: ' + (node.get('ki_antwort', max_alter=2.0) or 'keine Antwort (laeuft die KI?)')
         # ---- Arm ----
+        if name.startswith('greifer_'):
+            if prozesse.laeuft('fahren') and name in ('greifer_schritt', 'greifer_messen'):
+                return 'Arm nur, wenn das Fahrprogramm aus ist (Kamera sitzt am Arm). Erst STOPP.'
+            return greifer_einmessen(name, daten)
         if name.startswith('arm_'):
             if prozesse.laeuft('fahren') and name in ('arm_pose', 'arm_greifer'):
                 return 'Arm nur, wenn das Fahrprogramm aus ist (Kamera sitzt am Arm). Erst STOPP.'
@@ -707,6 +711,39 @@ def mache_handler(node, prozesse, beenden=None):
             threading.Thread(target=beenden, daemon=True).start()
             return 'Panel wird beendet, Roboter haelt an.'
         return f'Unbekannte Aktion {name}'
+
+    def greifer_einmessen(name, daten):
+        """Greifer einmessen (Panel -> Arm): Servo 6 in kleinen Schritten zu, bis die Backen anliegen, merken."""
+        if name == 'greifer_messpunkte_loeschen':
+            armlib.loesche_greifer_messpunkte()
+            return 'Messpunkte geloescht. Greifer gilt wieder als geschaetzt. KI neu starten (System).'
+        if name == 'greifer_einmessen_stand':
+            return greifer_text()
+        letzte = node.arm_holen().letzte
+        if not letzte:
+            return 'Erst einmal eine ganze Pose schicken (z. B. Fahrstellung), der Roboter meldet die Armstellung nicht.'
+        if name == 'greifer_schritt':
+            winkel = list(letzte)
+            lo, hi = armlib.GRENZEN[6]
+            auf, zu = armlib.greifer_werte()
+            richtung = 1 if zu >= auf else -1          # + = weiter zu, egal wie herum der Greifer eingebaut ist
+            schritt = max(-10, min(10, int(daten.get('grad', 0)))) * richtung
+            winkel[5] = max(lo, min(hi, int(winkel[5]) + schritt))
+            fehler = node.arm.fahre(winkel, 400)
+            return fehler or f'Servo 6 (Greifer) jetzt {winkel[5]}'
+        breite = float(daten.get('breite_cm', -1)) / 100
+        if not 0.0 <= breite <= 0.12:
+            return 'Breite in cm eingeben (0 = ohne Gegenstand, Backen beruehren sich; hoechstens 12 cm)'
+        armlib.speichere_greifer_messpunkt(breite, int(letzte[5]))
+        return (f'Gemerkt: {breite * 100:.1f} cm -> Servo 6 = {int(letzte[5])}. Greifer jetzt wieder oeffnen! '
+                'KI neu starten (System), damit sie es nimmt.\n\n' + greifer_text())
+
+    def greifer_text():
+        e = armlib.lade_einstellungen()
+        zeilen = ['Greifer: ' + armlib.greifer_stand(e), 'Damit wuerde die KI so greifen (Kamera-Breite -> Servo 6):']
+        for b in (0.025, 0.03, 0.035, 0.04, 0.05, 0.06):
+            zeilen.append(f'  {b * 100:.1f} cm: ' + armlib.greifer_plan(b, e)['text'])
+        return '\n'.join(zeilen)
 
     def fremde_programme():
         """Unsere Programme, die laufen, aber NICHT vom Panel gestartet wurden (z. B. alte Version nach Update)."""
