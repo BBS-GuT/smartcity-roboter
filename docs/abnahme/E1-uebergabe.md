@@ -38,7 +38,7 @@ Gezielte RM01-Übergabefragen an O: Welcher prüfbare Commit liefert das inventa
 
 An A: gemessene Hülle/Sensorlagen, Pflichtquellen und Alters-/Stoppgrenzen benötigen eine spätere bestätigte Übergabe. An B: bestätigte Zufahrts-/Regel-/Räumungskarte fehlt. An C: Broker- und Detaildatenfelder abstimmen; E1 setzt keinen eigenen öffentlichen Vertrag.
 
-Softwareabhängigkeiten laut O-Review vom 20.10.2026: #13 Statuswiederkehr kann Wegräum-Sperre löschen und Armwunsch erzeugen; #19 Kartenreload/Reset und falsche Bestätigung; #20 Logrotation/Download. A1-Softwarefix ist erhalten, reale Abnahme fehlt. Nur Voraussetzungen dokumentiert, keine Fehlerbehebung und keine Bewegungsfreigabe aus Softwaretests. E2 braucht gesonderten Auftrag, geprüften Stand und betreutes Testfenster.
+Historischer Softwarebefund vor PR #22 laut O-Review vom 20.10.2026 (aktueller Abgleich im Nachtrag unten): #13 Statuswiederkehr kann Wegräum-Sperre löschen und Armwunsch erzeugen; #19 Kartenreload/Reset und falsche Bestätigung; #20 Logrotation/Download. A1-Softwarefix ist erhalten, reale Abnahme fehlt. Nur Voraussetzungen dokumentiert, keine Fehlerbehebung und keine Bewegungsfreigabe aus Softwaretests. E2 braucht gesonderten Auftrag, geprüften Stand und betreutes Testfenster.
 
 ## Dokumentenprüfung und nächster Schritt
 
@@ -48,6 +48,19 @@ Nächster Schritt: Carsten liefert vorhandene Spielfeldmaße/Regelunterlagen und
 
 ## Ergänzung aus Carstens Rückmeldung am 20.10.2026
 
-Beobachtet (Nutzerangabe im E1-Chat): Spielfeld ungefähr 240 × 220 cm; Verfahren, Unsicherheit, Aufbau-ID und Messbestätigung offen. Vereinbart als Zuständigkeitsgrenze: Spielfeld/Ampeln werden von außen gesteuert, von Carsten mit MQTT verbunden; verantwortliche Person/Team und konkretes Infrastrukturverfahren weiterhin offen. In Messplan und Verkehrsregeln aufgenommen.
+Beobachtet (Nutzerangabe im E1-Chat): Spielfeld ungefähr 240 × 220 cm; Verfahren, Unsicherheit, Aufbau-ID und Messbestätigung offen. Vereinbart als Zuständigkeitsgrenze: Spielfeld/Ampeln werden von außen gesteuert, von Carsten als externe Steuerung mit MQTT berichtet; konkrete Anbindung/Zuständigkeit offen; verantwortliche Person/Team und konkretes Infrastrukturverfahren weiterhin offen. In Messplan und Verkehrsregeln aufgenommen.
 
 Liefernachweis: Draft-PR [#23](https://github.com/davidheinrich73/smartcity-roboter/pull/23), erster Commit b7de4382e6532881fb7647a43c6a6b773c839096; Ergänzung im Folgecommit. Relative Links und Tabellenspalten aller sieben Dateien geprüft: keine Fehler; git-Diffprüfung fehlerfrei. Keine Geheimnisse aufgenommen. Nächster Informationsblock: vorhandener Aufbau-/Ampelplan oder Kontaktrolle für die externe Infrastruktursteuerung; noch keine zusätzliche Befragung gestartet.
+
+
+## Software- und Umfangsnachtrag 20.10.2026, 11:02 Europe/Berlin
+
+Beobachtet: origin/main nach erneutem Fetch auf `5309b20854e81a217996da8ebb903feebaa7f8eb` (Merge PR #22). Die Arbeitsbasis dieses E1-Branches bleibt der oben genannte ca6d49d; kein fremder Produktstand wurde in den Dokumentationsbranch übernommen. GitHub-Status bei der lesenden Abfrage: #19/#20 geschlossen, #13/#14 offen.
+
+Berichtet durch Orchestrator-Review zu PR #23 am 20.10.2026: Kartenwechsel einschließlich Bestätigung (#19), Logdownload (#20) sowie bisherige B1-Statuswiederkehr-, Rot- und Wendefehler sind auf dem neuen Stand technisch nachgeprüft behoben. Dies ersetzt die oben historischen Fehlerhinweise als aktuellen Softwarestatus; keine eigene erneute Produktprüfung durch E1. Hardwareprüfungen und reale Abnahmen fehlen weiterhin.
+
+C1 #14 ist wegen verbliebener Vertragslücken wieder geöffnet; kein akzeptierter Vertragscommit. Broker-/Detaildatenabstimmung bleibt davon abhängig.
+
+Vereinbart laut übermittelter neuer Nutzerentscheidung: Wegräumen gehört ausdrücklich zum Grundbetrieb. Zieldefinition und Abnahmeumfang werden laut Carsten andernorts erweitert; E1 bearbeitet diese Dateien nicht parallel. Bestätigter Sicherheitsrest laut Orchestrator: Personen stoppen die Räumphasen `abstand` / `zurueck` noch nicht; ein separater kleiner Folgeauftrag wird angelegt (Kennung hier noch offen). Korrekturbeleg und anschließende reale Prüfung bleiben Voraussetzungen; keine Räum-/Arm-/Fahrfreigabe aus diesem Nachtrag. Geräteinventare und Messwerte bleiben unverändert offen.
+
+Quelle dieses Nachtrags: Orchestrator-Nachricht in diesem E1-Chat; Remote-/Issue-Status zusätzlich lesend geprüft. Dokumentenprüfung nach Redaktion: relative Links und Tabellenspalten unverändert gültig, Git-Diffprüfung fehlerfrei. Keine Geräteaktion und kein Produktcode geändert.
