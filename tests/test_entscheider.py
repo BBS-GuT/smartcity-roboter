@@ -23,15 +23,18 @@ class Lauf:
     def schritt(self, n=1, **w):
         befehl = None
         for _ in range(n):
+            # Eigener Planerthread: auf sein Ergebnis warten, bevor die Testuhr weitergeht.
+            a = self.e.ablauf
+            ende = time.monotonic() + 3.0
+            while a is not None and a.phase in ('vorpruefen', 'planen') and getattr(a, 'plan', 1) is None:
+                if time.monotonic() >= ende:
+                    raise AssertionError(f'Testplaner in {a.phase} wurde nicht fertig')
+                time.sleep(0.001)
             self.t += 0.1
             self.nr += 1
             daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None,
                      'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False}
             daten.update(w)
-            a = self.e.ablauf
-            ende = time.time() + 3.0
-            while a is not None and a.phase == 'planen' and getattr(a, 'plan', 1) is None and time.time() < ende:
-                time.sleep(0.001)      # Planer rechnet in einem eigenen Thread: Testzeit laeuft sonst davon
             befehl = self.e.update(self.t, daten)
         return befehl
 
