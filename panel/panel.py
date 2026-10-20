@@ -19,7 +19,6 @@
 #                       Messfahrt aufzeichnen + herunterladen (zum Auswerten mit kartograf/abspielen.py)
 #   Arm              -> nur auf Knopfdruck, nie waehrend der Fahrt
 import argparse
-import io
 import json
 import os
 import re
@@ -28,7 +27,6 @@ import signal
 import socket
 import subprocess
 import sys
-import tarfile
 import threading
 import time
 import uuid
@@ -57,6 +55,7 @@ import lidar           # noqa: E402
 import arm as armlib   # noqa: E402
 import greifen         # noqa: E402
 import einstellungen   # noqa: E402
+import protokolle      # noqa: E402
 from entscheider import STANDARD as KI_STANDARD  # noqa: E402
 
 # Sensoren fuer die Statusseite: (Anzeigename, Topic, Mindestrate in Hz oder None = nur Info)
@@ -121,11 +120,7 @@ class Prozesse:
     def start(self, name, befehl, info='', env=None):
         if self.laeuft(name):
             return False
-        os.makedirs(LOGS, exist_ok=True)
-        datei = os.path.join(LOGS, f'{name}.log')
-        if os.path.exists(datei):
-            os.replace(datei, os.path.join(LOGS, f'{name}.alt.log'))   # vorigen Lauf aufheben
-        log = open(datei, 'w')
+        log = protokolle.neu_oeffnen(LOGS, name)   # vorigen Lauf als <name>.alt.log aufheben
         env = dict(os.environ if env is None else env, PYTHONUNBUFFERED='1')   # sofort ins Protokoll, nicht gepuffert
         # eigene Prozessgruppe, damit beim Beenden auch alle Unterprozesse beendet werden
         self.p[name] = subprocess.Popen(befehl, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=env)
@@ -811,12 +806,12 @@ def mache_handler(node, prozesse, beenden=None):
                     with open(datei, 'rb') as f:      # stueckweise (kann gross sein)
                         shutil.copyfileobj(f, self.wfile)
                 elif pfad == '/logs.tar.gz':
-                    # alle Protokolle auf einmal (zum Weiterschicken bei Problemen)
-                    puffer = io.BytesIO()
-                    with tarfile.open(fileobj=puffer, mode='w:gz') as tar:
-                        if os.path.isdir(LOGS):
-                            tar.add(LOGS, arcname='logs')
-                    daten = puffer.getvalue()
+                    # alle Protokolle auf einmal (zum Weiterschicken bei Problemen), begrenzt, siehe lib/protokolle.py
+                    try:
+                        daten = protokolle.archiv(LOGS)
+                    except Exception as e:
+                        return self._senden(500, 'text/plain; charset=utf-8',
+                                            f'Logs konnten nicht gepackt werden: {e!r}'.encode())
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/gzip')
                     self.send_header('Content-Length', str(len(daten)))
