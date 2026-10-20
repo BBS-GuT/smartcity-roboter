@@ -14,7 +14,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-SKIPS = re.compile(r'^OK \(skipped=[1-9][0-9]*\)\s*$', re.MULTILINE)
+SKIPS = re.compile(r'^OK \([^\n)]*\bskipped=[1-9][0-9]*[^\n)]*\)\s*$', re.MULTILINE)
 
 
 def seconds(value):
