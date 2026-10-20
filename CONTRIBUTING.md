@@ -20,7 +20,7 @@ git rev-parse HEAD
 
 ## Prüfen und liefern
 
-Für reine Softwaretests eine isolierte virtuelle Umgebung verwenden:
+Für reine Softwaretests mit `python -m venv .venv` eine eigene Umgebung anlegen. Unter Linux mit `. .venv/bin/activate`, unter Windows/PowerShell mit `.\.venv\Scripts\Activate.ps1` aktivieren. Dann aus der Projektwurzel:
 
 ```bash
 python -m pip install -r requirements-test.txt
