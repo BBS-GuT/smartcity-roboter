@@ -17,7 +17,10 @@ if curl -s -o /dev/null "$URL/api/status"; then
     echo "Panel laeuft schon, oeffne nur die Anzeige."
 else
     echo "Starte Panel (Kamera und KI-Zentrale starten automatisch mit) ..."
-    python3 "$REPO_DIR/panel/panel.py" --port "$PORT" --autostart "$@" &
+    # Ausgabe des Panels auch in logs/panel.log (vorheriger Lauf: logs/panel.alt.log)
+    mkdir -p "$REPO_DIR/logs"
+    [ -f "$REPO_DIR/logs/panel.log" ] && mv -f "$REPO_DIR/logs/panel.log" "$REPO_DIR/logs/panel.alt.log"
+    PYTHONUNBUFFERED=1 python3 "$REPO_DIR/panel/panel.py" --port "$PORT" --autostart "$@" > >(tee "$REPO_DIR/logs/panel.log") 2>&1 &
     PANEL=$!
     # Beim Beenden dieses Skripts (auch Terminal schliessen) das Panel sauber beenden
     trap 'kill -TERM $PANEL 2>/dev/null; wait $PANEL 2>/dev/null' EXIT

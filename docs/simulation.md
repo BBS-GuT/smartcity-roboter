@@ -50,7 +50,7 @@ Der Simulator hat Parameter für Fehler, die es am echten Roboter geben kann. St
 
 Schneller und ohne ROS geht es mit `python3 sim/messfahrt.py fahrt.jsonl.gz lidar0_einbau=0,0,90 imu_skala=1.03` und danach `python3 kartograf/abspielen.py fahrt.jsonl.gz` (siehe [karte.md](karte.md)). Das zeigt dann auch, wie weit die Karte je Runde wegdreht.
 
-Die Logs stehen in `/tmp/sim_*.log` (Prüfen) bzw. `/tmp/panel_*.log` (mit Panel). Die Karte der Simulation liegt in `karten/sim/`.
+Die Logs stehen in `/tmp/sim_*.log` (Prüfen) bzw. `logs/*.log` im Projektordner (mit Panel). Die Karte der Simulation liegt in `karten/sim/`.
 
 ## Was die Simulation kann und was nicht
 
@@ -66,6 +66,6 @@ Die Logs stehen in `/tmp/sim_*.log` (Prüfen) bzw. `/tmp/panel_*.log` (mit Panel
 |---|---|
 | `ROS 2 nicht gefunden` | `scripts/simulation.sh einrichten` |
 | `Dieses System ist Ubuntu 24.04 …` | VM mit Ubuntu 22.04 anlegen |
-| Panel bleibt bei „KI startet …“ | 10–20 s warten (KI-Modell lädt). Sonst `/tmp/panel_ki.log` ansehen |
+| Panel bleibt bei „KI startet …“ | 10–20 s warten (KI-Modell lädt). Sonst `logs/ki.log` ansehen |
 | Browser geht nicht von selbst auf | in der VM `http://localhost:8080` öffnen |
 | Panel vom Laptop selbst (außerhalb der VM) öffnen | in VirtualBox unter Netzwerk → Port-Weiterleitung: Host-Port 8080 → Gast-Port 8080, dann am Laptop `http://localhost:8080` |

@@ -31,6 +31,7 @@ scripts/installieren.sh          # Panel-Symbol ins Dock, Roboter-Name, KI-Bibli
 
 **Vom Laptop:** Laptop-Zugriff ist standardmäßig **an**. Einfach die angezeigte Adresse öffnen, z. B. `http://10.0.12.62:8080`. Ausschalten: Panel → System (oder `scripts/panel.sh --kein-netz`).
 **Not-Aus von außen:** `scripts/stopp.sh`
+**Bei Problemen:** Panel → System → „Logs herunterladen“ (alle Protokolle als `.tar.gz`). Sie liegen in `logs/` im Projektordner, je Programm der aktuelle und der vorige Lauf (`*.alt.log`).
 
 | Karte (2D) | Karte (3D) |
 |---|---|

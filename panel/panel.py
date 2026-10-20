@@ -19,6 +19,7 @@
 #                       Messfahrt aufzeichnen + herunterladen (zum Auswerten mit kartograf/abspielen.py)
 #   Arm              -> nur auf Knopfdruck, nie waehrend der Fahrt
 import argparse
+import io
 import json
 import os
 import re
@@ -27,6 +28,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 from collections import deque
@@ -44,6 +46,9 @@ from std_msgs.msg import String, Float32
 from cv_bridge import CvBridge
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# Protokolle der vom Panel gestarteten Programme. Im Projekt statt in /tmp: /tmp wird beim Neustart des
+# Roboters geleert. Pro Programm <name>.log (dieser Lauf) und <name>.alt.log (der Lauf davor).
+LOGS = os.path.join(REPO, 'logs')
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(REPO, 'lib'))
 sys.path.insert(0, os.path.join(REPO, 'ki'))
@@ -115,7 +120,12 @@ class Prozesse:
     def start(self, name, befehl, info='', env=None):
         if self.laeuft(name):
             return False
-        log = open(f'/tmp/panel_{name}.log', 'w')
+        os.makedirs(LOGS, exist_ok=True)
+        datei = os.path.join(LOGS, f'{name}.log')
+        if os.path.exists(datei):
+            os.replace(datei, os.path.join(LOGS, f'{name}.alt.log'))   # vorigen Lauf aufheben
+        log = open(datei, 'w')
+        env = dict(os.environ if env is None else env, PYTHONUNBUFFERED='1')   # sofort ins Protokoll, nicht gepuffert
         # eigene Prozessgruppe, damit beim Beenden auch alle Unterprozesse beendet werden
         self.p[name] = subprocess.Popen(befehl, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, env=env)
         self.info[name] = info
@@ -332,9 +342,9 @@ def text_bild(text):
 
 
 def log_ende(name, zeilen=8):
-    """Letzte Zeilen des Protokolls eines vom Panel gestarteten Programms (/tmp/panel_<name>.log)."""
+    """Letzte Zeilen des Protokolls eines vom Panel gestarteten Programms (logs/<name>.log)."""
     try:
-        with open(f'/tmp/panel_{name}.log', errors='replace') as f:
+        with open(os.path.join(LOGS, f'{name}.log'), errors='replace') as f:
             return ''.join(f.readlines()[-zeilen:]).strip() or '(Protokoll leer)'
     except OSError:
         return '(kein Protokoll)'
@@ -558,7 +568,7 @@ def mache_handler(node, prozesse, beenden=None):
             prozesse.start('kamera', ['bash', os.path.join(REPO, 'scripts', 'kamera.sh')])
             return 'Kamera wird gestartet (ca. 10 s)'
         if name == 'ki_start':
-            return 'KI wird gestartet. Log: /tmp/panel_ki.log' if ki_starten() else 'KI laeuft schon'
+            return 'KI wird gestartet. Log: logs/ki.log' if ki_starten() else 'KI laeuft schon'
         if name == 'ki_stopp':
             prozesse.stopp('ki')
             return 'KI gestoppt (Fahrprogramm haelt dann an)'
@@ -572,8 +582,22 @@ def mache_handler(node, prozesse, beenden=None):
             node.karte_kommando_pub.publish(String(data='speichern'))
             return 'Karte wird gespeichert'
         if name == 'karte_neu':
+            # nur Erfolg melden, wenn der Kartograf es bestaetigt (er laeuft evtl. gar nicht oder ist abgestuerzt)
+            vorher = node.get('karte', max_alter=3.0)
+            if vorher is None:
+                return ('Kartograf laeuft nicht (oder meldet sich nicht) -> keine neue Karte. '
+                        'Erst "Kartograf starten" (System), dann nochmal.\n' + log_ende('karte'))
             node.karte_kommando_pub.publish(String(data='neu'))
-            return 'Neue Karte angefangen. Die alte liegt als Sicherung in karten/ (nichts geloescht).'
+            if 'angefangen' not in vorher:      # alter Kartograf (vor dem Update gestartet) bestaetigt nicht
+                return 'Neue Karte angefordert (Kartograf neu starten, dann wird sie auch bestaetigt).'
+            ende = time.time() + 5.0
+            while time.time() < ende:
+                time.sleep(0.3)
+                k = node.get('karte', max_alter=3.0) or {}
+                if k.get('angefangen') is not None and k.get('angefangen') != vorher.get('angefangen'):
+                    return 'Neue Karte angefangen. Die alte liegt als Sicherung in karten/ (nichts geloescht).'
+            return ('Kartograf hat die neue Karte NICHT bestaetigt. Letzte Zeilen aus logs/karte.log:\n'
+                    + log_ende('karte'))
         if name == 'karte_aufnahme':
             # Messfahrt aufzeichnen: alle Rohdaten fuer kartograf/abspielen.py (siehe docs/karte.md)
             if not prozesse.laeuft('karte'):
@@ -777,6 +801,20 @@ def mache_handler(node, prozesse, beenden=None):
                     self.end_headers()
                     with open(datei, 'rb') as f:      # stueckweise (kann gross sein)
                         shutil.copyfileobj(f, self.wfile)
+                elif pfad == '/logs.tar.gz':
+                    # alle Protokolle auf einmal (zum Weiterschicken bei Problemen)
+                    puffer = io.BytesIO()
+                    with tarfile.open(fileobj=puffer, mode='w:gz') as tar:
+                        if os.path.isdir(LOGS):
+                            tar.add(LOGS, arcname='logs')
+                    daten = puffer.getvalue()
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/gzip')
+                    self.send_header('Content-Length', str(len(daten)))
+                    self.send_header('Content-Disposition',
+                                     f'attachment; filename="smartcity_logs_{time.strftime("%Y%m%d_%H%M")}.tar.gz"')
+                    self.end_headers()
+                    self.wfile.write(daten)
                 elif pfad in KARTEN_DATEIEN:
                     datei, typ, herunterladen = KARTEN_DATEIEN[pfad]
                     try:

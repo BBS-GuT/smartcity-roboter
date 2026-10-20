@@ -4,3 +4,5 @@ __pycache__/
 config/lokal/
 config/ampel.yaml
 karten/
+# Protokolle der Programme (Panel -> System -> "Logs herunterladen")
+logs/
