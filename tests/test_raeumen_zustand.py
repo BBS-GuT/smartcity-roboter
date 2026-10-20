@@ -90,6 +90,36 @@ class RaeumenZustand(unittest.TestCase):
                 break
         self.assertEqual(gezaehlt_ohne_sicht, 0)
 
+    def test_abbruch_ohne_armbewegung_sperrt_nicht(self):
+        """Statusausfall beim Anschauen (Arm nie bewegt), danach Auto am Rand: faehrt weiter wie vorher."""
+        lauf = Lauf(POSEN)
+        for _ in range(3):
+            lauf.schritt()
+        for _ in range(3):
+            lauf.schritt(lidar=0.40)
+        self.assertEqual(lauf.phase(), 'anschauen')
+        lauf.e.fahrt_aktiv = False
+        lauf.schritt(lidar=0.40)
+        lauf.e.fahrt_aktiv = True
+        aktionen = [lauf.schritt(akteur='Auto', im_weg=False)['aktion'] for _ in range(100)]
+        self.assertIn('fahren', aktionen)
+
+    def test_person_am_rand_haelt_kontrolle_nicht_auf(self):
+        """Weggeraeumt, Person neben der Strasse: Kontrolle endet wie bisher, kein 30-s-Warten."""
+        lauf = Lauf(POSEN)
+        weg, t_kontrolle, b = False, None, None
+        for _ in range(400):
+            if lauf.phase() == 'kontrolle' and t_kontrolle is None:
+                t_kontrolle = lauf.t
+            akteur = 'Person' if t_kontrolle is not None else None
+            b = lauf.schritt(akteur=akteur, im_weg=False, **({} if weg else {'lidar': 0.28, 'objekt': dict(VORNE)}))
+            a = b['arm']
+            weg = weg or (isinstance(a, dict) and (a.get('winkel') or [0] * 6)[5] == 130)
+            if b['aktion'] == 'fahren':
+                break
+        self.assertEqual(b['aktion'], 'fahren')
+        self.assertLess(lauf.t - t_kontrolle, 6.0)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

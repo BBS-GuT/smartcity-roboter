@@ -474,7 +474,7 @@ async function aktion(name, daten = {}, ziel = 'antwort') {
   try {
     const r = await fetch('/api/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                             body: JSON.stringify(daten) });
-    $(ziel).textContent = (await r.json()).antwort;
+    $(ziel).textContent = r.ok ? (await r.json()).antwort : `Panel lehnt ab (${r.status}): ${await r.text()} - Seite neu laden (F5)`;
   } catch (e) { $(ziel).textContent = 'Keine Verbindung zum Panel-Programm!'; }
 }
 $('tempo').oninput = () => $('tempo-wert').textContent = fmt($('tempo').value) + ' m/s';

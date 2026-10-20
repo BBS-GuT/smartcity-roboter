@@ -206,6 +206,7 @@ class Entscheider:
                 self.ampel_halt = False
                 self.ampel_kand, self.ampel_n = None, 0
             self.fehler_halt = None
+            self.arm_zurueck_wegraeumen = False      # Bediener hat geschaut: Arm darf zurueck
             self.aufheben_gesperrt, self.bestaetigt, self.bestaetigt_lebewesen = False, None, False
             self.hindernis_merk = None
             self.meldung_seit, self.geprueft_frei = None, False
@@ -478,7 +479,8 @@ class Entscheider:
         a, self.ablauf = self.ablauf, None
         if a.arm_bewegt or (a.name == 'wegraeumen' and not nur_wenn_bewegt):
             self.arm_zurueck_noetig = True
-            self.arm_zurueck_wegraeumen = self.arm_zurueck_wegraeumen or a.name == 'wegraeumen'
+        if a.arm_bewegt and a.name == 'wegraeumen':
+            self.arm_zurueck_wegraeumen = True     # Arm steht wirklich woanders: erst zurueck, wenn niemand in Sicht
         if a.name == 'wegraeumen' and a.merk is not None:
             self.hindernis_merk = a.merk
 

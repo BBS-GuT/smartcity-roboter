@@ -176,6 +176,8 @@ class Zentrale(Node):
                 cfg = None
             if cfg:
                 self.boden_pruef = Bodenmodell(cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+                # wird nie gelernt (Boden dort unbekannt): sofort mit Korrektur 0 messen, sonst lieferte es nie etwas
+                self.boden_pruef.gelernt = self.boden_pruef.c['lern_bilder']
         self.ampel_werte = lade_ampel_werte()
 
         self.yolo, self.yolo_fehler = None, ''

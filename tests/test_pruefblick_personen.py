@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """#79: Personen-/Tier-/Fahrzeughalt vor den Pruefblick-Armbewegungen der Kontrolle (auch beim Wiederholen).
 
+Die Kontrolle haelt nur vor NEUEN Arm-/Fahrbewegungen (Pruefblick anfahren, naechster Versuch). Zuschauen geht
+weiter; ist der Weg frei, endet sie wie bisher (eine Person neben der Strasse haelt nicht 30 s lang auf).
+
 Echter Entscheider, natuerliche Phasen, reiner Planerstub; kein ROS, kein Geraet.
 """
 import unittest
@@ -66,7 +69,9 @@ class PruefblickPersonen(unittest.TestCase):
         gesehen = w.lauf.t
         while w.lauf.t + 0.1 < gesehen + 2.0 - 1e-6:          # bestehendes Zwei-Sekunden-Wartefenster
             b = w.schritt()
-            self.assertFalse(bewegt(b), f'{phase}+{k}, {w.lauf.t - gesehen:.1f} s danach: {b}')
+            self.assertIsNone(b['arm'], f'{phase}+{k}, {w.lauf.t - gesehen:.1f} s danach: {b}')
+            if bleibt or k == 0:      # liegt noch da (naechster Versuch) bzw. Pruefblick noch nicht angefahren
+                self.assertFalse(bewegt(b), f'{phase}+{k}, {w.lauf.t - gesehen:.1f} s danach: {b}')
         return w
 
     def test_akteur_beim_eintritt_und_in_jedem_kontrollbild(self):
@@ -88,6 +93,21 @@ class PruefblickPersonen(unittest.TestCase):
                 break
         self.assertIn('pruefblick', posen)
         self.assertEqual(b['aktion'], 'fahren')
+
+    def test_akteur_bleibt_30s_kein_arm_danach_halt_bis_start(self):
+        w = Welt(bleibt=False)
+        w.bis_kontrolle()
+        start = w.lauf.t
+        while w.lauf.t - start < 35.0:
+            b = w.schritt(akteur='Person', im_weg=False)
+            self.assertFalse(bewegt(b), f'{w.lauf.t - start:.1f} s: {b}')
+        self.assertIsNone(w.lauf.e.ablauf)
+        self.assertTrue(any('bleibt in Sicht' in t for _, t, _ in w.lauf.e.ereignisse))
+        aktionen = [w.schritt()['aktion'] for _ in range(100)]
+        self.assertNotIn('fahren', aktionen)          # aufgegeben: wartet auf STOPP + START
+        w.lauf.e.kommando(w.lauf.t, 'start')
+        aktionen = [w.schritt()['aktion'] for _ in range(100)]
+        self.assertIn('fahren', aktionen)
 
     def test_wiederholung_nach_freipruefung(self):
         w = Welt(bleibt=True)

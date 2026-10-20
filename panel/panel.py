@@ -893,12 +893,11 @@ def mache_handler(node, prozesse, beenden=None):
         def _fremde_seite(self):
             """Kommt der Auftrag von einer fremden Webseite im selben Browser (CSRF)? Das Panel schickt JSON;
             eine fremde Seite kann das nicht ohne Rueckfrage des Browsers. Origin muss zur eigenen Adresse passen."""
-            if (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json':
-                return True
             herkunft = self.headers.get('Origin')
             if herkunft and herkunft != 'null':
+                # Browser schicken bei POST immer Origin: passt er, ist es das Panel (auch eine alte, noch offene Seite)
                 return urllib.parse.urlsplit(herkunft).netloc != (self.headers.get('Host') or '')
-            return False
+            return (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json'
 
         def do_POST(self):
             if not self._erlaubt():

@@ -61,6 +61,8 @@ class PanelGreifer(unittest.TestCase):
         self.assertEqual(self.post('greifer_einmessen_stand', {}, origin='http://boese.example')[0], 403)
         code, text = self.post('greifer_einmessen_stand', {}, origin=self.url)
         self.assertEqual(code, 200)
+        # noch offene Seite mit altem JavaScript (ohne Content-Type) bleibt bedienbar, z. B. fuer STOPP
+        self.assertEqual(self.post('greifer_einmessen_stand', {}, typ='text/plain', origin=self.url)[0], 200)
         self.assertIn('NICHT eingemessen', text)
 
     def test_einmessen(self):
@@ -104,6 +106,10 @@ class Kennlinie(unittest.TestCase):
         e = {'greifer_auf': 130, 'greifer_zu': 30, 'greifer_druecken': 8, 'greifer_messpunkte': [[0.03, 50]]}
         g = armlib.greifer_plan(0.03, e)
         self.assertEqual((g['anlegen'], g['zu']), (60, 42))
+
+    def test_fast_gleiche_breiten_gemittelt(self):
+        e = dict(self.E, greifer_messpunkte=[[0.0, 150], [0.001, 160], [0.03, 120]])
+        self.assertEqual(armlib.greifer_messpunkte(e), [(0.0005, 155.0), (0.03, 120.0)])
 
     def test_ungueltige_punkte_ignoriert(self):
         e = dict(self.E, greifer_messpunkte=[['x', 1], [0.03], [0.5, 100], [0.03, 999]])

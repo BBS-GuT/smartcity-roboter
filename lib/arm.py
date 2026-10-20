@@ -112,7 +112,14 @@ def greifer_messpunkte(e=None):
             continue
         if 0.0 <= b <= 0.15 and GRENZEN[6][0] <= w <= GRENZEN[6][1]:
             pkt.append((b, w))
-    return sorted(pkt)
+    zusammen = []                       # fast gleiche Breiten (von Hand eingetragen) zu einem Punkt mitteln
+    for b, w in sorted(pkt):
+        if zusammen and b - zusammen[-1][0][-1] <= 0.002:
+            zusammen[-1][0].append(b)
+            zusammen[-1][1].append(w)
+        else:
+            zusammen.append(([b], [w]))
+    return [(sum(bs) / len(bs), sum(ws) / len(ws)) for bs, ws in zusammen]
 
 
 def greifer_plan(breite, e=None):
