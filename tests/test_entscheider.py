@@ -411,6 +411,19 @@ b = l.schritt(1)
 ok = b['arm'] == 'fahrstellung'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} nach neuem START faehrt der Arm zuerst in die Fahrstellung: {b['grund']}")
+# Wegraeumen hat nicht geklappt, Hindernis liegt noch da: wartet. STOPP + START -> schaut neu hin, versucht es nochmal
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.e.aufheben_gesperrt, l.e.bestaetigt = True, 'Wegraeumen hat nicht geklappt'
+b = l.schritt(5, objekt=NAH)
+ok_vorher = b['aktion'] == 'stopp' and l.e.ablauf is None
+l.e.fahrt_aktiv = False                          # STOPP
+l.schritt(3, objekt=NAH)
+l.e.fahrt_aktiv = True                           # START
+l.schritt(1, objekt=NAH)
+arme, b, _ = wegraeumen(l, 60, NAH)
+ok = ok_vorher and not l.e.aufheben_gesperrt and len(arme) > 0
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} nach fehlgeschlagenem Wegraeumen: STOPP + START -> neuer Versuch ({len(arme)} Arm-Befehle)")
 l = Lauf(arm_erlaubt=True, posen=POSEN)
 l.e.fahrt_aktiv = False                          # nur TEST
 arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3})

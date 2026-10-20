@@ -111,6 +111,7 @@ class Entscheider:
         self.aufheben_gesperrt, self.weg_frei_seit = False, None
         self.umschauen_wunsch = None  # Zeit, zu der jemand (Kartograf/Panel) Umschauen gewuenscht hat
         self.fehler_halt = None       # Manoever fehlgeschlagen -> bleibt stehen bis STOPP + neuer START
+        self.fahrt_war_aktiv = True   # fuer: neuer START nach STOPP/TEST erkennen
         self.blockiert_seit, self.blockiert_grenze = None, 0.0
         self.ereignisse = []          # (zeit, text, art) art: stopp | fahren | info
         self.letzte_bild_nr = -1
@@ -179,6 +180,14 @@ class Entscheider:
             if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
                 self.arm_zurueck_noetig = True
             self.ablauf = None
+        if self.fahrt_aktiv and not self.fahrt_war_aktiv and (self.aufheben_gesperrt or self.bestaetigt):
+            # Neuer START nach STOPP: quittiert auch ein fehlgeschlagenes Wegraeumen. Sonst versucht er es
+            # vor demselben Hindernis nie wieder (nur wenn der Weg einmal frei war). Er schaut neu hin und
+            # raeumt, wenn er darf, nochmal weg - oder wartet wieder.
+            self._ereignis(jetzt, 'Neuer START: Hindernis wird neu angeschaut', 'info')
+            self.aufheben_gesperrt, self.bestaetigt = False, None
+            self.meldung_seit, self.geprueft_frei = None, False
+        self.fahrt_war_aktiv = self.fahrt_aktiv
         if not self.fahrt_aktiv:
             self.fehler_halt = None     # STOPP/TEST quittiert einen Manoever-Fehler
             # STOPP gedrueckt oder nur TEST: nichts am Arm bewegen, laufende Arm-Ablaeufe abbrechen.

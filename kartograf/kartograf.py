@@ -112,6 +112,7 @@ class Kartograf(Node):
         self.fehlversuche = 0
         self.scan_karte = None
         self.geaendert = True
+        self.angefangen = time.time()       # wann diese Karte (im Speicher) angefangen wurde - Panel prueft "Neue Karte"
         self.aufnahme = None
         self.arm = None
         try:
@@ -347,6 +348,7 @@ class Kartograf(Node):
         with self.lock:
             aus = self.kr.meldung_pose(jetzt)
         aus['karte'] = self.p('karte')
+        aus['angefangen'] = self.angefangen
         if 'x' in aus:
             aus['scan'] = self.scan_karte
         a = self.aufnahme
@@ -431,14 +433,19 @@ class Kartograf(Node):
         elif befehl == 'aufnahme_stopp':
             self._aufnahme_stopp()
         elif befehl == 'neu':
-            with self.lock:
-                if os.path.isdir(self.ordner):
-                    # nichts loeschen: alte Karte bleibt als Sicherung liegen
-                    shutil.move(self.ordner, self.ordner + time.strftime('_alt_%Y%m%d_%H%M%S'))
-                kal = self.kr.kal.speichern()      # Gelerntes ueber die Sensoren gilt weiter
-                self.karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
-                self.karte.kalibrierung = kal
-                self.kr = KR.Kartierer(self.karte, self.kartierer_cfg())
+            try:
+                with self.lock:
+                    if os.path.isdir(self.ordner):
+                        # nichts loeschen: alte Karte bleibt als Sicherung liegen
+                        shutil.move(self.ordner, self.ordner + time.strftime('_alt_%Y%m%d_%H%M%S'))
+                    kal = self.kr.kal.speichern()      # Gelerntes ueber die Sensoren gilt weiter
+                    self.karte = K.Karte(self.ordner, cfg={'max_reichweite': self.p('max_reichweite')})
+                    self.karte.kalibrierung = kal
+                    self.kr = KR.Kartierer(self.karte, self.kartierer_cfg())
+                    self.angefangen = time.time()
+            except Exception as e:     # z. B. keine Schreibrechte: melden, Kartograf laeuft mit der alten Karte weiter
+                self.get_logger().error(f'Neue Karte geht nicht: {e!r}')
+                return
             self.geaendert = True
             self.get_logger().info('Neue Karte angefangen (alte als Sicherung umbenannt)')
 
