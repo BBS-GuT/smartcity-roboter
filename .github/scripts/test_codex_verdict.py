@@ -1,0 +1,109 @@
+import copy
+import json
+import unittest
+
+from codex_verdict import APP_ID, BOT, BOT_ID, SUMMARY, eligible
+
+HEAD = 'a' * 40
+OLD = 'b' * 40
+
+
+def review(sha=HEAD, **changes):
+    return dict(commit_sha=sha, status='completed', has_any_findings=False,
+                has_unresolved_findings=False, **changes)
+
+
+def comment(code=None, security=None):
+    state = {'code_review': review() if code is None else code}
+    if security is not None:
+        state['security_review'] = security
+    return {'user': {'login': BOT, 'type': 'Bot', 'id': BOT_ID},
+            'performed_via_github_app': {'id': APP_ID}, 'editor': None,
+            'body': SUMMARY + '\n<!-- codex-review-state:v1 ' + json.dumps(state) + ' -->'}
+
+
+class VerdictTests(unittest.TestCase):
+    def test_clean_and_bot_edited(self):
+        row = comment()
+        self.assertTrue(eligible(row, HEAD))
+        row['editor'] = {'login': BOT[:-5], '__typename': 'Bot'}
+        self.assertTrue(eligible(row, HEAD))
+        row['editor'] = {'login': BOT[:-5], '__typename': 'User'}
+        self.assertFalse(eligible(row, HEAD))
+        row['editor'] = {'login': BOT, 'type': 'Bot'}
+        self.assertTrue(eligible(row, HEAD))
+
+    def test_stale_and_unfinished_code(self):
+        self.assertFalse(eligible(comment(review(OLD)), HEAD))
+        for status in ('running', 'pending', 'failed', 'cancelled', 'queued', 'mystery'):
+            state = review()
+            state['status'] = status
+            with self.subTest(status=status):
+                self.assertFalse(eligible(comment(state), HEAD))
+
+    def test_findings_and_strict_booleans(self):
+        for key in ('has_any_findings', 'has_unresolved_findings'):
+            for value in (True, 0, 1, None, 'false'):
+                state = review()
+                state[key] = value
+                self.assertFalse(eligible(comment(state), HEAD))
+            state.pop(key)
+            self.assertFalse(eligible(comment(state), HEAD))
+
+    def test_forged_identity_app_and_editor(self):
+        for key, value in [('user', {'login': BOT, 'type': 'User'}),
+                           ('user', {'login': 'other[bot]', 'type': 'Bot'}),
+                           ('performed_via_github_app', {'id': str(APP_ID)}),
+                           ('performed_via_github_app', {'id': 15368}),
+                           ('editor', {'login': 'maintainer', '__typename': 'User'})]:
+            row = comment()
+            row[key] = value
+            self.assertFalse(eligible(row, HEAD))
+        row = comment()
+        del row['editor']
+        self.assertFalse(eligible(row, HEAD))
+
+    def test_rest_author_id_is_mandatory_and_numeric(self):
+        for identity in (None, BOT_ID + 1, str(BOT_ID), True):
+            row = comment()
+            row['user']['id'] = identity
+            self.assertFalse(eligible(row, HEAD))
+        row = comment()
+        del row['user']['id']
+        self.assertFalse(eligible(row, HEAD))
+
+    def test_malformed_multiple_unknown_and_duplicate_json(self):
+        for body in ('👍', SUMMARY, comment()['body'] * 2,
+                     SUMMARY + '<!-- codex-review-state:v1 {} -->',
+                     SUMMARY + '<!-- codex-review-state:v1 {broken} -->',
+                     SUMMARY + '<!-- codex-review-state:v1 {"code_review":{},"code_review":{}} -->'):
+            row = comment()
+            row['body'] = body
+            self.assertFalse(eligible(row, HEAD))
+        state = review()
+        state['extra'] = 'unknown'
+        self.assertFalse(eligible(comment(state), HEAD))
+
+    def test_security_policy(self):
+        self.assertTrue(eligible(comment(), HEAD))
+        self.assertFalse(eligible(comment(), HEAD, require_security_review=True))
+        self.assertTrue(eligible(comment(security=review(OLD)), HEAD))
+        self.assertFalse(eligible(comment(security=review(OLD)), HEAD, require_security_review=True))
+        self.assertTrue(eligible(comment(security=review()), HEAD, require_security_review=True))
+        for status in ('running', 'failed', 'pending'):
+            state = review()
+            state['status'] = status
+            self.assertFalse(eligible(comment(security=state), HEAD))
+        state = review()
+        state.update(status='running', has_any_findings=None, has_unresolved_findings=None)
+        self.assertFalse(eligible(comment(security=state), HEAD))
+
+    def test_bad_input_never_approves(self):
+        for head in (None, '', 'a' * 39, 'G' * 40):
+            self.assertFalse(eligible(comment(), head))
+        for row in (None, [], {}, copy.copy({'body': None})):
+            self.assertFalse(eligible(row, HEAD))
+
+
+if __name__ == '__main__':
+    unittest.main()
