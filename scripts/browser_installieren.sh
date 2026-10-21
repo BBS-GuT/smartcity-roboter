@@ -2,7 +2,7 @@
 # Macht eine Anzeige fuer das Panel moeglich. Fragt vor jeder Aenderung nach.
 #
 # Hintergrund: Auf Jetson-Geraeten starten Chromium und Firefox als Snap-Paket oft nicht mehr,
-# seit snapd 2.70 (dem Jetson-Kernel fehlt CONFIG_SQUASHFS_XATTR). Quellen in docs/browser.md.
+# seit snapd 2.70 (dem Jetson-Kernel fehlt CONFIG_SQUASHFS_XATTR). Quellen im Wiki, Seite Panel-Browser-auf-dem-Jetson.
 set -u
 frage() { read -r -p "$1 (j/n) " a; [ "$a" = "j" ]; }
 apt_installieren() {

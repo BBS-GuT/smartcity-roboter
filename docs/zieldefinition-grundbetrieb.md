@@ -58,9 +58,7 @@ Ampeln koordinieren Verkehrsfreigaben. Sie ersetzen weder die lokale Abstandrege
 
 Das Konzeptbild legt die beabsichtigten Richtungen und die dargestellte Infrastruktur zugrunde. Das Foto zeigt die tatsächliche Mattenstruktur mit Leitlinien, Überwegen und Plattenfuge. Maßangaben werden aus keinem der Bilder abgeleitet.
 
-![Konzeptbild mit Leitlinien, Fahrtrichtungen und Ampeln](abbildungen/smartcity-konzept.png)
-
-![Foto der tatsächlichen SmartCity Matte](abbildungen/smartcity-matte.jpg)
+> **Hinweis (21.10.2026):** Die beiden Bilder (`docs/abbildungen/smartcity-konzept.png` und `docs/abbildungen/smartcity-matte.jpg`) wurden nie ins Repository übernommen. Bitte die Originale nachreichen und unter diesem Pfad ablegen. Bis dahin gelten die Textbeschreibungen in diesem Abschnitt.
 
 Im Foto sind noch keine aufgebauten Verkehrsampeln, Verkehrsschilder oder Fahrtrichtungspfeile erkennbar. Ihre tatsächliche Montage und Bedeutung müssen mit dem Konzept abgeglichen werden. Die sichtbaren runden Punkte werden ohne Geräteprüfung keinem bestimmten Sensortyp zugeordnet.
 
@@ -444,10 +442,10 @@ Die Zieldefinition beruht auf Carstens bestätigter Beschreibung, den beiden ber
 
 Die Repository-Prüfung vom 02.10. beschreibt einen neueren Entwicklungsstand mit Wahrnehmung, Entscheider, Cockpit, Arm-/Tiefenadaptern und Simulation. Kreuzungs-Abbiegen und MQTT sind dort noch nicht als fertige Funktionen vorhanden. Gemeinsamer Motorzugang, Sensoraktualität und Gerätezuordnung haben offene Integrationspunkte. Dies ist eine dokumentierte Ausgangslage, keine erneute Live-Prüfung der Roboter.
 
-- [Repository-Prüfung vom 02.10.2026](repository-pruefung-2026-10-02.md).
-- [Geräteübersicht und Partnerstände](roboter.md).
-- [RM04 mit bestätigten Befunden vom 01.10.2026](rm04.md).
-- [Bestehender Schnittstellenentwurf](schnittstellen.md), fachlicher Umfang nach dieser Zieldefinition zu aktualisieren.
-- [Bisherige Teamziele](teamziele.md) und [Arbeitspakete](arbeitspakete.md), als frühere Planung und Umsetzungshilfe.
+- Repository-Prüfung vom 02.10.2026 (nicht im Repository; aktueller Abgleich: [Prüfbericht vom 20.10.2026](pruefung-grundbetrieb-2026-10-20.md)).
+- [Geräteübersicht](https://github.com/BBS-GuT/smartcity-roboter/wiki/Roboter-und-Netz) (Wiki) und [Geräteinventar](geraete/).
+- RM04 mit bestätigten Befunden vom 01.10.2026 (nicht im Repository; aktueller Stand: [RM04](geraete/RM04.md)).
+- [Schnittstellenentwurf Grundbetrieb](schnittstellen-grundbetrieb.md), ersetzt den früheren Entwurf.
+- Bisherige Teamziele und Arbeitspakete (nicht im Repository; aktuelle Planung: [Entwicklungsplan](zusammenarbeit-und-entwicklung.md) und [Auftragsregister](auftraege/README.md)).
 
 Änderungen am Zielumfang, am Datenvertrag oder an freigegebenen Verkehrsregeln werden hier mit neuer Version und Datum festgehalten. Technische Verbesserungen dürfen die Anforderungen an Spurtreue, Schutz der Aufbauten und nachvollziehbare Daten nicht still verändern.
