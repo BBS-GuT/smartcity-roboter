@@ -342,6 +342,29 @@
         und für die Karte umschauen und kleine Hindernisse wegräumen. Nie bei Personen, Tieren oder Fahrzeugen.
         Die KI misst das Hindernis, rechnet die Armbewegung aus und lernt aus jedem Versuch. Gilt sofort.</label></div>
     <pre id="arm-antwort">-</pre>
+    <h2 style="margin-top:16px">Greifer einmessen</h2>
+    <p class="hinweis" style="margin-top:0">Damit der Greifer fest genug, aber nicht zu fest zudrückt (sonst knackt er oder der
+      Würfel rutscht), merkt sich die KI, bei welchem Servo-Wert die Backen an einem Gegenstand anliegen. So geht es:
+      1. Pose <b>Fahrstellung</b> anfahren, <b>Greifer auf</b>.
+      2. Euren Würfel zwischen die Backen halten, Breite unten eintragen (in cm, quer zwischen den Backen gemessen).
+      3. Mit <b>+2</b> / <b>+1</b> weiter zumachen, bis beide Backen gerade anliegen (nicht drücken). Zu weit: <b>−1</b>.
+      4. <b>Anliegen merken</b>, danach sofort <b>Greifer auf</b>.
+      Am besten zusätzlich einmal ohne Gegenstand (Breite 0, Backen berühren sich gerade) - dann weiß die KI auch, wie weit
+      der Greifer höchstens zu darf. Erkennt die Kamera einen Gegenstand mit fast derselben Breite (± 0,8 cm), nimmt die
+      KI genau den gemessenen Wert. Gespeichert in <code>config/lokal/arm.yaml</code>, danach KI neu starten.</p>
+    <div class="zeile">
+      <span>Breite (cm)</span><input type="number" id="greifer-breite" min="0" max="12" step="0.1" value="3" style="width:5em">
+      <button onclick="aktion('greifer_schritt', {grad: 2}, 'greifer-antwort')">+2</button>
+      <button onclick="aktion('greifer_schritt', {grad: 1}, 'greifer-antwort')">+1</button>
+      <button onclick="aktion('greifer_schritt', {grad: -1}, 'greifer-antwort')">−1</button>
+      <button onclick="aktion('greifer_messen', {breite_cm: Number($('greifer-breite').value)}, 'greifer-antwort')"
+              style="background:var(--lila);color:#140a33;font-weight:800">Anliegen merken</button>
+    </div>
+    <div class="zeile">
+      <button onclick="aktion('greifer_einmessen_stand', {}, 'greifer-antwort')">Stand anzeigen</button>
+      <button onclick="if (confirm('Alle Greifer-Messpunkte löschen?')) aktion('greifer_messpunkte_loeschen', {}, 'greifer-antwort')">Messpunkte löschen</button>
+    </div>
+    <pre id="greifer-antwort">-</pre>
     <h2 style="margin-top:16px">Greifen lernen</h2>
     <p class="hinweis" style="margin-top:0">Die KI zielt auf den gemessenen Punkt plus eine gelernte Korrektur.
       Nach jedem Wegräumen prüft sie, ob der Weg frei ist (= Erfolg), und lernt daraus.
@@ -449,8 +472,9 @@ kopfHoehe();
 // ---------- Aktionen ----------
 async function aktion(name, daten = {}, ziel = 'antwort') {
   try {
-    const r = await fetch('/api/' + name, { method: 'POST', body: JSON.stringify(daten) });
-    $(ziel).textContent = (await r.json()).antwort;
+    const r = await fetch('/api/' + name, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify(daten) });
+    $(ziel).textContent = r.ok ? (await r.json()).antwort : `Panel lehnt ab (${r.status}): ${await r.text()} - Seite neu laden (F5)`;
   } catch (e) { $(ziel).textContent = 'Keine Verbindung zum Panel-Programm!'; }
 }
 $('tempo').oninput = () => $('tempo-wert').textContent = fmt($('tempo').value) + ' m/s';

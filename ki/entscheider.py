@@ -27,7 +27,7 @@
 
 import random
 
-from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen, LEBEWESEN, FAHRZEUGE
+from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen, akteure_nah
 
 STANDARD = {
     'notbremse_dist': 0.12,    # LiDAR naeher (m) -> sofort Stopp, ohne Rueckfrage
@@ -135,8 +135,10 @@ class Entscheider:
         self.hindernis_merk = None    # (Abstand m, Strecke dabei, seitdem vorgefahren): von der Kamera gesehen, nicht weggeraeumt. Ist es
                                       # zu nah fuer die Kamera, gilt der Weg NICHT als frei (sonst faehrt er drueber)
         self.lebewesen_zuletzt = 0.0  # wann die Kamera-KI zuletzt eine Person/ein Tier/ein Fahrzeug gesehen hat
+        self.lebewesen_bild = float('-inf')   # ... Aufnahmezeit (bild_zeit) dieses Bildes
         # Arm
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
+        self.arm_zurueck_wegraeumen = False  # ... wegen eines Wegraeumens (dann erst zurueck, wenn niemand in Sicht ist)
         self.arm_warten_bis = 0.0
         self.letzte_aktion = None
         self.letzter_grund = None
@@ -188,9 +190,7 @@ class Entscheider:
             # Schalter "KI darf den Arm bewegen" waehrend eines Ablaufs ausgeschaltet: wie STOPP behandeln,
             # Arm faehrt zurueck in die Fahrstellung, bevor wieder gefahren wird
             self._ereignis(jetzt, f'{self.ablauf.name}: abgebrochen (Arm fuer die KI ausgeschaltet)', 'info')
-            if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
-                self.arm_zurueck_noetig = True
-            self.ablauf = None
+            self._ablauf_abbrechen()
         if self.start_quittung is not None and jetzt - self.start_quittung > 15.0:
             self.start_quittung = None   # Fahrprogramm ist nach dem START nicht angelaufen
         if self.start_quittung is not None and self.fahrt_aktiv:
@@ -207,6 +207,7 @@ class Entscheider:
                 self.ampel_halt = False
                 self.ampel_kand, self.ampel_n = None, 0
             self.fehler_halt = None
+            self.arm_zurueck_wegraeumen = False      # Bediener hat geschaut: Arm darf zurueck
             self.aufheben_gesperrt, self.bestaetigt, self.bestaetigt_lebewesen = False, None, False
             self.hindernis_merk = None
             self.meldung_seit, self.geprueft_frei = None, False
@@ -215,14 +216,13 @@ class Entscheider:
             # Der Arm bleibt, wo er ist; beim naechsten START faehrt er zuerst in die Fahrstellung.
             if self.ablauf is not None and self.ablauf.braucht_arm:
                 self._ereignis(jetzt, f'{self.ablauf.name}: abgebrochen (Fahrprogramm aus)', 'info')
-                if self.ablauf.arm_bewegt or self.ablauf.name == 'wegraeumen':
-                    self.arm_zurueck_noetig = True
-                self.ablauf = None
+                self._ablauf_abbrechen()
         neues_bild = w.get('bild_nr', -1) != self.letzte_bild_nr
         if neues_bild:
             self.letzte_bild_nr = w.get('bild_nr', -1)
-            if any(o['name'] in LEBEWESEN | FAHRZEUGE for o in w.get('objekte', [])):
+            if akteure_nah(w):                 # nur nahe zaehlen (Hintergrund haelt das Wegraeumen nicht auf)
                 self.lebewesen_zuletzt = jetzt
+                self.lebewesen_bild = w.get('bild_zeit', 0.0)
             if self.ablauf is None and self.arm_in_fahrstellung:
                 # Ampel/Schild nur zaehlen, wenn die Kamera normal nach vorne schaut (nicht beim
                 # Umschauen oder Greifen). Sonst liefe z. B. die Haltezeit am Stoppschild waehrend
@@ -239,14 +239,24 @@ class Entscheider:
                     self.zebra_merk = (w['zebra']['abstand'], w.get('strecke'), jetzt)
         if self.zebra_gesperrt and self.ablauf is None and jetzt - self.zebra_zuletzt > self.c['zebra_weg']:
             self.zebra_gesperrt = False  # ueber den Zebrastreifen drueber
-        w = dict(w, neues_bild=neues_bild)
+        # Kamera (am Arm) schaut gleich wieder nach vorne, faehrt aber noch dahin? Dann zaehlt ein Ablauf die Bilder
+        # noch nicht (Zentrale misst dann keine Tiefe). Ohne Fahrt (TEST/STOPP) faehrt der Arm gar nicht zurueck.
+        arm_kommt = (self.arm_zurueck_noetig and self.fahrt_aktiv) or jetzt < self.arm_warten_bis
+        w = dict(w, neues_bild=neues_bild, kamera_vorne=not arm_kommt)
 
         befehl = self._entscheide(jetzt, w)
         befehl = self._blockade(jetzt, w, befehl)
         # Arm zuerst zurueck in Fahrstellung, bevor wieder gefahren wird
         # (nicht waehrend einer Notbremse: dann ist etwas sehr nah am Roboter)
-        if self.arm_zurueck_noetig and self.fahrt_aktiv and not befehl['grund'].startswith('NOTBREMSE'):
+        notbremse = befehl['grund'].startswith('NOTBREMSE')
+        halten = self._akteur_haelt_arm(jetzt, w) if self.arm_zurueck_noetig and self.fahrt_aktiv else None
+        if halten and not notbremse:
+            # Arm kommt vom Wegraeumen und eine Person/ein Tier/ein Fahrzeug ist in Sicht (oder es fehlen frische Bilder,
+            # dann ist nichts geprueft): Arm bleibt, wo er ist, und der Roboter steht
+            befehl = self._b('stopp', f'Arm muss zurueck in Fahrstellung, aber {halten} -> warte')
+        elif self.arm_zurueck_noetig and self.fahrt_aktiv and not notbremse:
             self.arm_zurueck_noetig = False
+            self.arm_zurueck_wegraeumen = False
             self.arm_warten_bis = jetzt + self.c['arm_zeit']
             befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung', arm='fahrstellung')
         elif jetzt < self.arm_warten_bis and befehl['aktion'] != 'stopp':
@@ -310,9 +320,7 @@ class Entscheider:
                 # Wegraeumen pausiert waehrend der Notbremse (kein neuer Arm-Befehl). Dauert es zu lange: abbrechen.
                 # Der Arm faehrt erst nach der Notbremse zurueck (dann ist nichts mehr direkt am Roboter).
                 self._ereignis(jetzt, 'Wegraeumen abgebrochen: Notbremse dauert zu lange', 'stopp')
-                if a.arm_bewegt:
-                    self.arm_zurueck_noetig = True
-                self.ablauf = None
+                self._ablauf_abbrechen(nur_wenn_bewegt=True)
                 self.aufheben_gesperrt = True
                 self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen abgebrochen (Notbremse)', False
             return self._b('stopp', f'NOTBREMSE: LiDAR {d * 100:.0f} cm (ohne KI-Pruefung)')
@@ -375,10 +383,15 @@ class Entscheider:
                 self.bestaetigt, self.bestaetigt_lebewesen = None, False
             if self.bestaetigt:
                 return self._b('stopp', f'{self.bestaetigt} -> warte, bis der Weg frei ist')
+            if tiefe_im_weg and self.geprueft_frei:
+                # vorhin nur der LiDAR (Kamera sah nichts), jetzt sieht die Tiefenkamera etwas: neu anschauen
+                self._ereignis(jetzt, 'Tiefenkamera sieht jetzt etwas -> schaue nochmal hin', 'info')
+                self.geprueft_frei = False
             if not self.geprueft_frei:
                 planer = self.planer if self._darf_arm() else None
                 return self._ablauf_start(jetzt, Wegraeumen(jetzt, c, planer, self._darf_greifen, self.rueckmeldung,
-                                                            self.warum_kein_arm()))
+                                                            self.warum_kein_arm(),
+                                                            pruefblick=bool(self.posen.get('pruefblick'))))
             # Kamera hat hingeschaut und sieht nichts, nur der LiDAR meldet etwas (z. B. Hauskante in der Kurve)
             if d is not None and d < c['lidar_halt']:
                 return self._b('stopp', f'LiDAR: etwas {d * 100:.0f} cm im Weg, Kamera sieht nichts -> halte')
@@ -461,11 +474,37 @@ class Entscheider:
         ablauf.ereignisse.clear()
         return self._mit_faktor(b) if b else self._b('stopp', ablauf.name)
 
+    def _ablauf_abbrechen(self, nur_wenn_bewegt=False):
+        """Laufenden Ablauf verwerfen (Arm ausgeschaltet, STOPP/Statusausfall, Notbremse zu lange). Beim Wegraeumen
+        bleibt die Stelle gemerkt, an der die Kamera das Hindernis zuletzt gesehen hat: Fehlende neue Treffer sind
+        danach keine Freisicht (sonst faehrt er nach der Armrueckkehr drueber). Frei erst wie sonst auch: Kamera sieht
+        die Stelle frei, oder ausdruecklicher START."""
+        a, self.ablauf = self.ablauf, None
+        if a.arm_bewegt or (a.name == 'wegraeumen' and not nur_wenn_bewegt):
+            self.arm_zurueck_noetig = True
+        if a.arm_bewegt and a.name == 'wegraeumen':
+            self.arm_zurueck_wegraeumen = True     # Arm steht wirklich woanders: erst zurueck, wenn niemand in Sicht
+        if a.name == 'wegraeumen' and a.merk is not None:
+            self.hindernis_merk = a.merk
+
+    def _akteur_haelt_arm(self, jetzt, w):
+        """Armrueckkehr nach einem Wegraeumen zurueckhalten? Grund (Text) oder None. Frei ist es erst, wenn ein FRISCHES
+        Bild mindestens 2 s nach der letzten Sichtung niemanden mehr zeigt - ausbleibende Bilder sind keine Freipruefung."""
+        if not self.arm_zurueck_wegraeumen:
+            return None
+        bild = w.get('bild_zeit', 0.0)
+        if jetzt - bild > self.c['ki_max_alter']:
+            return 'KI liefert keine frischen Bilder'
+        if bild - self.lebewesen_bild < 2.0 or jetzt - self.lebewesen_zuletzt < 2.0:
+            return 'jemand ist in Sicht'
+        return None
+
     def _ablauf_ende(self, jetzt):
         a = self.ablauf
         self.ablauf = None
         if a.arm_bewegt:
             self.arm_zurueck_noetig = True
+            self.arm_zurueck_wegraeumen = self.arm_zurueck_wegraeumen or a.name == 'wegraeumen'
         if a.name == 'zebra':
             self.zebra_gesperrt = True
             self.zebra_merk = None
@@ -548,8 +587,9 @@ class Entscheider:
     def arm_in_fahrstellung(self):
         """Schaut die Kamera (am Arm) normal nach vorne? Nur dann stimmen Draufsicht, Linie und
         Tiefenkamera-Bodenmodell. Waehrend der Arm zurueckfaehrt (arm_warten_bis) noch nicht."""
+        a = self.ablauf                    # einmal lesen: die KI fragt aus einem anderen Thread
         return (not self.arm_zurueck_noetig and self.jetzt >= self.arm_warten_bis
-                and not (self.ablauf is not None and self.ablauf.arm_bewegt))
+                and not (a is not None and a.arm_bewegt))
 
     @staticmethod
     def _b(aktion, grund, faktor=None, arm=None):

@@ -23,15 +23,18 @@ class Lauf:
     def schritt(self, n=1, **w):
         befehl = None
         for _ in range(n):
+            # Eigener Planerthread: auf sein Ergebnis warten, bevor die Testuhr weitergeht.
+            a = self.e.ablauf
+            ende = time.monotonic() + 3.0
+            while a is not None and a.phase in ('vorpruefen', 'planen') and getattr(a, 'plan', 1) is None:
+                if time.monotonic() >= ende:
+                    raise AssertionError(f'Testplaner in {a.phase} wurde nicht fertig')
+                time.sleep(0.001)
             self.t += 0.1
             self.nr += 1
             daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None,
                      'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False}
             daten.update(w)
-            a = self.e.ablauf
-            ende = time.time() + 3.0
-            while a is not None and a.phase == 'planen' and getattr(a, 'plan', 1) is None and time.time() < ende:
-                time.sleep(0.001)      # Planer rechnet in einem eigenen Thread: Testzeit laeuft sonst davon
             befehl = self.e.update(self.t, daten)
         return befehl
 
@@ -295,6 +298,45 @@ print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> {STANDARD['versuche
       f"({len(arme)} Armbewegungen, {b['grund']})")
 pruefe('kein dritter Versuch, solange er da liegt', l.schritt(30, objekt=NAH), 'stopp', None)
 pruefe('Wuerfel weg -> weiter', l.schritt(30), 'fahren')
+# Zu nah fuer die Kamera: Pruefblick (Kamera nach unten) statt zurueckfahren, dort messen, greifen und kontrollieren
+PRUEF_POSEN = dict(POSEN, pruefblick=[90, 120, 10, 0, 90, 30])
+PRUEF_OBJ = dict(WUERFEL, vor=0.18, blick='pruef', blick_winkel=PRUEF_POSEN['pruefblick'])
+l = Lauf(arm_erlaubt=True, posen=PRUEF_POSEN, planer=planer)
+pose, gegriffen, posen_folge, b = 'fahrstellung', False, [], None
+for _ in range(400):
+    da = not gegriffen
+    b = l.schritt(1, lidar=0.18 if da else float('inf'),
+                  objekt=PRUEF_OBJ if da and pose == 'pruefblick' else None)
+    a = b['arm']
+    if isinstance(a, dict) and a.get('pose'):
+        pose = a['pose']
+        posen_folge.append(pose)
+    elif a == 'fahrstellung':
+        pose = 'fahrstellung'
+        posen_folge.append(pose)
+    elif isinstance(a, dict) and a.get('winkel'):
+        pose = 'bewegt'
+        gegriffen = gegriffen or a['winkel'][5] == 130
+    if b['aktion'] == 'fahren':
+        break
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = (posen_folge[:1] == ['pruefblick'] and gegriffen and posen_folge.count('pruefblick') >= 2
+      and any(t.startswith('Hindernis im Pruefblick gesehen') for t in texte)
+      and not any('fahre etwas zurueck' in t for t in texte) and b['aktion'] == 'fahren')
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} zu nah -> Pruefblick, dort vermessen, gegriffen, im Pruefblick kontrolliert, "
+      f"weiter (Posen {posen_folge}, {b['grund']})")
+l = Lauf(arm_erlaubt=True, posen=PRUEF_POSEN, planer=planer)
+gruende = []
+for _ in range(120):
+    b = l.schritt(1, lidar=0.18)
+    gruende.append(b['grund'])
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = (sum('Pruefblick: nichts gesehen' in t for t in texte) == 1 and any('fahre etwas zurueck' in g for g in gruende))
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Pruefblick sieht nichts -> Kamera zurueck, dann wie bisher etwas zurueck "
+      f"({b['grund']})")
+
 # Keine Ablagestelle: schon VOR dem Heranfahren erkennen und gar nicht erst losfahren
 l = Lauf(arm_erlaubt=True, posen=POSEN,
          planer=lambda o, s: {'fehler': 'keine erreichbare Ablagestelle (Test)', 'ablage_fehlt': True})

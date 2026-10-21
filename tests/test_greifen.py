@@ -40,6 +40,31 @@ p = greifen.plane({'vor': 0.16, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.04}, -1
 pruefe('greifen ja, ablegen nein -> ablage_fehlt, kein Naeherfahren', p.get('ablage_fehlt') and not p.get('naeher'),
        p.get('fehler'))
 
+# ---------------- Greifkraft nach Breite, Ausprobieren begrenzt ----------------
+a3, z3 = armlib.greifer_fuer_breite(0.03)
+a5, z5 = armlib.greifer_fuer_breite(0.05)
+pruefe('Greifer: breiter -> weniger weit zu, nie ueber greifer_zu, erst anlegen, dann zu',
+       z5 < z3 <= armlib.greifer_werte()[1] and a3 < z3 and a5 < z5, f'3 cm: {a3}/{z3}, 5 cm: {a5}/{z5}')
+p = greifen.plane({'vor': 0.16, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.04}, -1, kin.inverse,
+                  [90, 120, 10, 20, 90, 30], 30, z5, anlegen=a5, erkunden=False)
+texte = [t for t, _, _ in p.get('schritte', [])]
+pruefe('mit anlegen: erst Greifer anlegen, dann zugreifen', texte.index('Greifer anlegen') + 1 == texte.index('zugreifen'))
+
+
+class Wild:
+    """Politik, die beim Ausprobieren 4 cm daneben vorschlaegt."""
+    schluessel = 'test'
+
+    def vorschlag(self, obj, rng, erkunden):
+        return np.array([0.0, 0.04, 0.0]), np.zeros(3)
+
+
+p = greifen.plane({'vor': 0.16, 'seite': 0.0, 'breite': 0.03, 'hoehe': 0.07}, -1, kin.inverse,
+                  [90, 120, 10, 20, 90, 30], 30, 130, politik=Wild())
+r = greifen.spielraum({'vor': 0.16, 'seite': 0.0, 'breite': 0.03, 'hoehe': 0.07})[0]
+pruefe('Ausprobieren bleibt im Spielraum des Greifers', abs(p['korrektur'][1]) <= greifen.ERKUNDEN_ANTEIL * r + 1e-9,
+       f"{p['korrektur'][1] * 100:.1f} cm")
+
 # ---------------- Regel: wann ist gegriffen? ----------------
 pruefe('Greifer mittig im Wuerfel -> gegriffen', greifen.trifft((0.27, 0.0, 0.02), (0.27, 0.0), 0.045, 0.045)[0])
 pruefe('3 cm daneben -> nicht gegriffen', not greifen.trifft((0.30, 0.0, 0.02), (0.27, 0.0), 0.045, 0.045)[0])

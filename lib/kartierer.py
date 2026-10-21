@@ -15,6 +15,7 @@
 #                   Faehrt der Roboter dabei eine Kurve, wird jeder Strahl auf seine Messzeit zurueckgerechnet.
 #   Kamera          Bodenfoto nur mit der Position ZUR AUFNAHMEZEIT und nur, wenn der Abgleich gerade sicher ist.
 import math
+import statistics
 import time
 
 import numpy as np
@@ -74,13 +75,13 @@ class Uhr:
             return self._ohne_stempel(empfang)
         self.letzter = stamp
         self.versatz = (self.versatz + [empfang - stamp])[-100:]
-        v = np.array(self.versatz)
-        if -0.05 < float(np.median(v)) < 1.0:
+        # statistics.median: gleiches Ergebnis wie np.median, bei jeder IMU-/Odometrie-Nachricht aber viel schneller
+        if -0.05 < statistics.median(self.versatz) < 1.0:
             self.art = 'synchron'
             t = stamp
         else:
             self.art = 'eigene Uhr'
-            t = stamp + float(v.min())
+            t = stamp + min(self.versatz)
         if not (empfang - 2.0 < t < empfang + 0.05):
             return self._ohne_stempel(empfang)
         return t

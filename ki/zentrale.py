@@ -37,6 +37,7 @@ for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ.setdefault(_v, '1')
 
 import cv2  # noqa: E402
+cv2.setNumThreads(1)   # OpenCV-Threads (pthreads, OMP_NUM_THREADS wirkt nicht): gleiche Wandzeit, halbe CPU
 import numpy as np
 import rclpy
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -59,8 +60,9 @@ from zebra import finde_zebra  # noqa: E402
 import lidar          # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
-from tiefe import Bodenmodell        # noqa: E402
+from tiefe import Bodenmodell, abstand_im_kasten, tiefe_passt   # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
+from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
 
 # Diese Dinge fuehren zum Anhalten, wenn die Kamera-KI sie im Weg sieht. Nur Verkehrsteilnehmer:
 # Moebel/Gegenstaende (Stuhl, Flasche ...) erkennt YOLO oft falsch, z. B. die schwarze Kurve als "Stuhl".
@@ -108,6 +110,9 @@ class Zentrale(Node):
         dp('weg_rechts', 0.8)
         dp('weg_unten_min', 0.5)        # ... Unterkante in der unteren Bildhaelfte ...
         dp('weg_min_hoehe', 0.15)       # ... und gross genug (= nah)
+        # Wegraeumen: nur Personen/Tiere/Fahrzeuge zaehlen, die so nah sind (m ab Kamera, Tiefenkamera). Weiter weg
+        # (Hintergrund) halten sie das Wegraeumen nicht auf. Ohne sichere Tiefe im Kasten zaehlen sie (vorsichtig).
+        dp('akteur_nah', 1.0)
         dp('scan_topics', ['/scan0', '/scan1'])
         dp('scan_front_deg', [0.0, 0.0])
         dp('obstacle_half_deg', 30.0)
@@ -157,6 +162,7 @@ class Zentrale(Node):
         self.lock = threading.Lock()
         self.bild = None                # neuestes Kamerabild (ROS-Nachricht)
         self.tiefe = None
+        self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scans = {}
         self.wahrnehmung = {'bild_nr': 0, 'bild_zeit': 0.0, 'objekte': [], 'ampel': None,
                             'stoppschild': False, 'tiefe_hindernis': None}
@@ -164,6 +170,19 @@ class Zentrale(Node):
         self.ki_ms = 0.0
         # Tiefenkamera prueft denselben Fahrweg wie der LiDAR (halbe Fahrschlauch-Breite)
         self.boden = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+        # Pruefblick (Kamera steiler nach unten, fuer Hindernisse zu nah fuer die Fahrstellung): eigenes Kameramodell
+        self.boden_pruef = None
+        if self.posen.get('fahrstellung') and self.posen.get('pruefblick'):
+            try:
+                cfg = armlib.kamera_fuer_pose(self.kamera_cfg, self.posen['fahrstellung'], self.posen['pruefblick'],
+                                              self.eigene_kin.g)
+            except Exception as e:      # Masse kaputt -> ohne Pruefblick
+                self.get_logger().warn(f'Pruefblick: Kameramodell nicht berechenbar ({e})')
+                cfg = None
+            if cfg:
+                self.boden_pruef = Bodenmodell(cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+                # wird nie gelernt (Boden dort unbekannt): sofort mit Korrektur 0 messen, sonst lieferte es nie etwas
+                self.boden_pruef.gelernt = self.boden_pruef.c['lern_bilder']
         self.ampel_werte = lade_ampel_werte()
 
         self.yolo, self.yolo_fehler = None, ''
@@ -221,7 +240,7 @@ class Zentrale(Node):
         st = pol.lernstand()
         self._sende_ereignis(time.time(), f"Arm: {'KI darf ihn bewegen' if arm_erlaubt else 'fuer die KI AUS'}; "
                              f"Kinematik: {self.kinematik_text()}; Greif-Lernen: {st['herkunft']}, "
-                             f"{st['versuche']} eigene Versuche", 'info')
+                             f"{st['versuche']} eigene Versuche; Greifer: {armlib.greifer_stand()}", 'info')
 
     # ---------------- Arm, Greifen, Lernen ----------------
     def _arm_einstellung(self):
@@ -262,11 +281,11 @@ class Zentrale(Node):
     # ---------------- Eingaenge ----------------
     def _bild(self, msg):
         with self.lock:
-            self.bild = msg
+            self.bild, self.bild_empfang = msg, time.monotonic()
 
     def _tiefe(self, msg):
         with self.lock:
-            self.tiefe = msg
+            self.tiefe, self.tiefe_empfang = msg, time.monotonic()
 
     def _scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
@@ -378,12 +397,13 @@ class Zentrale(Node):
             start = time.time()
             with self.lock:
                 msg, tmsg = self.bild, self.tiefe
+                empfang = (self.bild_empfang, self.tiefe_empfang)
             if msg is None or msg is letzte:
                 time.sleep(0.02)
                 continue
             letzte = msg
             try:
-                self._auswerten(msg, tmsg)
+                self._auswerten(msg, tmsg, empfang)
             except Exception as e:
                 self.get_logger().error(f'KI-Fehler: {e}', throttle_duration_sec=5.0)
             dauer = time.time() - start
@@ -394,7 +414,7 @@ class Zentrale(Node):
             if rest > 0:
                 time.sleep(rest)
 
-    def _auswerten(self, msg, tmsg):
+    def _auswerten(self, msg, tmsg, empfang=(None, None)):
         img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         h, w = img.shape[:2]
         t0 = time.time()
@@ -408,7 +428,7 @@ class Zentrale(Node):
                                and self.p('weg_links') <= mitte <= self.p('weg_rechts')
                                and (y + bh) / h >= self.p('weg_unten_min') and bh / h >= self.p('weg_min_hoehe'))
             if o['name'] == 'Ampel' and bh / h >= self.p('ampel_min_hoehe'):
-                o['farbe'] = ampel.farbe_in_box(img, o['box'])
+                o['farbe'] = ampel.farbe_in_box(img, o['box'], cfg=self.ampel_werte)
                 if o['farbe'] and ampel_farbe is None:
                     ampel_farbe, ampel_quelle = o['farbe'], f"KI {o['sicher']:.0%}"
             if o['name'] == 'Stoppschild' and bh / h >= self.p('schild_min_hoehe'):
@@ -434,16 +454,35 @@ class Zentrale(Node):
             vogel = self.linien_sucher.vogel(img)     # nur die Draufsicht, die Linie sucht der Linienfolger
             zebra = finde_zebra(vogel, self.linien_sucher.RASTER, self.linien_sucher.VORNE[1])
 
-        tiefe_hindernis, tiefe_obj = None, None
-        if tmsg is not None and fahrstellung:
+        d = None
+        if tmsg is not None:
             d = self.bridge.imgmsg_to_cv2(tmsg, 'passthrough').astype(np.float32)
             if tmsg.encoding != '32FC1':
                 d /= 1000.0  # Millimeter -> Meter
+        # Abstand von Personen/Tieren/Fahrzeugen nur aus einem Tiefenbild, das zeitlich zu DIESEM Farbbild gehoert
+        def stempel(m):
+            s = getattr(getattr(m, 'header', None), 'stamp', None)
+            return None if s is None else s.sec + s.nanosec * 1e-9
+        d_akteur = d if d is not None and tiefe_passt(stempel(msg), stempel(tmsg), *empfang) else None
+        for o in objekte:
+            if o['name'] in LEBEWESEN | FAHRZEUGE:
+                # Abstand ab Kamera (egal, wohin der Arm sie gerade richtet): nur Nahe zaehlen beim Wegraeumen.
+                # Ohne passende Tiefe: unsicher -> nah
+                o['abstand'] = abstand_im_kasten(d_akteur, o['box'], (h, w))
+                o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
+        tiefe_hindernis, tiefe_obj = None, None
+        if d is not None and fahrstellung:
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
             tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
             if tiefe_obj:
                 tiefe_obj['quelle'] = 'tiefe'
+        elif (d is not None and self.boden_pruef is not None
+              and self.arm_beobachter.in_pose(self.posen['pruefblick'], time.time())):
+            # Arm steht im Pruefblick: mit dessen Kameramodell messen (Boden dort nicht gelernt -> nicht lernen)
+            tiefe_hindernis, tiefe_obj = self.boden_pruef.pruefe(d, lernen=False)
+            if tiefe_obj:
+                tiefe_obj.update(quelle='tiefe', blick='pruef', blick_winkel=list(self.posen['pruefblick']))
 
         self.ki_ms = (time.time() - t0) * 1000
         with self.lock:
@@ -551,7 +590,8 @@ class Zentrale(Node):
             'stoppschild': w['stoppschild'], 'schild_quelle': w.get('schild_quelle'),
             'tiefe_hindernis': w['tiefe_hindernis'],
             'objekte': [{'name': o['name'], 'sicher': o['sicher'], 'im_weg': o.get('im_weg', False),
-                         'farbe': o.get('farbe')} for o in w['objekte']],
+                         'farbe': o.get('farbe'), 'abstand': o.get('abstand'), 'nah': o.get('nah')}
+                        for o in w['objekte']],
             'arm_erlaubt': self.entscheider.arm_freigabe,
             'arm_status': self.entscheider.warum_kein_arm() or 'bereit (KI darf wegraeumen)',
             'kinematik': self.kinematik_text(),
@@ -569,10 +609,12 @@ class Zentrale(Node):
         obj: gemessenes Hindernis (Tiefenkamera, Roboter-System), seite: Ablage +1 links / -1 rechts.
         Zielpunkt + gelernte Korrektur (lib/greifen.py), probiert dabei etwas aus (lernt daraus)."""
         fahr = self.posen['fahrstellung']
-        auf, zu = armlib.greifer_werte()
+        auf = armlib.greifer_werte()[0]
+        g = armlib.greifer_plan(obj['breite'])
+        anlegen, zu = g['anlegen'], g['zu']
         kin = self.yahboom_kin
         if kin is not None and kin.bereit() and obj.get('pixel') and obj.get('tiefe_m'):
-            p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], fahr)
+            p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], obj.get('blick_winkel') or fahr)
             if p is None:
                 return {'fehler': 'Yahboom-Kinematik antwortet nicht'}
             # Kamerapunkt liegt auf der Vorderseite/Oberseite -> etwas weiter hinein greifen.
@@ -588,11 +630,12 @@ class Zentrale(Node):
                         return w
                 return None
             plan = greifen.plane(obj, seite, ik, fahr, auf, zu,
-                                 self._politik('yahboom'), punkt=punkt, boden=boden)
-            plan['info'] = plan.get('info', '') + ' (Yahboom-Kinematik)'
+                                 self._politik('yahboom'), punkt=punkt, boden=boden, anlegen=anlegen)
+            plan['info'] = plan.get('info', '') + f" (Yahboom-Kinematik, {g['text']})"
             return plan
-        plan = greifen.plane(obj, seite, self.eigene_kin.inverse, fahr, auf, zu, self._politik(self.eigenes_modell))
-        plan['info'] = plan.get('info', '') + f' (eigene Kinematik, {self.kin_quelle})'
+        plan = greifen.plane(obj, seite, self.eigene_kin.inverse, fahr, auf, zu, self._politik(self.eigenes_modell),
+                             anlegen=anlegen)
+        plan['info'] = plan.get('info', '') + f" (eigene Kinematik, {self.kin_quelle}, {g['text']})"
         return plan
 
     def _arm_befehl(self, arm):
