@@ -40,12 +40,13 @@ Automatische native Codex-Reviews einschließlich Security laufen auf jedem Push
 
 [PR #54](https://github.com/BBS-GuT/smartcity-roboter/pull/54) zu #68 ist auf der genannten Basis integriert: `AGENTS.md` und `docs/entwicklung/D-reviewbot.md` sind geliefert. Dieser Auftrag ist abgeschlossen und keine erneute Dateizuteilung.
 
+Dieses Dokument ist die Lieferung zu [#93 / PR #94](https://github.com/BBS-GuT/smartcity-roboter/pull/94), ausschließlich auf Branch `docs/gb-d1-auftragsstatus`. Mit dem tatsächlichen Merge ist dieser Dokumentationsauftrag abgeschlossen; er ist nicht erneut zuzuteilen. Workflows, Tests und Produktdateien gehören nicht zu dieser Lieferung.
+
 ## Noch offene kleine Aufträge und Dateibesitz
 
 - [#69 / PR #92](https://github.com/BBS-GuT/smartcity-roboter/pull/92): aktuelle Beitrags- und Betriebsanleitung, ausschließlich `CONTRIBUTING.md` und `docs/entwicklung/D1-ci-betrieb.md`.
 - [BBS-PR #80](https://github.com/BBS-GuT/smartcity-roboter/pull/80), Branch `docs/gb-bbs-auftragsabgleich`: offener Registerauftrag der Orchestrierung für `docs/auftraege/README.md`. Der bereits importierte Produkt-Merge `d92e366` gehört zum früheren Quellrepository und dessen gleich nummeriertem PR #80, nicht zu diesem BBS-PR.
 - [#96 / PR #97](https://github.com/BBS-GuT/smartcity-roboter/pull/97): ausschließlich die gemeinsamen Regeln in `docs/auftraege/00-gemeinsame-regeln.md` auf den BBS-Betrieb abgleichen.
-- [#93](https://github.com/BBS-GuT/smartcity-roboter/issues/93): ausschließlich dieses Auftragsdokument auf Branch `docs/gb-d1-auftragsstatus` korrigieren. Keine Workflows, Tests oder Produktdateien mitändern.
 
 Jede Lieferung nennt Basis, Head, genaue Dateien, tatsächliche CI und offene Abnahmen. Vor Merge müssen der aktuelle Codex-Review, CI und die erforderliche unabhängige Freigabe vorliegen. Kleine Folgefehler werden als eigene Aufgaben mit Dateigrenze vergeben. Produktmodule und fachliche Tests bleiben bei ihren zugeteilten Besitzern; keine Erwartungen oder Grenzwerte für einen grünen Lauf abschwächen.
 
