@@ -8,7 +8,7 @@ Fachliche Orientierung ist die [Zieldefinition](../zieldefinition-grundbetrieb.m
 
 ## Review verwenden
 
-In den [Codex-Review-Einstellungen](https://chatgpt.com/settings/code-review) wird das verbundene BBS-Repository ausgewählt. `Automatic review` steuert die Automatik; für Team-PRs gibt es `All PRs` beziehungsweise `Follow personal preferences`. Bei letzterer Auswahl wirken die persönlichen Einstellungen mit. `Review trigger` bestimmt die Auslösung. Die aktuell gewählten Optionen sind in der angemeldeten Oberfläche sichtbar.
+Im BBS-Repository laufen Code Review und Security Review automatisch auf jedem Push. In den [Codex-Review-Einstellungen](https://chatgpt.com/settings/code-review) sind Automatik, persönliche Einstellungen und `Review trigger` sichtbar. Die Einrichtung ist abgeschlossen; dieser Auftrag ändert keine Einstellungen.
 
 Ein Review lässt sich im PR mit `@codex review` anfordern. Die Bot-Zusammenfassung nennt Status, geprüften Commit und Auslöser. Sie wird bei weiteren Reviews fortgeschrieben; das Ergebnis muss deshalb zur gewünschten Commit-SHA passen. Eine manuelle Anforderung belegt keinen automatischen Start.
 
@@ -20,10 +20,19 @@ Die [offizielle OpenAI-Dokumentation](https://learn.chatgpt.com/docs/third-party
 | --- | --- |
 | Automatisch bei neuem prüfbereitem PR | [PR #57](https://github.com/BBS-GuT/smartcity-roboter/pull/57#issuecomment-6311814166): `PR opened`, Commit `ca791ca`, um 10:42 MESZ abgeschlossen, ohne Befunde und ohne manuellen Aufruf. |
 | Manuelle Anforderung | [Anforderung an PR #78](https://github.com/BBS-GuT/smartcity-roboter/pull/78#issuecomment-6312470288) vom 21.10.2026, 11:18 MESZ: mit `@codex review` ausgelöst. Die [fortgeschriebene Bot-Zusammenfassung](https://github.com/BBS-GuT/smartcity-roboter/pull/78#issuecomment-6312475473) nennt `Manual request` und jeweils den zuletzt geprüften Commit. Das belegt keine automatische Auslösung. |
-| Draft → Ready und neuer Push | Für diese Ereignisse liegt hier kein gesonderter, eindeutig zugeordneter Automatiknachweis vor. |
+| Neuer Push | Die [Bot-Zusammenfassung an PR #54](https://github.com/BBS-GuT/smartcity-roboter/pull/54#issuecomment-6313083150) nennt für `36d80d134f2314ed8c87b7a2af5d087b99470d7a` bei Code Review und Security Review den Auslöser `New commits`. Das belegt den automatischen Start; der Code Review war beim Abgleich noch laufend. |
+| Draft → Ready | Hier weiterhin kein gesonderter, eindeutig zugeordneter Automatiknachweis. |
 | Erkennungsqualität der kurzen Regeln | Noch nicht systematisch mit einer Regelverletzung, einem zulässigen Gegenfall und einer unabhängigen harmlosen Änderung geprüft. Die beobachteten Reviews belegen keine vollständige Fehlererkennung. |
 
 Eine zusätzliche Testserie oder Änderung von Einstellungen und Kontingenten ist nicht Bestandteil dieses Dokumentationspakets.
+
+## CI und formale Freigabe
+
+Die integrierte [Freigabe-App](codex-mergefreigabe.md) überträgt ein sauberes natives Codex-Ergebnis und erfolgreiche Pflicht-CI für exakt den aktuellen Head in eine formale GitHub-Approval. Sie führt kein weiteres Produktreview aus und merged nicht. Die Anrechnung ist in [#95](https://github.com/BBS-GuT/smartcity-roboter/issues/95) und [#98](https://github.com/BBS-GuT/smartcity-roboter/issues/98) belegt: Installation mit Contents-Schreibrecht, kurzlebiger Job-Token weiterhin Contents-lesend. [PR #102](https://github.com/BBS-GuT/smartcity-roboter/pull/102) ergänzt die Prüfung der tatsächlichen Anrechnung vor einer Erfolgsmeldung.
+
+PRs mit Steuerungsdateien sind davon ausgeschlossen. Dazu gehören `AGENTS.md` und diese Anleitung; PR #54 braucht deshalb Davids unabhängige formale Codeowner-Freigabe zusätzlich zum nativen Codex-Review. Neue Commits verwerfen alte Freigaben gemäß Branchregel. Offene Reviewgespräche, erforderliche CI und die aktuelle Basis bleiben Mergebedingungen.
+
+Der echte [main-Push-Lauf 39597759051](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39597759051) auf `8ee57b6cec55b5d2f4eb0c8de04d814344e9bfe8` war am 21.10.2026 erfolgreich. Das ist ein datierter Integrationsnachweis; für einen späteren PR-Head zählen dessen eigene aktuelle Checks. Die drei D1-Pflichtchecks und ihr Betrieb sind in der [CI-Anleitung](D1-ci-betrieb.md) beschrieben.
 
 ## Grenzen
 
