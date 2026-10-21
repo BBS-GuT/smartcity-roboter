@@ -17,7 +17,7 @@ def run(api, number, **kwargs):
 
 
 def review(identifier=10, state="APPROVED", own=True, sha=SHA):
-    return {"id": identifier, "state": state, "commit_id": sha,
+    return {"id": identifier, "node_id": f"REVIEW_{identifier}", "state": state, "commit_id": sha,
             "user": {"id": IDENTITY["user_id"] if own else 123,
                      "login": IDENTITY["login"] if own else "developer", "type": "Bot" if own else "User"},
             "body": bridge.MARKER if own else "human review"}
@@ -62,6 +62,10 @@ class FakeAPI:
         self.effective_rules = None
         self.thread_pages = [{"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}]
         self.fail_after_write = False
+        self.counting_changes = {}
+        self.counting_missing = False
+        self.counting_error = False
+        self.counting_queries = []
 
     def get(self, path):
         if "/rulesets/" in path:
@@ -105,6 +109,18 @@ class FakeAPI:
         raise AssertionError(path)
 
     def graphql(self, query, variables):
+        if "authorCanPushToRepository" in query:
+            self.counting_queries.append(variables["id"])
+            if self.counting_error:
+                raise ValueError("counting API metadata unavailable")
+            node = {"databaseId": int(variables["id"].split("_")[-1]), "state": "APPROVED",
+                    "authorCanPushToRepository": True, "commit": {"oid": SHA},
+                    "author": {"__typename": "Bot", "login": IDENTITY["login"].removesuffix("[bot]")},
+                    "pullRequest": {"number": 1, "repository": {"databaseId": bridge.REPOSITORY_ID}}}
+            node.update(self.counting_changes)
+            if self.counting_missing:
+                del node["authorCanPushToRepository"]
+            return {"node": node}
         if "IssueComment" in query:
             return {"node": {"body": self.editor_body if self.editor_body is not None else self.comments[0]["body"],
                              "editor": self.editor}}
@@ -137,8 +153,70 @@ class ApprovalTests(unittest.TestCase):
 
     def test_idempotent_existing_current_approval(self):
         self.api.reviews = [review()]
-        self.assertEqual(run(self.api, 1, apply=True)["action"], "already-approved")
+        result = run(self.api, 1, apply=True)
+        self.assertEqual(result["action"], "already-approved")
+        self.assertIs(result["approval_counted"], True)
+        self.assertEqual(result["merge_readiness"], "not-evaluated")
         self.assertEqual(self.api.writes, [])
+
+    def test_uncounted_new_and_existing_reviews_never_report_success(self):
+        for existing in [False, True]:
+            for missing, value in [(False, False), (False, None), (True, None)]:
+                with self.subTest(existing=existing, missing=missing, value=value):
+                    self.api = FakeAPI()
+                    foreign = review(20, own=False)
+                    self.api.reviews = ([review()] if existing else []) + [foreign]
+                    self.api.counting_changes["authorCanPushToRepository"] = value
+                    self.api.counting_missing = missing
+                    result = run(self.api, 1, apply=True)
+                    self.assertEqual(result["action"], "uncounted")
+                    self.assertIs(result["approval_counted"], False)
+                    self.assertEqual(result["merge_readiness"], "not-evaluated")
+                    expected_id = 10 if existing else 999
+                    withdrawals = [row for row in self.api.writes if row[0] == "PUT"]
+                    self.assertEqual(len(withdrawals), 1)
+                    self.assertIn(f"/reviews/{expected_id}/dismissals", withdrawals[0][1])
+                    self.assertNotIn("/reviews/20/", withdrawals[0][1])
+                    self.assertEqual(self.api.reviews[-1], foreign)
+
+    def test_counting_api_errors_block_new_and_existing_reviews_safely(self):
+        for existing in [False, True]:
+            with self.subTest(existing=existing):
+                self.api = FakeAPI()
+                self.api.reviews = ([review()] if existing else []) + [review(20, own=False)]
+                self.api.counting_error = True
+                result = run(self.api, 1, apply=True)
+                self.assertEqual(result["action"], "blocked")
+                withdrawals = [row for row in self.api.writes if row[0] == "PUT"]
+                self.assertEqual(len(withdrawals), 1)
+                self.assertNotIn("/reviews/20/", withdrawals[0][1])
+
+    def test_counting_accepts_only_own_marker_app_and_exact_head(self):
+        foreign = review(20, own=False)
+        unmarked = review()
+        unmarked["body"] = "another review"
+        wrong_app = review()
+        wrong_app["performed_via_github_app"] = {"id": 15368}
+        for candidate in [foreign, unmarked, wrong_app, review(sha=OTHER)]:
+            with self.subTest(candidate=candidate):
+                self.assertFalse(bridge.counted_approval(self.api, candidate, 1, SHA, IDENTITY))
+        self.assertEqual(self.api.counting_queries, [])
+
+    def test_counting_metadata_must_match_own_review_and_head(self):
+        for key, value in [("databaseId", 11), ("state", "DISMISSED"),
+                           ("authorCanPushToRepository", "true"), ("commit", {"oid": OTHER}),
+                           ("author", {"__typename": "User", "login": "developer"}),
+                           ("pullRequest", {"number": 2, "repository": {"databaseId": bridge.REPOSITORY_ID}})]:
+            with self.subTest(key=key, value=value):
+                self.api = FakeAPI()
+                self.api.counting_changes[key] = value
+                self.assertFalse(bridge.counted_approval(self.api, review(), 1, SHA, IDENTITY))
+
+    def test_existing_counted_review_rechecks_current_head_before_success(self):
+        self.api.reviews = [review()]
+        self.api.heads = [SHA, OTHER]
+        self.assertEqual(run(self.api, 1, apply=True)["action"], "revoked-after-push")
+        self.assertEqual([row[0] for row in self.api.writes], ["PUT"])
 
     def test_ci_failure_revokes_only_own_marked_approval(self):
         self.api.reviews = [review(), review(identifier=11, own=False)]
