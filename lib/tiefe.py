@@ -119,13 +119,24 @@ class Bodenmodell:
         return True, objekt
 
 
-def abstand_im_kasten(tiefe_m, box, bild_groesse, anteil=15, min_gueltig=0.4):
+def tiefe_passt(stempel_bild, stempel_tiefe, empfang_bild, empfang_tiefe, max_s=0.15):
+    """Gehoert das Tiefenbild zeitlich zum Farbbild? Mit Zeitstempeln (beide > 0) nach diesen, sonst nach der
+    Empfangszeit. Ein altes Tiefenbild zeigt evtl. noch den Hintergrund, wo jetzt jemand steht."""
+    if stempel_bild and stempel_tiefe and stempel_bild > 0 and stempel_tiefe > 0:
+        return abs(stempel_bild - stempel_tiefe) <= max_s
+    if empfang_bild is None or empfang_tiefe is None:
+        return False
+    return abs(empfang_bild - empfang_tiefe) <= max_s
+
+
+def abstand_im_kasten(tiefe_m, box, bild_groesse, anteil=15, min_gueltig=0.7):
     """Wie weit ist ein von der Kamera-KI gefundenes Ding weg (m, ab Kamera)? box: (x, y, b, h) im Farbbild,
     bild_groesse: (Hoehe, Breite) des Farbbilds; das Tiefenbild darf eine andere Groesse haben (wird umgerechnet).
     Nimmt einen NAHEN Wert (anteil-Perzentil, Standard 15 %): im Kasten liegt auch Hintergrund (z. B. zwischen den
     Beinen), ein Teil davon ist das Ding selbst.
-    None = unsicher: weniger als min_gueltig des Kastens mit gueltiger Tiefe. Dann ist das Ding oft NAEHER als die
-    Tiefenkamera messen kann (die gueltigen Werte waeren nur der Hintergrund) -> der Aufrufer zaehlt es als nah."""
+    None = unsicher: weniger als min_gueltig (70 %) des Kastens mit gueltiger Tiefe. Die Luecken koennen genau das
+    Ding sein, wenn es NAEHER ist, als die Tiefenkamera messen kann - die gueltigen Werte waeren dann nur der
+    Hintergrund. Der Aufrufer zaehlt es dann als nah."""
     if tiefe_m is None:
         return None
     hd, wd = tiefe_m.shape[:2]

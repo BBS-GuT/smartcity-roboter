@@ -12,7 +12,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from raeum_lauf import AKTEURE, Lauf, bewegt  # noqa: E402
-from tiefe import abstand_im_kasten  # noqa: E402
+from tiefe import abstand_im_kasten, tiefe_passt  # noqa: E402
 
 OBJ = {'vor': 0.28, 'seite': 0.0, 'quer': 0.0, 'breite': 0.04, 'hoehe': 0.04, 'quelle': 'tiefe'}
 
@@ -96,6 +96,24 @@ class AbstandImKasten(unittest.TestCase):
         d = np.full((240, 320), 3.0, np.float32)
         d[40:220, 60:200] = 0.0                             # Person naeher als messbar: keine Tiefe
         self.assertIsNone(abstand_im_kasten(d, (100, 60, 320, 400), (480, 640)))
+
+    def test_unmessbarer_vordergrund_vor_hintergrund_ist_unsicher(self):
+        """55 % des Kastens ohne Tiefe (zu nah), 45 % ferner Hintergrund: nicht 'fern', sondern unsicher."""
+        d = np.full((240, 320), 3.0, np.float32)
+        d[0:40, 0:33] = 0.0                                 # 40 x 60 = 2400 Pixel Kasten, 1320 davon (55 %) leer
+        self.assertIsNone(abstand_im_kasten(d, (0, 0, 120, 80), (480, 640)))
+
+    def test_wenige_luecken_bleiben_messbar(self):
+        d = np.full((240, 320), 2.5, np.float32)
+        d[0:10, 0:10] = 0.0                                 # 10 % Luecken (dunkle Kleidung, Kanten)
+        self.assertAlmostEqual(abstand_im_kasten(d, (0, 0, 64, 64), (480, 640)), 2.5, places=3)
+
+    def test_tiefe_passt_zeitlich(self):
+        self.assertTrue(tiefe_passt(1000.0, 999.95, 5.0, 4.0))          # Stempel gehen vor Empfangszeit
+        self.assertFalse(tiefe_passt(1000.0, 997.0, 5.0, 5.0))          # altes Tiefenbild
+        self.assertTrue(tiefe_passt(0.0, 0.0, 5.0, 4.9))                # ohne Stempel: Empfangszeit
+        self.assertFalse(tiefe_passt(None, None, 5.0, 2.0))
+        self.assertFalse(tiefe_passt(None, None, 5.0, None))
 
     def test_ohne_tiefenbild(self):
         self.assertIsNone(abstand_im_kasten(None, (0, 0, 10, 10), (480, 640)))

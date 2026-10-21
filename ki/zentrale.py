@@ -60,7 +60,7 @@ from zebra import finde_zebra  # noqa: E402
 import lidar          # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
-from tiefe import Bodenmodell, abstand_im_kasten   # noqa: E402
+from tiefe import Bodenmodell, abstand_im_kasten, tiefe_passt   # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
 from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
 
@@ -162,6 +162,7 @@ class Zentrale(Node):
         self.lock = threading.Lock()
         self.bild = None                # neuestes Kamerabild (ROS-Nachricht)
         self.tiefe = None
+        self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scans = {}
         self.wahrnehmung = {'bild_nr': 0, 'bild_zeit': 0.0, 'objekte': [], 'ampel': None,
                             'stoppschild': False, 'tiefe_hindernis': None}
@@ -280,11 +281,11 @@ class Zentrale(Node):
     # ---------------- Eingaenge ----------------
     def _bild(self, msg):
         with self.lock:
-            self.bild = msg
+            self.bild, self.bild_empfang = msg, time.monotonic()
 
     def _tiefe(self, msg):
         with self.lock:
-            self.tiefe = msg
+            self.tiefe, self.tiefe_empfang = msg, time.monotonic()
 
     def _scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
@@ -396,12 +397,13 @@ class Zentrale(Node):
             start = time.time()
             with self.lock:
                 msg, tmsg = self.bild, self.tiefe
+                empfang = (self.bild_empfang, self.tiefe_empfang)
             if msg is None or msg is letzte:
                 time.sleep(0.02)
                 continue
             letzte = msg
             try:
-                self._auswerten(msg, tmsg)
+                self._auswerten(msg, tmsg, empfang)
             except Exception as e:
                 self.get_logger().error(f'KI-Fehler: {e}', throttle_duration_sec=5.0)
             dauer = time.time() - start
@@ -412,7 +414,7 @@ class Zentrale(Node):
             if rest > 0:
                 time.sleep(rest)
 
-    def _auswerten(self, msg, tmsg):
+    def _auswerten(self, msg, tmsg, empfang=(None, None)):
         img = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
         h, w = img.shape[:2]
         t0 = time.time()
@@ -457,10 +459,16 @@ class Zentrale(Node):
             d = self.bridge.imgmsg_to_cv2(tmsg, 'passthrough').astype(np.float32)
             if tmsg.encoding != '32FC1':
                 d /= 1000.0  # Millimeter -> Meter
+        # Abstand von Personen/Tieren/Fahrzeugen nur aus einem Tiefenbild, das zeitlich zu DIESEM Farbbild gehoert
+        def stempel(m):
+            s = getattr(getattr(m, 'header', None), 'stamp', None)
+            return None if s is None else s.sec + s.nanosec * 1e-9
+        d_akteur = d if d is not None and tiefe_passt(stempel(msg), stempel(tmsg), *empfang) else None
         for o in objekte:
             if o['name'] in LEBEWESEN | FAHRZEUGE:
-                # Abstand ab Kamera (egal, wohin der Arm sie gerade richtet): nur Nahe zaehlen beim Wegraeumen
-                o['abstand'] = abstand_im_kasten(d, o['box'], (h, w))
+                # Abstand ab Kamera (egal, wohin der Arm sie gerade richtet): nur Nahe zaehlen beim Wegraeumen.
+                # Ohne passende Tiefe: unsicher -> nah
+                o['abstand'] = abstand_im_kasten(d_akteur, o['box'], (h, w))
                 o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
         tiefe_hindernis, tiefe_obj = None, None
         if d is not None and fahrstellung:
