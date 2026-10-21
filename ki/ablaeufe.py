@@ -792,8 +792,9 @@ class Wegraeumen(Ablauf):
         if dreh:
             # erst auf der Stelle gerade drehen, dann heranfahren: beides zugleich brachte ihn in Greifweite, bevor er
             # gerade stand - dort sah die Kamera den Gegenstand nicht mehr (RM02 21.10.: "drehe +27 Grad", verloren).
-            # Drehen um die Mitte aendert den Abstand kaum, die Kamera behaelt ihn im Blick.
-            lin = 0.0
+            # Drehen um die Mitte aendert den Abstand kaum, die Kamera behaelt ihn im Blick. Auch nicht seitlich
+            # schieben: wirklich auf der Stelle (sonst verlaesst die Fahrzeughuelle die Spur)
+            lin = quer = 0.0
         if lin < 0 and (hinten is None or hinten < c['hinten_frei']):
             lin = 0.0                                          # rueckwaerts nur, wenn hinten frei
         text = f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm"

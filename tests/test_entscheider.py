@@ -805,6 +805,11 @@ dreht = [x for x in folge if x.get('manoever') and x['manoever']['dreh'] > 0]
 # RM02 21.10.: beim Drehen nicht zugleich vorfahren (sonst ist er in Greifweite, bevor er gerade steht)
 ok = (bool(dreht) and all(x['manoever']['lin'] == 0.0 for x in dreht)
       and l.e.ablauf is not None and l.e.ablauf.phase == 'abstand')
+l2 = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l2.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.05), weg=WEG_KURVE)
+folge2 = [l2.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.05), weg=WEG_KURVE) for _ in range(40)]
+dreht2 = [x for x in folge2 if x.get('manoever') and x['manoever']['dreh'] > 0]
+ok = ok and bool(dreht2) and all(x['manoever']['quer'] == 0.0 for x in dreht2)   # auch seitlich: auf der Stelle
 gerade = [l.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.0), weg=[(0.05 * k, 0.0) for k in range(1, 12)])
           for _ in range(10)]
 ok = ok and l.e.ablauf is not None and l.e.ablauf.phase in ('planen', 'naeher', 'ausfuehren')
