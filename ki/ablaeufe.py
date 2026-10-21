@@ -425,10 +425,12 @@ class Wegraeumen(Ablauf):
         if self.phase == 'zurueck':
             hinten = w.get('lidar_hinten')
             self.zurueck_gefahren -= self._gefahren(w, jetzt, -c['zurueck_tempo'])
-            # Zeitgrenze: melden die Radzaehler keine Bewegung (Rad blockiert), sonst ewig rueckwaerts
-            zu_lange = d > 1.5 * c['sicht_zurueck'] / c['zurueck_tempo'] + 1.0   # erwartete Zeit + Reserve
-            if zu_lange:
-                self.zurueck_gefahren = c['sicht_zurueck']    # kommt nicht zurueck: nicht nochmal versuchen
+            # Zeitgrenze: melden die Radzaehler keine Bewegung (Rad blockiert, Odometrie weg), sonst ewig rueckwaerts.
+            # Dann sicher anhalten und warten - nie so tun, als waere er zurueckgefahren (danach koennte "frei" folgen)
+            if (d > 1.5 * c['sicht_zurueck'] / c['zurueck_tempo'] + 1.0       # erwartete Zeit + Reserve
+                    and self.zurueck_gefahren < c['sicht_zurueck']):
+                return self._ende('fehler', 'Wegraeumen: Zurueckfahren klappt nicht (Radzaehler melden keine '
+                                            'Bewegung) -> warte', 'stopp')
             if hinten is None or hinten < c['hinten_frei'] or self.zurueck_gefahren >= c['sicht_zurueck']:
                 self._anschauen(jetzt)
                 return befehl('stopp', 'Hindernis: schaue nochmal hin')

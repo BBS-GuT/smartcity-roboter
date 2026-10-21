@@ -87,6 +87,32 @@ class Verloren(unittest.TestCase):
         self.assertTrue(any('aus den Augen verloren -> warte' in t for t in texte), texte)
         self.assertNotIn('fahren', w.aktionen)
 
+    def test_zurueckfahren_ohne_bewegung_ist_nicht_frei(self):
+        """Radzaehler melden beim Zurueckfahren keine Bewegung (Rad blockiert): nicht 'frei', sondern warten."""
+        w = Welt(start=GREIF - 0.03)
+        for _ in range(12):                    # gesehen ...
+            w.schritt(strecke=0.0)
+        w.sicht = 1.0                          # ... 5 cm nachgerollt: jetzt unter dem Blickfeld der Kamera
+        for _ in range(300):
+            w.schritt(strecke=0.05)            # Radzaehler stehen, obwohl er zurueckfahren will
+        texte = w.texte()
+        self.assertNotIn('fahren', w.aktionen)
+        self.assertTrue(any('Zurueckfahren klappt nicht' in t for t in texte), texte)
+        self.assertFalse(any('sehen nichts mehr -> weiter' in t for t in texte), texte)
+
+    def test_zurueckfahren_beim_anschauen_ohne_bewegung_ist_nicht_frei(self):
+        """Review PR #101: beim Anschauen nur kurz gesehen, dann zu nah -> zurueck; Radzaehler stehen. Darf nicht
+        'Kamera und LiDAR sehen nichts mehr -> weiter' werden (er fuehre ueber den Gegenstand)."""
+        w = Welt(start=0.24)
+        for _ in range(2):                     # zwei Bilder gesehen ...
+            w.schritt(strecke=0.0)
+        w.sicht = 1.0                          # ... dann nachgerollt, unter dem Blickfeld
+        for _ in range(300):
+            w.schritt(strecke=0.04)
+        texte = w.texte()
+        self.assertNotIn('fahren', w.aktionen)
+        self.assertFalse(any('sehen nichts mehr -> weiter' in t for t in texte), texte)
+
     def test_kein_rueckwaerts_heranfahren_ohne_platz_hinten(self):
         w = Welt(start=GREIF - 0.03)          # zu nah: er muesste zum Greifen zurueck
         for _ in range(100):
