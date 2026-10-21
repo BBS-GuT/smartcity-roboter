@@ -1,29 +1,27 @@
-# Hinweise für Entwicklungs- und Review-Aufträge
+# Hinweise für Agents
 
-## Entwicklung
-
-- Beachte [CONTRIBUTING.md](CONTRIBUTING.md), die [gemeinsamen Regeln](docs/auftraege/00-gemeinsame-regeln.md) und das [Auftragsregister](docs/auftraege/README.md). Arbeite im eigenen Checkout ab aktuellem `origin/main`; wahre Dateireservierungen und akzeptierte Schnittstellenübergaben.
-- Die [Zieldefinition](docs/zieldefinition-grundbetrieb.md) beschreibt den Sollzustand des Grundbetriebs. Sie bestätigt weder dessen vollständige Umsetzung noch eine Geräteabnahme. Dokumentierte Vorschläge und offene Messwerte sind keine Freigaben.
-- Prüfaufruf und verbindliche CI-Checknamen stehen in [D1-ci-betrieb.md](docs/entwicklung/D1-ci-betrieb.md). Softwaretests, ROS-Simulation und reale Geräte-/Brokerabnahme getrennt berichten; keine Gerätebefehle ohne eigenen abgestimmten Auftrag.
-- Kleine Commits und PRs zur menschlichen Prüfung liefern. Kein eigenständiger Merge nach `main`. Bei Reviews Befunde berichten; Reparaturen und Gerätefreigaben gehören nicht zum Review-Auftrag.
+Fachliche Grundlage ist die Zieldefinition:
+[Grundbetrieb](docs/zieldefinition-grundbetrieb.md).
 
 ## Code Review Rules
 
-### Sichere Bewegung und Sensorfreigabe
+- Lies die für die Änderung relevanten Abschnitte der Zieldefinition.
+  Prüfe auch Auswirkungen auf zusammenhängende Komponenten.
+  Unterscheide Anforderungen, Vorschläge und offene Festlegungen.
 
-- Prüfe die durch den Diff erreichbaren Bewegungswege einschließlich Abbiegen, Wenden, Wiederanfahrt und Fehlerübergängen. STOPP, Fehlersperre und erforderliche Sensorprüfungen müssen vor jedem Fahrbefehl greifen. Fehlende, ungültige, alte oder falsch zugeordnete Pflichtdaten verhindern Bewegung; ungültige Aufnahmezeiten dürfen nicht durch künstliche Aktualisierung gültig werden. [GB-12–14; §§5–6](docs/zieldefinition-grundbetrieb.md#5-zusammenarbeit-der-sensoren), [A11–A12](docs/zieldefinition-grundbetrieb.md#10-abnahme-des-vollständigen-grundbetriebs).
-- Im Grundbetrieb bleiben Spurtreue und Schutz der gesamten Fahrzeughülle vorrangig: Hindernis bedeutet Halt, keine Umfahrung neben der Linie, kein autonomes Räumen/Greifen. Separat entwickelte Sonderfunktionen sind zulässig, wenn sie im Grundbetrieb zuverlässig ausgeschlossen bleiben. Keine ungemessenen Hüllengrenzen oder Bremswerte voraussetzen. [GB-02–04; §4.1](docs/zieldefinition-grundbetrieb.md#41-spurtreue-und-schutz-der-aufbauten), [§2.2](docs/zieldefinition-grundbetrieb.md#22-nächstes-sprungziel), [§9](docs/zieldefinition-grundbetrieb.md#9-messwerte-und-offene-festlegungen).
-- Ein Fehlerübergang darf vor dem Halt keinen weiteren Fahrbefehl auslösen. Neustart, Grün, Sensorwiederkehr und MQTT-Wiederverbindung dürfen eine STOPP-/Fehlersperre nicht aufheben. Wiederanfahrt verlangt die festgelegte Freigabe und erneute Pflichtprüfung; das Ende eines Haltegrunds löscht keine anderen Haltegründe. [GB-10, GB-14, GB-18; §6](docs/zieldefinition-grundbetrieb.md#6-software-und-betriebszustände).
+- Melde konkrete Fehler, die der PR verursacht oder verschärft.
+  Ein einzelner PR muss nicht die gesamte Zieldefinition umsetzen.
 
-### Verkehrslogik und gemeinsamer Zustand
+- Begründe Befunde kurz auf Deutsch: betroffene Codezeile,
+  konkreter Auslöser und fehlerhafte Wirkung.
+  Konzentriere dich auf Funktion und Sicherheit.
 
-- Prüfe betroffene Verkehrsentscheidungen gegen [§§3–4](docs/zieldefinition-grundbetrieb.md#3-spielfeld-und-straßenmodell): eigene Zufahrt und Ampel, fortbestehender Rot-Halt bei Sichtverlust, Schilder, beide Zebrastreifen, erlaubte Straßenrichtungen und gebundene Kreuzungswahl bis zur bestätigten Ausfahrt (GB-05–11). Einfahrtfreigabe und begonnenes Räumen unterscheiden; STOPP und Hindernisprüfung bleiben wirksam. Ungeprüfte Wartezeiten und fehlende Infrastrukturfreigaben erlauben keine Einfahrt oder lokalen Ausweichmanöver.
-- Panel und MQTT müssen fachlich denselben versionierten Zustand mit Geräte-/Startkennung, Sequenz, Zeit und Gültigkeit verwenden; unterschiedliche Aktualisierungsraten sind bei sichtbarer Zuordnung zulässig. Prüfe Kompatibilität und Verbraucher bei Änderungen an [Zustandsvertrag](docs/schnittstellen-grundbetrieb.md), [Schema](schemas/grundbetrieb-v1.schema.json) und [Vertragsprüfung](lib/grundbetrieb_vertrag.py). Notwendige Vertragsbrüche explizit versionieren und dokumentieren; deren Freigabestand beachten, Entwürfe nicht als akzeptierte Übergabe ausgeben. Unbekannte Werte bleiben unbekannt; Fahrwunsch, Motorausgabe, gemessene Bewegung sowie Publish-Aufruf, Brokerbestätigung und externer Empfang bleiben getrennt. [GB-15–16; §7](docs/zieldefinition-grundbetrieb.md#7-gemeinsame-datenbasis-für-mqtt-und-panel).
-- Bei betroffenen Laufzeit-, Netzwerk- und Konfigurationsänderungen die Trennung von RM01–RM04 prüfen: Identitäten, Sensor-/Befehlstopics und Ressourcen dürfen sich nicht vermischen. Telemetrie darf keine MQTT-Fernfahrbefehle oder Sonderrechte im Grundbetrieb aktivieren; lokale Fahrt darf nicht von externen MQTT-Daten abhängen. [GB-01, GB-17–18; §8](docs/zieldefinition-grundbetrieb.md#8-einheitlicher-vierroboterbetrieb), [§2.2](docs/zieldefinition-grundbetrieb.md#22-nächstes-sprungziel).
+- Prüfe bei verändertem Verhalten die passenden Tests.
+  Unterscheide bestandene Softwaretests und reale Geräteabnahme.
 
-### Belege, Regressionen und Review-Qualität
+## Offener Abgleich
 
-- Bewerte den PR-Diff und belegbare Folgewirkungen. Bekannte unveränderte Soll-Lücken nicht als neue Fehler melden und keine vollständige Zielerfüllung in jedem PR verlangen. Historische Probleme nur melden, wenn der Diff sie verursacht, verschärft oder sie den geänderten Pfad unmittelbar betreffen.
-- Begründe jeden Befund mit Datei/Zeile, konkretem Auslöser, erwarteter und tatsächlicher Wirkung sowie angemessenem Schweregrad und einschlägiger Regel. Keine spekulativen Fehler, erfundenen Gerätegrenzen oder pauschalen Stilforderungen. Nicht jeden Befund als höchste Priorität einstufen; die Veröffentlichungsgrenzen des Dienstes stehen gesondert in [D-reviewbot.md](docs/entwicklung/D-reviewbot.md#grenzen).
-- Bei veränderter Sicherheits- oder Vertragslogik gezielte Regressionen für den relevanten Fehlerpfad und einen zulässigen Gegenfall erwarten. Fehlende Tests am konkreten ungeschützten Verhalten begründen. Formatierung und Syntax der CI überlassen. Tests nicht für Grün abschwächen; neue Skips, Ausnahmen und gelockerte Kriterien auf verdeckte Regressionen prüfen. [Gemeinsame Prüfregeln](docs/auftraege/00-gemeinsame-regeln.md#tests-und-laufzeit), [CI-Betrieb](docs/entwicklung/D1-ci-betrieb.md).
-- Bestandene Softwaretests sind keine reale Gerätefreigabe. Abnahmeaussagen brauchen den zugehörigen Geräte-/Softwarestand und tatsächliche Belege; Zugangsdaten gehören weder in Code noch in Logs oder Beispiele. [§§9–10, A01–A16](docs/zieldefinition-grundbetrieb.md#10-abnahme-des-vollständigen-grundbetriebs), [Lieferregeln](CONTRIBUTING.md#prüfen-und-liefern).
+Wegräumen gehört gemäß der bestätigten Entscheidung in Issue #8
+zum Grundbetrieb. Die älteren Ausschlüsse in der Zieldefinition
+werden noch angepasst. Prüfe die Schutzbedingungen des Räumens;
+beanstande die Funktion nicht pauschal.
