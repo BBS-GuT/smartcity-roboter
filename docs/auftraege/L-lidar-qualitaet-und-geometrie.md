@@ -31,6 +31,8 @@ Der Chat **„SmartCity – Generalprüfung am Roboter“** sammelt Geräte-/Ver
 
 ## Lieferung und Freigabe
 
+Code-Reviews übernimmt nach der aktuellen Nutzerentscheidung der automatische Codex-Reviewer. Die Orchestrierung koordiniert Issues, Dateibesitzer, Abhängigkeiten und die Übergabe der automatischen Ergebnisse; sie führt keine zusätzlichen eigenen Code-Reviews durch. Die formale fremde GitHub-Freigabe aus dem main-Ruleset bleibt bestehen.
+
 Fehlerfall und zulässigen Gegenfall im gemeinsamen Runner nachweisen: ungültig ist nicht frei; gültige freie Daten, echtes nahes Hindernis und gültige Rückkehr bleiben unterscheidbar. Nur lokale ROS-/Publisherattrappen für Softwareproben benutzen. Keine Fachschwellen für grüne Tests lockern. Head, Basis, CI und tatsächlich verwendete Quellen-/Uhr-/Frameannahmen im PR nennen. Aktuelle Pflichtchecks und fremde Freigabe bleiben erforderlich.
 
 Geräteprüfung bestätigt zuerst installierten Commit und Konfiguration. Methodenrückgaben belegen keinen realen Stillstand. Fahr-/Armversuche benötigen ihre eigene abgestimmte Testetappe; A11/A12 bleiben bis zur tatsächlichen Abnahme offen. [#34](https://github.com/BBS-GuT/smartcity-roboter/issues/34) zur Kartenkalibrierung und [#37](https://github.com/BBS-GuT/smartcity-roboter/issues/37) zur RM02-Messung werden nicht aus RM01-Belegen geschlossen. C1-Quellenregeln (#13/#14) berücksichtigen, ohne den kleinen internen Schutzfix auf die gesamte C1-Integration warten zu lassen.

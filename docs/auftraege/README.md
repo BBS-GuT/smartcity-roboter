@@ -1,6 +1,8 @@
 # Aufträge für den Grundbetrieb
 
-**Koordination:** Chat „Orchestrierung“. Hier werden Aufgaben geteilt, Dateien reserviert, Übergaben geprüft und Integrationen geplant. Produktcode entsteht in getrennten Entwicklungs-Chats und Arbeitskopien.
+**Koordination:** Chat „Orchestrierung“. Hier werden Aufgaben geteilt, Dateien reserviert, Übergaben protokolliert und Integrationen geplant. Produktcode entsteht in getrennten Entwicklungs-Chats und Arbeitskopien.
+
+**Reviewzuständigkeit seit 21.10.2026:** Code-Reviews übernimmt der automatische Codex-Reviewer. Der Orchestrator führt keine eigenen Code-Reviews durch und beauftragt dafür keine Unteragenten. Er darf Review-/CI-Status für Issuefortschritt und Integrationskoordination auswerten. Die im main-Ruleset verlangte Freigabe durch eine andere berechtigte GitHub-Person bleibt erforderlich; die Botreaktion allein ersetzt diese formale Freigabe nicht.
 
 **Stand 21.10.2026:** Kanonisches Team-Repository ist [BBS-GuT/smartcity-roboter](https://github.com/BBS-GuT/smartcity-roboter), geprüfter `main`-Commit `d92e366907fd538c377c272250a0e2d75120b5e2`. Neue Arbeit beginnt am dann aktuellen BBS-`origin/main`; Basis und Dateigrenze im Auftrag nennen. Issue- und PR-Nummern in diesem Register beziehen sich auf BBS. Das frühere Repository `davidheinrich73/smartcity-roboter` bleibt Quelle historischer Belege.
 
