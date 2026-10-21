@@ -118,6 +118,7 @@ class Entscheider:
         self.einfahrt_n, self.einfahrt_gesperrt_bis = 0, 0.0
         self.einfahrt_bilder = []     # gesehen ja/nein in den letzten Bildern
         self.aufheben_gesperrt, self.weg_frei_seit = False, None
+        self.frei_bilder = 0          # frische KI-Bilder seit weg_frei_seit ohne Hindernis
         self.umschauen_wunsch = None  # Zeit, zu der jemand (Kartograf/Panel) Umschauen gewuenscht hat
         self.fehler_halt = None       # Manoever fehlgeschlagen -> bleibt stehen bis STOPP + neuer START
         self.start_quittung = None    # Zeit eines ausdruecklichen START (Panel -> /ki/kommando 'start')
@@ -361,12 +362,18 @@ class Entscheider:
         merk_rest = self._merk_rest(w)
         if merk_rest is not None and not (tiefe_im_weg or im_pruefbereich) and merk_rest < self._merk_sicht():
             # Vorhin gesehen, nicht weggeraeumt, jetzt zu nah fuer Kamera (und unter dem LiDAR): NICHT frei
-            self.weg_frei_seit = None
+            self.weg_frei_seit, self.frei_bilder = None, 0
             return self._b('stopp', f'Hindernis {max(0.0, merk_rest) * 100:.0f} cm voraus, zu nah fuer die Kamera '
                                     '-> warte (wegnehmen, dann STOPP und START)')
         if not (tiefe_im_weg or im_pruefbereich):
-            self.weg_frei_seit = self.weg_frei_seit or jetzt
-            if jetzt - self.weg_frei_seit > c['frei_zeit']:
+            if self.weg_frei_seit is None:
+                self.weg_frei_seit, self.frei_bilder = jetzt, 0
+            if w.get('neues_bild'):
+                self.frei_bilder += 1
+            # bestaetigtes Hindernis: frei erst nach frei_zeit UND mehreren frischen Bildern ohne es (haengt die KI
+            # nach einem leeren Bild, zaehlt die Zeit allein nicht)
+            genug = not self.bestaetigt or self.frei_bilder >= 3
+            if jetzt - self.weg_frei_seit > c['frei_zeit'] and genug:
                 if self.meldung_seit is not None or self.bestaetigt:
                     self._ereignis(jetzt, 'Weg ist wieder frei', 'fahren')
                 self.meldung_seit, self.geprueft_frei, self.bestaetigt = None, False, None
@@ -378,7 +385,7 @@ class Entscheider:
                 # Bild ohne Treffer liess ihn sonst schon anfahren)
                 return self._b('stopp', f'{self.bestaetigt}: Weg frei? schaue noch kurz hin')
         else:
-            self.weg_frei_seit = None
+            self.weg_frei_seit, self.frei_bilder = None, 0
 
         # 3. Hindernis (LiDAR und/oder Tiefenkamera): anhalten, Kamera schaut genau hin, ggf. wegraeumen
         if tiefe_im_weg or im_pruefbereich:

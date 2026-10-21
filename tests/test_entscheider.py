@@ -518,6 +518,21 @@ ok = ok1 and ok2 and b['aktion'] == 'fahren'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} am Rand bestaetigt, 37 cm voraus -> wartet (auch wenn die Kamera flackert), "
       f"weggenommen -> faehrt ohne START weiter ({folge[-1]['grund']} / {b['grund']})")
+# Codex-Review: bestaetigt, dann ein leeres Bild und die KI haengt (gleiches Bild) -> nicht nach frei_zeit losfahren
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(25, objekt=RAND, strecke=0.0)
+l.schritt(5, objekt=dict(RAND, vor=0.37), strecke=0.0)
+l.schritt(1, strecke=0.0)                                 # ein Bild ohne Hindernis ...
+haengt = []
+for k in range(14):                                       # ... dann 1,4 s kein neues Bild (unter ki_max_alter)
+    l.t += 0.1
+    haengt.append(l.e.update(l.t, {'bild_nr': l.nr, 'bild_zeit': l.t - 0.1 * (k + 1), 'objekte': [],
+                                   'lidar': float('inf'), 'tiefe_hindernis': False, 'strecke': 0.0}))
+b = l.schritt(5, strecke=0.0)                             # wieder frische Bilder, frei -> weiter
+ok = all(x['aktion'] == 'stopp' for x in haengt) and b['aktion'] == 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} bestaetigt, KI haengt nach einem leeren Bild -> faehrt nicht los, erst mit "
+      f"frischen Bildern ({haengt[-1]['grund']} / {b['grund']})")
 # RM02 21.10.: niedriger Wuerfel (3 cm) verschwindet beim Heranfahren unter dem Blickfeld -> "aus den Augen verloren".
 # Jetzt: in Greifweite laut Radzaehler mit der letzten Messung greifen, danach zurueck und kontrollieren.
 NIEDRIG = dict(WUERFEL, vor=0.34, seite=0.0, breite=0.03, hoehe=0.03)
