@@ -67,6 +67,9 @@ from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
 # Diese Dinge fuehren zum Anhalten, wenn die Kamera-KI sie im Weg sieht. Nur Verkehrsteilnehmer:
 # Moebel/Gegenstaende (Stuhl, Flasche ...) erkennt YOLO oft falsch, z. B. die schwarze Kurve als "Stuhl".
 # Echte Hindernisse auf der Strasse finden LiDAR und Tiefenkamera trotzdem.
+# Radzaehler (/odom_raw, Yahboom ca. 20-50 Hz) gelten als frisch, wenn die letzte Meldung so jung ist (s). Laenger ohne
+# Meldung: gefahrene Strecke ist nicht mehr gemessen (blindes Greifen nicht erlaubt), danach beginnt ein neuer Abschnitt
+ODOM_FRISCH = 0.3
 STOPP_NAMEN = ['Person', 'Fahrrad', 'Auto', 'Motorrad', 'Bus', 'LKW', 'Hund', 'Katze', 'Teddy']
 FARBE_BGR = {'rot': (0, 0, 255), 'gelb': (0, 220, 255), 'gruen': (0, 200, 0)}
 AKTION_BGR = {'fahren': (60, 170, 60), 'langsam': (0, 170, 230), 'stopp': (40, 40, 220)}
@@ -162,6 +165,7 @@ class Zentrale(Node):
         self.lock = threading.Lock()
         self.bild = None                # neuestes Kamerabild (ROS-Nachricht)
         self.tiefe = None
+        self.tiefe_ausgewertet, self.tiefe_nr = None, 0   # zuletzt ausgewertetes Tiefenbild, Zaehler
         self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scans = {}
         self.wahrnehmung = {'bild_nr': 0, 'bild_zeit': 0.0, 'objekte': [], 'ampel': None,
@@ -223,6 +227,8 @@ class Zentrale(Node):
         self.create_subscription(Twist, '/cmd_vel', self._cmd, 10)
         # gefahrene Strecke (Radzaehler) fuer das blinde Heranfahren beim Wegraeumen
         self.strecke, self.odom_zeit = 0.0, 0.0
+        self.odom_abschnitt = 0         # zaehlt hoch, wenn die Radzaehler nach einer Luecke (> 1 s) wiederkommen
+        self.strecke_geschaetzt = 0.0   # seit der letzten Radmeldung aus /cmd_vel geschaetzter Anteil von strecke
         self.odom_pose = None           # letzte Odometrie-Position (x, y, w)
         self.create_subscription(Odometry, '/odom_raw', self._odom, qos_profile_sensor_data)
         self.create_subscription(String, '/line_follower/status', self._linie, 10)
@@ -311,15 +317,22 @@ class Zentrale(Node):
             self.gier += msg.angular.z * dt
         if jetzt - self.odom_zeit > 1.0:
             self.strecke += msg.linear.x * dt     # keine Radzaehler: befohlene Strecke (ungenauer)
+            self.strecke_geschaetzt += msg.linear.x * dt
 
     def _odom(self, msg):
         jetzt = time.time()
+        luecke = jetzt - self.odom_zeit > ODOM_FRISCH  # Meldungen fehlten: Strecke dazwischen nicht durchgehend gemessen
+        if luecke:
+            self.odom_abschnitt += 1
         dt = min(0.2, jetzt - self.odom_zeit) if self.odom_zeit else 0.0
         self.odom_zeit = jetzt
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
         w = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
         alt, self.odom_pose = self.odom_pose, (p.x, p.y, w)
+        # Radzaehler wieder da: die Schaetzung aus der Luecke durch die gemessene Bewegung ersetzen (nicht doppelt)
+        geschaetzt, self.strecke_geschaetzt = self.strecke_geschaetzt, 0.0
         if alt is not None and math.hypot(p.x - alt[0], p.y - alt[1]) < 0.5:
+            self.strecke -= geschaetzt
             # Positions-Unterschied in Fahrtrichtung: geht auch ueber verlorene Nachrichten nichts verloren
             # (Geschwindigkeit x Zeit verlor bei Rechner-Haengern von 1-3 s Strecke, 20.10.)
             self.strecke += (p.x - alt[0]) * math.cos(alt[2]) + (p.y - alt[1]) * math.sin(alt[2])
@@ -470,8 +483,9 @@ class Zentrale(Node):
                 # Ohne passende Tiefe: unsicher -> nah
                 o['abstand'] = abstand_im_kasten(d_akteur, o['box'], (h, w))
                 o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
-        tiefe_hindernis, tiefe_obj = None, None
+        tiefe_hindernis, tiefe_obj, blick = None, None, None
         if d is not None and fahrstellung:
+            blick = 'fahr'
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
             tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
@@ -480,9 +494,12 @@ class Zentrale(Node):
         elif (d is not None and self.boden_pruef is not None
               and self.arm_beobachter.in_pose(self.posen['pruefblick'], time.time())):
             # Arm steht im Pruefblick: mit dessen Kameramodell messen (Boden dort nicht gelernt -> nicht lernen)
+            blick = 'pruef'
             tiefe_hindernis, tiefe_obj = self.boden_pruef.pruefe(d, lernen=False)
             if tiefe_obj:
                 tiefe_obj.update(quelle='tiefe', blick='pruef', blick_winkel=list(self.posen['pruefblick']))
+        if blick and tmsg is not self.tiefe_ausgewertet:   # neues Tiefenbild (sonst wird das alte nur nochmal gerechnet)
+            self.tiefe_ausgewertet, self.tiefe_nr = tmsg, self.tiefe_nr + 1
 
         self.ki_ms = (time.time() - t0) * 1000
         with self.lock:
@@ -491,6 +508,8 @@ class Zentrale(Node):
                                 'ampel': ampel_farbe, 'ampel_quelle': ampel_quelle,
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
+                                'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
+                                'tiefe_nr': self.tiefe_nr,   # zaehlt nur neue, ausgewertete Tiefenbilder
                                 'zebra': zebra, 'einfahrt_verboten': einfahrt is not None}
             befehl = dict(self.befehl)
         self.letzte_extras = {'einfahrt': einfahrt, 'zebra': zebra, 'tiefe': tiefe_obj}
@@ -558,6 +577,9 @@ class Zentrale(Node):
         w['weg'] = self.weg_voraus()
         w['gier'] = self.gier
         w['strecke'] = self.strecke
+        # Strecke wirklich von den Radzaehlern (frisch)? Ohne sie ist sie nur aus /cmd_vel geschaetzt (siehe _cmd)
+        w['strecke_gemessen'] = jetzt - self.odom_zeit < ODOM_FRISCH
+        w['odom_abschnitt'] = self.odom_abschnitt   # gleich = seitdem ohne Luecke gemessen
         st = self.linie_status
         # Faehrt das Fahrprogramm wirklich? Nur dann darf die KI den Arm bewegen (nicht im TEST, nicht nach STOPP)
         self.entscheider.fahrt_aktiv = bool(st.get('drive')) and jetzt - st.get('_zeit', 0.0) < 1.0

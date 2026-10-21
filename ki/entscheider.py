@@ -66,13 +66,20 @@ STANDARD = {
     'sicht_zurueck': 0.10,     # ... hoechstens so weit (m)
     'aufheben_max_breite': 0.08,
     'aufheben_max_hoehe': 0.12,
-    'aufheben_max_quer': 0.08,  # nur wegraeumen, was so nah an der Linie liegt (m) - am Rand steht vielleicht jemand
+    'aufheben_max_quer': 0.12,  # nur wegraeumen, was so nah an der Linie liegt (m) - am Rand steht vielleicht jemand.
+                                # 12 statt 8 cm (Projektinhaber 21.10.): in Kurven lagen Hindernisse 9-14 cm neben der
+                                # Linie, aber im Fahrschlauch (+-15 cm) - er wartete dann nur
     'zebra_kein_aufheben': 3.0,  # so lange nach einem gesehenen Zebrastreifen nichts anfassen (s): Fussgaenger!
     'greif_vor': 0.28,         # so weit vor der Robotermitte soll die Vorderkante liegen (m): Kamera sieht es
                                # noch sicher (RM02 20.10.: bei 27 cm gesehen, unter ~25 cm verloren). Reicht der
                                # Arm nicht hin, faehrt er danach blind naeher (naeher_max)
     'greif_toleranz': 0.02,    # +- so genau (m)
-    'greif_seite': 0.06,       # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm)
+    'greif_seite': 0.025,      # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm und fasst schraeg;
+                               # 6 cm waren zu grob, RM02 21.10.)
+    'greif_winkel': 0.10,      # Roboter steht schraeger als das (rad, ca. 6 Grad) zur Strasse am Hindernis (Kurve)
+                               # -> erst gerade drehen, dann greifen
+    'blind_warten': 1.0,       # Hindernis beim Heranfahren so lange (s) nicht gesehen, laut Radzaehler in Greifweite
+                               # -> mit der letzten Messung greifen (niedrige Gegenstaende verschwinden frueh)
     'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)
     'kontrolle_bereich': 0.45,  # in diesem Abstand (m) darf die Tiefenkamera dann nichts mehr sehen
     'versuche': 4,             # so oft versuchen (jeder Fehlversuch wird gelernt), dann warten
@@ -111,6 +118,8 @@ class Entscheider:
         self.einfahrt_n, self.einfahrt_gesperrt_bis = 0, 0.0
         self.einfahrt_bilder = []     # gesehen ja/nein in den letzten Bildern
         self.aufheben_gesperrt, self.weg_frei_seit = False, None
+        self.frei_bilder = 0          # frische KI-Bilder (neues Tiefenbild) seit weg_frei_seit ohne Hindernis
+        self.frei_tiefe_nr = None
         self.umschauen_wunsch = None  # Zeit, zu der jemand (Kartograf/Panel) Umschauen gewuenscht hat
         self.fehler_halt = None       # Manoever fehlgeschlagen -> bleibt stehen bis STOPP + neuer START
         self.start_quittung = None    # Zeit eines ausdruecklichen START (Panel -> /ki/kommando 'start')
@@ -346,25 +355,40 @@ class Entscheider:
                 return self._b('stopp', self.fehler_halt + ' -> bitte pruefen, dann STOPP und START')
 
         obj = w.get('objekt')
-        tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < c['tiefe_halt']
+        # Schon bestaetigt (wartet davor): 10 cm Spiel. Sonst lag es knapp hinter tiefe_halt (37 cm), er fuhr wieder
+        # an und blieb dann an der gemerkten Stelle mit "wegnehmen, dann STOPP und START" stehen (RM02 21.10.)
+        halt = c['tiefe_halt'] + (0.10 if self.bestaetigt else 0.0)
+        tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < halt
         im_pruefbereich = d is not None and d < c['pruef_dist']
         merk_rest = self._merk_rest(w)
         if merk_rest is not None and not (tiefe_im_weg or im_pruefbereich) and merk_rest < self._merk_sicht():
             # Vorhin gesehen, nicht weggeraeumt, jetzt zu nah fuer Kamera (und unter dem LiDAR): NICHT frei
-            self.weg_frei_seit = None
+            self.weg_frei_seit, self.frei_bilder = None, 0
             return self._b('stopp', f'Hindernis {max(0.0, merk_rest) * 100:.0f} cm voraus, zu nah fuer die Kamera '
                                     '-> warte (wegnehmen, dann STOPP und START)')
         if not (tiefe_im_weg or im_pruefbereich):
-            self.weg_frei_seit = self.weg_frei_seit or jetzt
-            if jetzt - self.weg_frei_seit > c['frei_zeit']:
+            if self.weg_frei_seit is None:
+                self.weg_frei_seit, self.frei_bilder = jetzt, 0
+            tnr = w.get('tiefe_nr', w.get('bild_nr'))
+            if w.get('neues_bild') and tnr != self.frei_tiefe_nr:   # nur NEUE Tiefenbilder (Zentrale: tiefe_nr)
+                self.frei_bilder += 1
+            self.frei_tiefe_nr = tnr
+            # bestaetigtes Hindernis: frei erst nach frei_zeit UND mehreren frischen Bildern ohne es (haengt die KI
+            # nach einem leeren Bild, zaehlt die Zeit allein nicht)
+            genug = not self.bestaetigt or self.frei_bilder >= 3
+            if jetzt - self.weg_frei_seit > c['frei_zeit'] and genug:
                 if self.meldung_seit is not None or self.bestaetigt:
                     self._ereignis(jetzt, 'Weg ist wieder frei', 'fahren')
                 self.meldung_seit, self.geprueft_frei, self.bestaetigt = None, False, None
                 self.hindernis_merk = None       # Kamera sieht die Stelle und sie ist frei
             if jetzt - self.weg_frei_seit > 2.0:
                 self.aufheben_gesperrt = False
+            if self.bestaetigt:
+                # wartet vor einem bestaetigten Hindernis: erst weiter, wenn es frei_zeit lang weg ist (ein einzelnes
+                # Bild ohne Treffer liess ihn sonst schon anfahren)
+                return self._b('stopp', f'{self.bestaetigt}: Weg frei? schaue noch kurz hin')
         else:
-            self.weg_frei_seit = None
+            self.weg_frei_seit, self.frei_bilder = None, 0
 
         # 3. Hindernis (LiDAR und/oder Tiefenkamera): anhalten, Kamera schaut genau hin, ggf. wegraeumen
         if tiefe_im_weg or im_pruefbereich:
