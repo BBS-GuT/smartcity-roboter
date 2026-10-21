@@ -115,6 +115,31 @@ def own_approval(review, identity):
             and (app is None or isinstance(app, dict) and app.get("id") == identity["app_id"]))
 
 
+def counted_approval(api, review, number, sha, identity):
+    """Check current counting metadata for this own review, not merge readiness."""
+    if (not own_approval(review, identity) or review.get("commit_id") != sha
+            or not isinstance(review.get("node_id"), str)):
+        return False
+    node = api.graphql("""query($id: ID!) { node(id: $id) {
+      ... on PullRequestReview {
+        databaseId state authorCanPushToRepository commit { oid }
+        author { __typename login }
+        pullRequest { number repository { databaseId } }
+      }
+    }}""", {"id": review["node_id"]}).get("node")
+    if not isinstance(node, dict):
+        return False
+    author = node.get("author") or {}
+    pr = node.get("pullRequest") or {}
+    return (node.get("databaseId") == review["id"] and node.get("state") == "APPROVED"
+            and node.get("authorCanPushToRepository") is True
+            and (node.get("commit") or {}).get("oid") == sha
+            and author.get("__typename") == "Bot"
+            and author.get("login") == identity["login"].removesuffix("[bot]")
+            and pr.get("number") == number
+            and (pr.get("repository") or {}).get("databaseId") == REPOSITORY_ID)
+
+
 def blocking_review(reviews):
     # A COMMENTED review does not retract an earlier REQUEST_CHANGES.
     latest = {}
@@ -283,6 +308,20 @@ def dismiss(api, number, reviews, apply, identity):
                             {"message": "Automatische Freigabe zurueckgezogen: Voraussetzungen nicht mehr erfuellt."})
 
 
+def approval_result(api, review, number, sha, identity, apply, success_action):
+    if not counted_approval(api, review, number, sha, identity):
+        dismiss(api, number, [review], apply, identity)
+        return {"number": number, "action": "uncounted", "sha": sha,
+                "reason": "GitHub bestaetigt keine angerechnete Pflichtfreigabe",
+                "approval_counted": False, "merge_readiness": "not-evaluated"}
+    after = api.get(PREFIX + f"/pulls/{number}")
+    if after["head"]["sha"] != sha or after.get("draft") or after.get("state") != "open":
+        dismiss(api, number, [review], apply, identity)
+        return {"number": number, "action": "revoked-after-push", "sha": sha}
+    return {"number": number, "action": success_action, "sha": sha,
+            "approval_counted": True, "merge_readiness": "not-evaluated"}
+
+
 def reconcile(api, number, *, apply=False, identity=None):
     if apply and not identity:
         raise ValueError("a verified dedicated approval App is required")
@@ -295,8 +334,10 @@ def reconcile(api, number, *, apply=False, identity=None):
             dismiss(api, number, reviews, apply, identity)
             return {"number": number, "action": "blocked", "reason": reason}
         sha = pr["head"]["sha"]
-        if any(own_approval(row, identity) and row.get("commit_id") == sha for row in reviews):
-            return {"number": number, "action": "already-approved", "sha": sha}
+        existing = next((row for row in reversed(reviews)
+                         if own_approval(row, identity) and row.get("commit_id") == sha), None)
+        if existing:
+            return approval_result(api, existing, number, sha, identity, apply, "already-approved")
         # Read all evidence again immediately before the write. Bind the review to
         # the checked SHA; dismiss it if a concurrent push is observed afterward.
         fresh_reviews = api.pages(PREFIX + f"/pulls/{number}/reviews")
@@ -313,11 +354,7 @@ def reconcile(api, number, *, apply=False, identity=None):
         review = api.request("POST", PREFIX + f"/pulls/{number}/reviews",
                              {"event": "APPROVE", "commit_id": sha, "body": body})
         reviews.append(review)
-        after = api.get(PREFIX + f"/pulls/{number}")
-        if after["head"]["sha"] != sha or after.get("draft") or after.get("state") != "open":
-            dismiss(api, number, [review], True, identity)
-            return {"number": number, "action": "revoked-after-push", "sha": sha}
-        return {"number": number, "action": "approved", "sha": sha}
+        return approval_result(api, review, number, sha, identity, True, "approved")
     except (KeyError, TypeError, ValueError, urllib.error.URLError):
         # Fail closed; do not print response bodies, authentication data, or PR text.
         dismiss(api, number, reviews, apply, identity)
