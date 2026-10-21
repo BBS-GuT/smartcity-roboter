@@ -9,7 +9,8 @@ SUMMARY = '<!-- codex-pull-request-review-summary -->'
 STATE = re.compile(r'<!-- codex-review-state:v1 (.*?) -->', re.DOTALL)
 SHA = re.compile(r'[0-9a-f]{40}\Z')
 FIELDS = {'commit_sha', 'status', 'has_any_findings', 'has_unresolved_findings'}
-STATUSES = {'completed', 'running', 'pending', 'failed', 'cancelled', 'queued'}
+INCOMPLETE_STATUSES = {'running', 'pending', 'failed', 'cancelled', 'queued'}
+STATUSES = {'completed'} | INCOMPLETE_STATUSES
 
 
 def _bot(actor):
@@ -34,8 +35,9 @@ def _valid_state(state):
             and isinstance(state['commit_sha'], str)
             and SHA.fullmatch(state['commit_sha']) is not None
             and isinstance(state['status'], str) and state['status'] in STATUSES
-            and type(state['has_any_findings']) is bool
-            and type(state['has_unresolved_findings']) is bool)
+            and all(type(state[key]) is bool or (
+                state[key] is None and state['status'] in INCOMPLETE_STATUSES)
+                for key in ('has_any_findings', 'has_unresolved_findings')))
 
 
 def _clean(state, head_sha):

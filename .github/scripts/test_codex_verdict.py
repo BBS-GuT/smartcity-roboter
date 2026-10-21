@@ -98,6 +98,39 @@ class VerdictTests(unittest.TestCase):
         state.update(status='running', has_any_findings=None, has_unresolved_findings=None)
         self.assertFalse(eligible(comment(security=state), HEAD))
 
+    def test_nullable_incomplete_security_is_ignored_only_when_stale(self):
+        for status in ('running', 'pending', 'queued', 'failed', 'cancelled'):
+            state = review(OLD)
+            state.update(status=status, has_any_findings=None, has_unresolved_findings=None)
+            with self.subTest(status=status):
+                self.assertTrue(eligible(comment(security=state), HEAD))
+                self.assertFalse(eligible(comment(security=state), HEAD, require_security_review=True))
+                state['commit_sha'] = HEAD
+                self.assertFalse(eligible(comment(security=state), HEAD))
+
+    def test_nullable_incomplete_code_never_approves(self):
+        for status in ('running', 'pending', 'queued', 'failed', 'cancelled'):
+            state = review()
+            state.update(status=status, has_any_findings=None, has_unresolved_findings=None)
+            self.assertFalse(eligible(comment(code=state), HEAD))
+
+    def test_nullable_state_still_rejects_completed_and_malformed_flags(self):
+        for key in ('has_any_findings', 'has_unresolved_findings'):
+            for value in (None, 'false', 0, 1, {}, []):
+                state = review(OLD)
+                state[key] = value
+                self.assertFalse(eligible(comment(security=state), HEAD))
+            for value in ('false', 0, 1, {}, []):
+                state = review(OLD)
+                state.update(status='running', has_any_findings=None, has_unresolved_findings=None)
+                state[key] = value
+                self.assertFalse(eligible(comment(security=state), HEAD))
+        for change in ({'status': 'unknown'}, {'unexpected': None}):
+            state = review(OLD)
+            state.update(status='running', has_any_findings=None, has_unresolved_findings=None)
+            state.update(change)
+            self.assertFalse(eligible(comment(security=state), HEAD))
+
     def test_bad_input_never_approves(self):
         for head in (None, '', 'a' * 39, 'G' * 40):
             self.assertFalse(eligible(comment(), head))
