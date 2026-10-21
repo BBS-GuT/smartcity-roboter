@@ -1,0 +1,76 @@
+name: Codex - Mergefreigabe
+
+on:
+  issue_comment:
+    types: [created, edited, deleted]
+  workflow_run:
+    workflows: ['Grundbetrieb - Softwarepruefung']
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    - cron: '17,47 * * * *'
+
+permissions:
+  contents: read
+
+# Events koennen sich ueberlappen. Ein abgebrochener Lauf soll nicht zwischen
+# erneuter Pruefung und Ruecknahme einer eigenen Freigabe stehen bleiben.
+concurrency:
+  group: codex-mergefreigabe
+  cancel-in-progress: false
+
+jobs:
+  approve:
+    if: >-
+      github.repository == 'BBS-GuT/smartcity-roboter' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name != 'issue_comment' ||
+       (github.event.issue.pull_request &&
+        github.event.comment.user.login == 'chatgpt-codex-connector[bot]'))
+    runs-on: ubuntu-22.04
+    environment: codex-mergefreigabe
+    timeout-minutes: 10
+    steps:
+      # Bei allen verwendeten Events zeigt github.sha auf den Defaultbranch.
+      # Niemals PR-Code oder PR-Artefakte mit diesem Schreib-Token ausfuehren.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Entscheidungsregeln testen
+        run: python3 -m unittest discover -s .github/scripts -p 'test_codex_*.py' -v
+      - name: App-Einrichtung pruefen
+        id: config
+        env:
+          APP_ID: ${{ vars.BBS_CODEX_APPROVAL_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.BBS_CODEX_APPROVAL_APP_PRIVATE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          ready = bool(os.environ.get('APP_ID') and os.environ.get('PRIVATE_KEY'))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('ready=' + str(ready).lower() + '\n')
+          if not ready:
+              print('::notice::Freigabe-App noch nicht eingerichtet; keine automatische Freigabe.')
+          PY
+      - name: Kurzlebigen Token nur fuer dieses Repository erzeugen
+        if: steps.config.outputs.ready == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          app-id: ${{ vars.BBS_CODEX_APPROVAL_APP_ID }}
+          private-key: ${{ secrets.BBS_CODEX_APPROVAL_APP_PRIVATE_KEY }}
+          owner: BBS-GuT
+          repositories: smartcity-roboter
+          permission-contents: read
+          permission-issues: read
+          permission-checks: read
+          permission-actions: read
+          permission-pull-requests: write
+      - name: Aktuelles Codex-Ergebnis und D1-CI in formale Freigabe uebertragen
+        if: steps.config.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BBS_CODEX_APPROVAL_APP_ID: ${{ vars.BBS_CODEX_APPROVAL_APP_ID }}
+          BBS_CODEX_APPROVAL_BOT_LOGIN: ${{ steps.app-token.outputs.app-slug }}[bot]
+        run: python3 .github/scripts/codex_approve.py --apply
