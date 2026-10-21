@@ -470,8 +470,9 @@ class Zentrale(Node):
                 # Ohne passende Tiefe: unsicher -> nah
                 o['abstand'] = abstand_im_kasten(d_akteur, o['box'], (h, w))
                 o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
-        tiefe_hindernis, tiefe_obj = None, None
+        tiefe_hindernis, tiefe_obj, blick = None, None, None
         if d is not None and fahrstellung:
+            blick = 'fahr'
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
             tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
@@ -480,6 +481,7 @@ class Zentrale(Node):
         elif (d is not None and self.boden_pruef is not None
               and self.arm_beobachter.in_pose(self.posen['pruefblick'], time.time())):
             # Arm steht im Pruefblick: mit dessen Kameramodell messen (Boden dort nicht gelernt -> nicht lernen)
+            blick = 'pruef'
             tiefe_hindernis, tiefe_obj = self.boden_pruef.pruefe(d, lernen=False)
             if tiefe_obj:
                 tiefe_obj.update(quelle='tiefe', blick='pruef', blick_winkel=list(self.posen['pruefblick']))
@@ -491,6 +493,7 @@ class Zentrale(Node):
                                 'ampel': ampel_farbe, 'ampel_quelle': ampel_quelle,
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
+                                'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
                                 'zebra': zebra, 'einfahrt_verboten': einfahrt is not None}
             befehl = dict(self.befehl)
         self.letzte_extras = {'einfahrt': einfahrt, 'zebra': zebra, 'tiefe': tiefe_obj}

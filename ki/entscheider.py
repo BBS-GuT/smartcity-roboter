@@ -66,13 +66,20 @@ STANDARD = {
     'sicht_zurueck': 0.10,     # ... hoechstens so weit (m)
     'aufheben_max_breite': 0.08,
     'aufheben_max_hoehe': 0.12,
-    'aufheben_max_quer': 0.08,  # nur wegraeumen, was so nah an der Linie liegt (m) - am Rand steht vielleicht jemand
+    'aufheben_max_quer': 0.12,  # nur wegraeumen, was so nah an der Linie liegt (m) - am Rand steht vielleicht jemand.
+                                # 12 statt 8 cm (Projektinhaber 21.10.): in Kurven lagen Hindernisse 9-14 cm neben der
+                                # Linie, aber im Fahrschlauch (+-15 cm) - er wartete dann nur
     'zebra_kein_aufheben': 3.0,  # so lange nach einem gesehenen Zebrastreifen nichts anfassen (s): Fussgaenger!
     'greif_vor': 0.28,         # so weit vor der Robotermitte soll die Vorderkante liegen (m): Kamera sieht es
                                # noch sicher (RM02 20.10.: bei 27 cm gesehen, unter ~25 cm verloren). Reicht der
                                # Arm nicht hin, faehrt er danach blind naeher (naeher_max)
     'greif_toleranz': 0.02,    # +- so genau (m)
-    'greif_seite': 0.06,       # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm)
+    'greif_seite': 0.025,      # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm und fasst schraeg;
+                               # 6 cm waren zu grob, RM02 21.10.)
+    'greif_winkel': 0.10,      # Roboter steht schraeger als das (rad, ca. 6 Grad) zur Strasse am Hindernis (Kurve)
+                               # -> erst gerade drehen, dann greifen
+    'blind_warten': 1.0,       # Hindernis beim Heranfahren so lange (s) nicht gesehen, laut Radzaehler in Greifweite
+                               # -> mit der letzten Messung greifen (niedrige Gegenstaende verschwinden frueh)
     'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)
     'kontrolle_bereich': 0.45,  # in diesem Abstand (m) darf die Tiefenkamera dann nichts mehr sehen
     'versuche': 4,             # so oft versuchen (jeder Fehlversuch wird gelernt), dann warten
@@ -346,7 +353,10 @@ class Entscheider:
                 return self._b('stopp', self.fehler_halt + ' -> bitte pruefen, dann STOPP und START')
 
         obj = w.get('objekt')
-        tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < c['tiefe_halt']
+        # Schon bestaetigt (wartet davor): 10 cm Spiel. Sonst lag es knapp hinter tiefe_halt (37 cm), er fuhr wieder
+        # an und blieb dann an der gemerkten Stelle mit "wegnehmen, dann STOPP und START" stehen (RM02 21.10.)
+        halt = c['tiefe_halt'] + (0.10 if self.bestaetigt else 0.0)
+        tiefe_im_weg = obj is not None and obj.get('quelle') == 'tiefe' and obj['vor'] < halt
         im_pruefbereich = d is not None and d < c['pruef_dist']
         merk_rest = self._merk_rest(w)
         if merk_rest is not None and not (tiefe_im_weg or im_pruefbereich) and merk_rest < self._merk_sicht():
@@ -363,6 +373,10 @@ class Entscheider:
                 self.hindernis_merk = None       # Kamera sieht die Stelle und sie ist frei
             if jetzt - self.weg_frei_seit > 2.0:
                 self.aufheben_gesperrt = False
+            if self.bestaetigt:
+                # wartet vor einem bestaetigten Hindernis: erst weiter, wenn es frei_zeit lang weg ist (ein einzelnes
+                # Bild ohne Treffer liess ihn sonst schon anfahren)
+                return self._b('stopp', f'{self.bestaetigt}: Weg frei? schaue noch kurz hin')
         else:
             self.weg_frei_seit = None
 

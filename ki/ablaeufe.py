@@ -47,6 +47,7 @@ class Ablauf:
 
     def _phase(self, jetzt, phase):
         self.phase, self.seit = phase, jetzt
+        self.s_phase = None    # Strecke (Wegraeumen._gefahren) neu zaehlen - auch wenn dieselbe Phase wiederkommt
 
     def dauer(self, jetzt):
         return jetzt - self.seit
@@ -230,7 +231,9 @@ class Wegraeumen(Ablauf):
                      Strasse keine erreichbare, freie Ablagestelle (LiDAR schaut, wo schon etwas steht), gar nicht
                      erst heranfahren, sondern gleich warten.
       2. abstand     so weit heran/zurueck, dass der Arm es erreicht und die Kamera es noch sieht (geregelt nach
-                     dem, was die Kamera misst, nicht nach der Zeit)
+                     dem, was die Kamera misst, nicht nach der Zeit). Dabei seitlich mittig davor und in Kurven
+                     gerade zur Strasse drehen. Verschwindet es (zu niedrig) in Greifweite laut Radzaehler: mit der
+                     letzten Messung planen und nach dem Greifen zur Kontrolle so weit zurueck.
       3. planen      ausrechnen, wie der Arm sich bewegen muss (Kinematik + gelernte Korrektur, lib/greifen.py)
                      Reicht der Arm nicht hin: blind ein Stueck naeher heranfahren (Phase 'naeher'), neu planen
       4. ausfuehren  Greifer auf -> ueber das Ding -> runter -> zu -> hoch -> zur Seite -> ablegen -> Fahrstellung
@@ -270,12 +273,14 @@ class Wegraeumen(Ablauf):
         self.letzter_schritt = jetzt
         self.s_alt, self.s_phase = None, None   # fuer _gefahren (gemessene Strecke)
         self.vorgefahren = 0.0            # so weit ist er blind naeher herangefahren (m)
+        self.kontroll_rand = 0.0          # zur Kontrolle so viel weiter zurueck als vorgefahren (m)
         self.grund = ''
         self._anschauen(jetzt)
 
     def _anschauen(self, jetzt):
         self._phase(jetzt, 'anschauen')
         self.im_pruef = self.kontrolle_pruef = False   # neu hinschauen: gilt erst wieder nach Pruefblick-Messung
+        self.kontrolle_blind = False
         self.messungen, self.lidar_werte, self.bilder, self.lebewesen = [], [], 0, None
         self.lebewesen_n = 0              # in so vielen Bildern Person/Tier/Fahrzeug gesehen
         self.gesehen = 0                  # Bilder, in denen die Tiefenkamera etwas sah (auch ohne Vermessung)
@@ -373,6 +378,9 @@ class Wegraeumen(Ablauf):
                 return befehl('stopp', 'Hindernis zu nah fuer die Kamera -> Pruefblick (Kamera nach unten)')
             if neu:
                 self.bilder += 1
+                if w.get('blick') == 'pruef':     # Zentrale hat dieses Bild wirklich im Pruefblick ausgewertet
+                    self.pruef_bilder += 1
+                    self.pruef_tiefe += bool(w.get('tiefe_hindernis'))
                 if kamera_obj and kamera_obj.get('blick') == 'pruef':
                     self.messungen.append(kamera_obj)
             t = d - c['arm_zeit'] - 0.5
@@ -381,7 +389,10 @@ class Wegraeumen(Ablauf):
             if len(self.messungen) >= 3:
                 return self._pruef_gesehen(jetzt, w)
             # im Pruefblick nichts: Kamera zurueck nach vorne, dann wie bisher entscheiden (etwas zurueckfahren ...)
-            self.ereignisse.append(('Pruefblick: nichts gesehen -> Kamera zurueck nach vorne', 'info'))
+            # Diagnose (RM02 21.10.: Pruefblick sah nie etwas): Kam der Arm in die Pose? Sah die Tiefenkamera etwas?
+            self.ereignisse.append((f'Pruefblick: nichts gesehen (im Pruefblick ausgewertet: {self.pruef_bilder} von '
+                                    f'{self.bilder} Bildern, Tiefenkamera meldete etwas in {self.pruef_tiefe}) '
+                                    '-> Kamera zurueck nach vorne', 'info'))
             self._phase(jetzt, 'pruef_zurueck')
             return befehl('stopp', 'Pruefblick: Kamera zurueck', arm={'pose': 'fahrstellung'})
         if self.phase == 'pruef_zurueck':
@@ -416,7 +427,7 @@ class Wegraeumen(Ablauf):
             self.objekt_strecke = None        # Radstrecke der letzten Sichtung: nur aus DIESEM Heranfahren
             return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
-            return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke')))
+            return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg')))
         if self.phase == 'planen':
             if self.plan is None:
                 if d > 6.0:
@@ -451,13 +462,16 @@ class Wegraeumen(Ablauf):
         if self.phase == 'rueckweg':
             self.vorgefahren += self._gefahren(w, jetzt, -c['naeher_tempo'])
             hinten = w.get('lidar_hinten')
-            if self.vorgefahren <= 1e-4 or hinten is None or hinten < c['hinten_frei'] or d > 10.0:
-                if self.vorgefahren > 0.02:
+            rand = self.kontroll_rand       # nach blindem Greifen etwas weiter zurueck als bis zur letzten Sichtung
+            if self.vorgefahren <= 1e-4 - rand or hinten is None or hinten < c['hinten_frei'] or d > 10.0:
+                if self.vorgefahren > 0.02 - rand:
                     # nicht ganz zurueck (hinten nicht frei): Kamera sieht den Platz evtl. nicht -> nicht lernen
                     self.kontrolle_unsicher = True
                     self.ereignisse.append(('Konnte nicht ganz zurueckfahren: Kontrolle unsicher, wird nicht gelernt',
                                             'info'))
-                self.vorgefahren = 0.0
+                    # blind gegriffen: Kamera hat den Gegenstand an dieser Stelle nie gesehen -> "frei" waere geraten
+                    self.kontrolle_blind = rand > 0
+                self.vorgefahren, self.kontroll_rand = 0.0, 0.0
                 self._phase(jetzt - c['arm_zeit'] * 0.5, 'kontrolle')
                 self.kontrolle_bilder = self.kontrolle_da = 0
                 return befehl('stopp', 'Wegraeumen: pruefe, ob der Weg frei ist')
@@ -508,6 +522,9 @@ class Wegraeumen(Ablauf):
             if not getattr(self, 'kontrolle_unsicher', False):
                 self._melden(self.kontrolle_da < 2)
             self.kontrolle_unsicher = False
+            if getattr(self, 'kontrolle_blind', False) and self.kontrolle_da < 2:
+                return self._ende('fehler', 'Wegraeumen: blind gegriffen und nicht weit genug zurueck, um zu pruefen '
+                                            '-> warte', 'stopp')
             if self.kontrolle_da >= 2:
                 if self.versuch < c['versuche'] and warten:
                     # naechster Versuch bewegt Arm/Roboter: erst, wenn niemand da ist (hoechstens 30 s, dann aufgeben)
@@ -613,6 +630,7 @@ class Wegraeumen(Ablauf):
     def _pruefblick_start(self, jetzt):
         self.pruef_versucht = True
         self.messungen, self.bilder = [], 0
+        self.pruef_bilder = self.pruef_tiefe = 0
         self.arm_bewegt = True
         self._phase(jetzt, 'pruefblick')
         return befehl('stopp', 'Hindernis zu nah fuer die Kamera -> Pruefblick (Kamera nach unten)',
@@ -653,18 +671,32 @@ class Wegraeumen(Ablauf):
         aus['quelle'] = 'tiefe'
         return aus
 
-    def _abstand(self, jetzt, obj, strecke=None):
+    def _abstand(self, jetzt, obj, strecke=None, weg=None):
         c = self.c
+        schraeg = None
         if obj:
             self.objekt, self.zuletzt_gesehen = dict(obj), jetzt
             self.objekt_strecke = strecke
             fehler_vor = obj['vor'] - c['greif_vor']
             seitlich = abs(obj['seite']) > c['greif_seite']
-            self.ruhig = self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and not seitlich else 0
+            # Kurve: Roboter steht schraeg zur Strasse (und damit zum Gegenstand) -> erst gerade drehen
+            schraeg = self._schraeg(weg, obj['vor'])
+            gerade = schraeg is None or abs(schraeg) < c['greif_winkel']
+            self.ruhig = (self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and not seitlich and gerade
+                          else 0)
             self.messungen.append(obj)
             self.messungen = self.messungen[-5:]
-        elif jetzt - self.zuletzt_gesehen > 2.5:
-            return self._ende('fehler', 'Wegraeumen: Hindernis beim Heranfahren aus den Augen verloren -> warte', 'stopp')
+        else:
+            s0 = getattr(self, 'objekt_strecke', None)
+            if s0 is not None and strecke is not None and jetzt - self.zuletzt_gesehen > c['blind_warten']:
+                # Niedrige Gegenstaende (3 cm) verschwinden schon ab ca. 30 cm unter dem Blickfeld der Kamera
+                # (RM02 21.10.). Liegt die Greifweite nach Radzaehler erreicht: mit der letzten Messung greifen.
+                gefahren = strecke - s0
+                if abs(self.objekt['vor'] - gefahren - c['greif_vor']) < c['greif_toleranz']:
+                    return self._blind_planen(jetzt, gefahren)
+            if jetzt - self.zuletzt_gesehen > 2.5:
+                return self._ende('fehler', 'Wegraeumen: Hindernis beim Heranfahren aus den Augen verloren -> warte',
+                                  'stopp')
         if self.ruhig >= 3:
             o = self._mittel()
             o['belegt'] = self._belegt()
@@ -686,11 +718,52 @@ class Wegraeumen(Ablauf):
             if abs(vor - c['greif_vor']) < c['greif_toleranz'] / 2:
                 return befehl('stopp', f"Hindernis: in Greifweite? schaue hin ({vor * 100:.0f} cm)")
         lin = max(-0.03, min(0.03, 0.6 * (vor - c['greif_vor'])))
-        quer = 0.0
+        quer = dreh = 0.0
         if obj and abs(o['seite']) > c['greif_seite'] * 0.6:     # seitlich nur nach frischer Messung (kein Zaehler)
             quer = max(-0.03, min(0.03, 0.6 * o['seite']))
-        return befehl('manoever', f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm)",
-                      manoever={'lin': lin, 'quer': quer, 'dreh': 0.0, 'text': 'in Greifweite'})
+        if schraeg is not None and abs(schraeg) > c['greif_winkel'] * 0.5:
+            dreh = max(-0.25, min(0.25, 0.8 * schraeg))        # auf der Stelle gerade zur Strasse drehen
+        text = f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm"
+        if dreh:
+            text += f", drehe {math.degrees(schraeg):+.0f} Grad gerade"
+        return befehl('manoever', text + ')',
+                      manoever={'lin': lin, 'quer': quer, 'dreh': dreh, 'text': 'in Greifweite'})
+
+    def _blind_planen(self, jetzt, gefahren):
+        """Gegenstand beim Heranfahren nicht mehr zu sehen, laut Radzaehler aber in Greifweite: mit der letzten Messung
+        planen. Wie beim blinden Naeherfahren gilt die Strecke seit der Messung als vorgefahren -> nach dem Greifen
+        faehrt er so weit zurueck, dass die Kamera den Platz wieder sieht (sonst waere die Kontrolle blind)."""
+        o = dict(self.objekt, belegt=self._belegt())
+        self.objekt_plan = o                      # 'vor' = Abstand bei der letzten Messung
+        self.vorgefahren = max(0.0, gefahren)
+        # Bei der letzten Sichtung stand die Kamera an ihrer Sichtgrenze: zur Kontrolle 3 cm weiter zurueck, sonst
+        # saehe sie einen liegengebliebenen Gegenstand evtl. nicht und meldete "frei" (er fuehre drueber)
+        self.kontroll_rand = 0.03
+        rest = o['vor'] - self.vorgefahren
+        self.ereignisse.append((f"Hindernis beim Heranfahren aus dem Blick (zu niedrig/zu nah fuer die Kamera), laut "
+                                f"Radzaehler {rest * 100:.0f} cm voraus -> greife nach der letzten Messung", 'info'))
+        self.plan = None
+        self._phase(jetzt, 'planen')
+        self.seite = self._ablage_seite(self.letztes_w_xy)
+        threading.Thread(target=self._planen, args=(dict(o, vor=rest, vor_gemessen=o['vor']), self.seite),
+                         daemon=True).start()
+        return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
+
+    @staticmethod
+    def _schraeg(weg, vor):
+        """Wie schraeg steht der Roboter zur Strasse dort, wo der Gegenstand liegt (rad, + = Strasse zeigt nach links)?
+        Aus der Linie vor dem Roboter (Linienfolger). None = unbekannt oder unplausibel (dann nicht drehen)."""
+        if not weg or len(weg) < 2:
+            return None
+        p = np.asarray(weg, dtype=float).reshape(-1, 2)
+        um = p[np.abs(np.hypot(p[:, 0], p[:, 1]) - vor) < 0.08]   # weg ist nach Abstand sortiert
+        if len(um) < 2:
+            return None
+        dx, dy = um[-1] - um[0]
+        if math.hypot(dx, dy) < 0.04:
+            return None
+        w = math.atan2(dy, dx)
+        return w if abs(w) < math.radians(35) else None
 
     letztes_w_xy = None
 

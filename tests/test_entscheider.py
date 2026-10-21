@@ -494,8 +494,95 @@ print(f"{'OK  ' if ok else 'FEHLER'} Umschauen ohne Arm-Freigabe wird abgelehnt"
 
 # ---------------- Wegraeumen: Sicherheitsregeln ----------------
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
-pruefe('Gegenstand am Strassenrand (12 cm neben der Linie) -> nicht greifen, warten',
-       l.schritt(30, objekt=dict(WUERFEL, quer=0.12)), 'stopp', None)
+pruefe('Gegenstand am Strassenrand (14 cm neben der Linie) -> nicht greifen, warten',
+       l.schritt(30, objekt=dict(WUERFEL, quer=0.14)), 'stopp', None)
+# Projektinhaber 21.10.: bis 12 cm neben der Linie (Kurve, aber im Fahrschlauch) wird weggeraeumt
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=dict(WUERFEL, quer=0.11))
+arme, b, _ = wegraeumen(l, 400, dict(WUERFEL, quer=0.11))
+ok = len(arme) == 9 and b['aktion'] == 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Gegenstand in der Kurve 11 cm neben der Linie -> wird weggeraeumt ({len(arme)} Arm-Befehle)")
+# RM02 21.10.: am Rand bestaetigt, liegt aber knapp hinter tiefe_halt (37 cm) -> fuhr wieder an und blieb dann mit
+# "wegnehmen, dann STOPP und START" stehen. Jetzt: wartet davor und faehrt von selbst weiter, wenn es weg ist.
+RAND = dict(WUERFEL, vor=0.34, quer=0.14)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+s = {'strecke': 0.0}
+l.schritt(25, objekt=RAND, **s)
+folge = [l.schritt(1, objekt=dict(RAND, vor=0.37), **s) for _ in range(30)]
+ok1 = all(x['aktion'] == 'stopp' and 'STOPP und START' not in x['grund'] for x in folge)
+folge2 = [l.schritt(1, objekt=dict(RAND, vor=0.37) if k % 3 else None, **s) for k in range(30)]   # flackert
+ok2 = all(x['aktion'] == 'stopp' for x in folge2)
+b = l.schritt(30, **s)                                    # weggenommen
+ok = ok1 and ok2 and b['aktion'] == 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} am Rand bestaetigt, 37 cm voraus -> wartet (auch wenn die Kamera flackert), "
+      f"weggenommen -> faehrt ohne START weiter ({folge[-1]['grund']} / {b['grund']})")
+# RM02 21.10.: niedriger Wuerfel (3 cm) verschwindet beim Heranfahren unter dem Blickfeld -> "aus den Augen verloren".
+# Jetzt: in Greifweite laut Radzaehler mit der letzten Messung greifen, danach zurueck und kontrollieren.
+NIEDRIG = dict(WUERFEL, vor=0.34, seite=0.0, breite=0.03, hoehe=0.03)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0, 'da': True}
+arme, gruende, b = [], [], None
+for _ in range(600):
+    sicht = welt['da'] and welt['vor'] > 0.30            # unter 30 cm sieht die Kamera ihn nicht mehr
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  lidar_hinten=1.0)
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+    a = b['arm']
+    if a and not isinstance(a, str) and a.get('winkel'):
+        arme.append(a['winkel'])
+        if a['winkel'][5] == 130:
+            welt['da'] = False
+    gruende.append(b['grund'])
+    if b['aktion'] == 'fahren':
+        break
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = (len(arme) >= 9 and any('greife nach der letzten Messung' in t for t in texte)
+      and any('fahre zurueck, damit die Kamera' in g for g in gruende) and welt['vor'] > 0.30
+      and not any('aus den Augen verloren' in t for t in texte) and b['aktion'] == 'fahren')
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} niedriger Wuerfel verschwindet beim Heranfahren -> greift nach Radzaehler, faehrt "
+      f"zur Kontrolle zurueck ({welt['vor'] * 100:.0f} cm), weiter ({b['grund']})")
+# ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))
+b = l.schritt(40)
+ok = any('aus den Augen verloren' in t for _, t, _ in l.e.ereignisse) and b['aktion'] != 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} ohne Radzaehler: aus den Augen verloren -> wartet, greift nicht blind ({b['grund']})")
+# Seitlich versetzt (3 cm): faehrt seitlich mittig davor (vorher erst ab 3,6 cm, dann drehte der Arm schraeg)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+obj, quer, seite_beim_planen = dict(WUERFEL, seite=0.03), [], None
+for _ in range(200):
+    b = l.schritt(1, objekt=obj)
+    m = b.get('manoever')
+    if m:
+        quer.append(m['quer'])
+        obj = dict(obj, vor=obj['vor'] - m['lin'] * 0.1, seite=obj['seite'] - m['quer'] * 0.1)
+    if l.e.ablauf is not None and l.e.ablauf.phase == 'planen':
+        seite_beim_planen = obj['seite']
+        break
+ok = any(q > 0 for q in quer) and seite_beim_planen is not None and abs(seite_beim_planen) <= STANDARD['greif_seite']
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} 3 cm seitlich -> faehrt seitlich davor, plant bei "
+      f"{(seite_beim_planen or 0) * 100:+.1f} cm")
+# Kurve: Strasse am Hindernis 20 Grad nach links -> dreht sich gerade, greift erst dann
+WEG_KURVE = [(0.05 * k * math.cos(math.radians(20)), 0.05 * k * math.sin(math.radians(20))) for k in range(1, 12)]
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=WEG_KURVE)
+folge = [l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=WEG_KURVE) for _ in range(40)]
+dreht = [x for x in folge if x.get('manoever') and x['manoever']['dreh'] > 0]
+ok = (bool(dreht) and l.e.ablauf is not None and l.e.ablauf.phase == 'abstand')
+gerade = [l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=[(0.05 * k, 0.0) for k in range(1, 12)])
+          for _ in range(10)]
+ok = ok and l.e.ablauf is not None and l.e.ablauf.phase in ('planen', 'ausfuehren')
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Kurve: schraeg zur Strasse -> dreht erst gerade, dann planen "
+      f"({dreht[0]['grund'] if dreht else '-'})")
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(1, zebra={'abstand': 0.6})
 arme, b, _ = wegraeumen(l, 40)
