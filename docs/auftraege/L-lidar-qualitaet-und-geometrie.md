@@ -8,6 +8,8 @@ RM01-Befunde und reine Gegenproben zeigen getrennte Lücken bei ungültigen Scan
 
 Jedes Issue enthält seinen begrenzten Fehlerfall, erlaubte Dateien und positive/negative Kontrollen. Je Lieferung ein kleiner PR; nicht alle Zeilen als einen Gesamtumbau übernehmen.
 
+**Nummernabgleich vom 21.10.2026:** [BBS-GuT/smartcity-roboter#79](https://github.com/BBS-GuT/smartcity-roboter/issues/79) ist der bestehende **L7-Auftrag zum unbekannten LiDAR-Fahrbereich**. Die alte Quellnummer [davidheinrich73/smartcity-roboter#79](https://github.com/davidheinrich73/smartcity-roboter/issues/79) bezeichnet dagegen den Personenhalt vor Prüfblick-Armbewegungen und wurde als [BBS-Issue #49](https://github.com/BBS-GuT/smartcity-roboter/issues/49) importiert. Die unqualifizierten `#79`-Nennungen in `tests/test_pruefblick_personen.py` und `docs/problemprotokoll.md` stammen aus diesem Quellauftrag; sie ändern die BBS-Zuordnung nicht. L7 und seine Abhängigkeiten bleiben beim bestehenden BBS-Issue #79; keinen zweiten Auftrag dafür anlegen.
+
 | Issue | Liefergegenstand | Reihenfolge / Grenze |
 |---|---|---|
 | [#59 L0a](https://github.com/BBS-GuT/smartcity-roboter/issues/59) | Bereinigte RM01-Berichte, Commit-/Konfigurationsbezug und vorhandenen Offline-Prototyp nachvollziehbar sichern | Generalprüfchat liefert Belege/Entwurf; kein Produktfix und keine Gerätefreigabe |
