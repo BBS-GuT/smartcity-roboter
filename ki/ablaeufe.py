@@ -429,7 +429,7 @@ class Wegraeumen(Ablauf):
         if self.phase == 'abstand':
             # gemessen = Radzaehler frisch UND seit der letzten Sichtung ohne Luecke (Abschnitt gleich, siehe Zentrale)
             return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg'),
-                                                 bool(w.get('strecke_gemessen')), w.get('odom_abschnitt')))
+                                                 bool(w.get('strecke_gemessen')), w.get('odom_abschnitt'), neu))
         if self.phase == 'planen':
             if self.plan is None:
                 if d > 6.0:
@@ -673,12 +673,13 @@ class Wegraeumen(Ablauf):
         aus['quelle'] = 'tiefe'
         return aus
 
-    def _abstand(self, jetzt, obj, strecke=None, weg=None, gemessen=False, abschnitt=None):
+    def _abstand(self, jetzt, obj, strecke=None, weg=None, gemessen=False, abschnitt=None, neu=False):
         c = self.c
         schraeg = None
         if obj:
             self.objekt, self.zuletzt_gesehen = dict(obj), jetzt
             self.objekt_strecke, self.objekt_abschnitt = strecke, abschnitt
+            self.leer_bilder = 0          # frische Bilder seit dieser Sichtung, in denen es fehlt
             fehler_vor = obj['vor'] - c['greif_vor']
             seitlich = abs(obj['seite']) > c['greif_seite']
             # Kurve: Roboter steht schraeg zur Strasse (und damit zum Gegenstand) -> erst gerade drehen
@@ -692,8 +693,12 @@ class Wegraeumen(Ablauf):
             s0 = getattr(self, 'objekt_strecke', None)
             # blind nur mit echten Radzaehlern: aus Fahrbefehlen geschaetzte Strecke ist kein Nachweis
             gemessen = gemessen and abschnitt == getattr(self, 'objekt_abschnitt', None)
-            if (s0 is not None and strecke is not None and gemessen and getattr(self, 'ausgerichtet', False)
-                    and jetzt - self.zuletzt_gesehen > c['blind_warten']):
+            if neu:
+                self.leer_bilder = getattr(self, 'leer_bilder', 0) + 1
+            # "verschwunden" heisst: frische Bilder zeigen es nicht - nicht nur, dass die KI gerade keine liefert
+            frisch_leer = getattr(self, 'leer_bilder', 0) >= c['anschauen_bilder']
+            if (s0 is not None and strecke is not None and gemessen and frisch_leer
+                    and getattr(self, 'ausgerichtet', False) and jetzt - self.zuletzt_gesehen > c['blind_warten']):
                 # Niedrige Gegenstaende (3 cm) verschwinden schon ab ca. 30 cm unter dem Blickfeld der Kamera
                 # (RM02 21.10.). Liegt die Greifweite nach Radzaehler erreicht: mit der letzten Messung greifen.
                 gefahren = strecke - s0

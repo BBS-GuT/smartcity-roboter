@@ -628,6 +628,28 @@ texte = [t for _, t, _ in l.e.ereignisse]
 ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Radzaehler-Luecke seit der Sichtung -> greift nicht blind ({b['grund']})")
+# Codex-Review: KI liefert in Greifweite 2 s keine neuen Bilder (haengt) -> kein blindes Greifen ohne frische Bilder
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0}
+for _ in range(400):
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']), strecke=welt['strecke'], strecke_gemessen=True)
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+    if l.e.ablauf is not None and l.e.ablauf.phase == 'abstand' and welt['vor'] < 0.295:
+        break
+haengt = []
+for _ in range(14):                           # 1,4 s ohne neues Bild (unter ki_max_alter)
+    l.t += 0.1
+    haengt.append(l.e.update(l.t, {'bild_nr': l.nr, 'bild_zeit': l.t - 0.1 * len(haengt) - 0.1, 'objekte': [],
+                                   'lidar': float('inf'), 'tiefe_hindernis': False, 'strecke': welt['strecke'],
+                                   'strecke_gemessen': True, 'objekt': dict(NIEDRIG, vor=welt['vor'])}))
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = (not any('greife nach der letzten Messung' in t for t in texte)
+      and not any(x['arm'] for x in haengt))
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} KI haengt in Greifweite (keine neuen Bilder) -> greift nicht blind")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))
