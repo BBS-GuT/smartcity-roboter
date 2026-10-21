@@ -40,12 +40,31 @@ pull requests` bleibt **aus**. Andernfalls koennte ein Workflow auf einem
 beliebigen Entwicklungsbranch einen anderen PR freigeben. CODEOWNERS allein
 verhindert die Ausfuehrung solcher Branch-Workflows nicht.
 
-Die eigene App hat nur Lesezugriff auf Contents, Checks, Actions und Issues sowie
-Schreibzugriff auf Pull Requests. Ihr Schluessel liegt ausschliesslich in
-der Environment `codex-mergefreigabe`, fuer die nur der Branch `main`
-zugelassen ist. Der normale `GITHUB_TOKEN` bleibt im Freigabeworkflow lesend.
-Ein neuer App-Token gilt nur fuer dieses Repository und wird nach dem Job
-wieder widerrufen. Persoenliche Zugriffstoken gehoeren nicht in diesen Ablauf.
+Die App-Installation soll Contents **Read and write**, Pull requests **Read and
+write** sowie Checks, Actions, Issues und Metadata **Read-only** erhalten.
+Die Schreibberechtigung der Installation soll die App als schreibberechtigte
+Review-Autorin fuer die Pflichtfreigabe qualifizieren. Die REST-Erstellung eines
+`APPROVED`-Reviews allein belegt diese Anrechnung nicht.
+
+Der tatsaechlich im Workflow ausgestellte App-Token bleibt ausdruecklich auf
+`permission-contents: read` begrenzt. Diese Begrenzung in
+`.github/workflows/codex-mergefreigabe.yml` wird durch diese Korrektur nicht
+angehoben. Ob GitHub die App-Freigabe bei Installation mit Contents-Schreibrecht
+und weiterhin lesendem Job-Token anrechnet, ist noch live nachzuweisen.
+
+**Risikodelta:** Der private App-Schluessel kann nach der Rechteerweiterung auch
+Contents-Schreibtoken ausstellen. Ein nur lesender Job-Token begrenzt den
+aktuellen Workflow, nicht die grundsaetzliche Macht dieses Schluessels. Die
+Aenderung an der bereits installierten App braucht deshalb eine ausdrueckliche
+Freigabe des Organisationsverantwortlichen. Admin-, Workflows-Schreibrechte und
+Bypass-Ausnahmen werden nicht angefordert; der allgemeine Actions-Freigabeschalter
+bleibt aus.
+
+Der Schluessel liegt ausschliesslich in der Environment `codex-mergefreigabe`,
+fuer die nur der Branch `main` zugelassen ist. Der normale `GITHUB_TOKEN` bleibt
+im Freigabeworkflow lesend. Ein neuer App-Token gilt nur fuer dieses Repository
+und wird nach dem Job wieder widerrufen. Persoenliche Zugriffstoken gehoeren
+nicht in diesen Ablauf.
 
 ## Einmalige Aktivierung
 
@@ -57,7 +76,7 @@ wieder widerrufen. Persoenliche Zugriffstoken gehoeren nicht in diesen Ablauf.
    [BBS-GuT: neue GitHub-App](https://github.com/organizations/BBS-GuT/settings/apps/new)
    eine private App, zum Beispiel `BBS-GuT Codex Freigabe`. Homepage ist dieses
    Repository, Webhook ausschalten, keine Benutzerrechte und keine Events.
-   Repository permissions: Contents **Read-only**, Checks **Read-only**, Actions **Read-only**,
+   Repository permissions: Contents **Read and write**, Checks **Read-only**, Actions **Read-only**,
    Issues **Read-only**, Pull requests **Read and write**; Metadata bleibt
    automatisch lesend. Die Vorlage liegt unter
    `.github/codex-approval-app-manifest.json`.
@@ -67,9 +86,14 @@ wieder widerrufen. Persoenliche Zugriffstoken gehoeren nicht in diesen Ablauf.
    `BBS_CODEX_APPROVAL_APP_ID` und den PEM-Inhalt als Environment-Secret
    `BBS_CODEX_APPROVAL_APP_PRIVATE_KEY` hinterlegen. Kein Repository-Secret
    verwenden, keinen Schluessel im Chat oder Repository speichern.
-4. Den Workflow einmal manuell auf `main` starten. Ein sauberer Produkt-PR
-   erhaelt eine formale App-Freigabe. Ein PR an den Steuerungsdateien bleibt
-   fuer eine Person reserviert. Den Nachweis im Einrichtungs-PR dokumentieren.
+4. Bei einer vorhandenen Installation die neue Contents-Berechtigung in den
+   App-Einstellungen anfordern und durch die zustaendige Person fuer die
+   Installation bestaetigen lassen. Ein Manifest-Commit oder erneuter
+   Workflowstart aendert keine bereits genehmigte Installation. Vor dieser
+   ausdruecklichen Freigabe keine Rechte aendern.
+5. Den Workflow auf `main` starten und die untenstehende Live-Abnahme
+   dokumentieren. Bis deren Erfolg ist eine formale App-Freigabe kein
+   nachgewiesener Ersatz fuer die vorgeschriebene Freigabe.
 
 Ohne die App-Konfiguration meldet der Workflow den noch fehlenden Schritt
 und gibt keinen PR frei. Der Schluessel wird erst mit erfolgreicher App-
@@ -82,9 +106,34 @@ Trockenlauf mit einem Lesetoken, ohne Freigaben oder sonstige Schreibzugriffe:
 GH_TOKEN=... python3 .github/scripts/codex_approve.py --pr 80
 ```
 
+## Live-Abnahme der angerechneten Freigabe
+
+Der beobachtete Ausgangszustand vom 21.10.2026 war: App-Review `APPROVED`, aber
+`authorCanPushToRepository: false` und PR-Status `reviewDecision: REVIEW_REQUIRED`.
+Die Installation hatte Contents-Lesezugriff. Die erforderliche Anrechnung des
+weiterhin lesenden Job-Tokens ist daher eine zu pruefende Annahme.
+
+- Einen aktuellen Produkt-PR ohne Steuerungsdateien mit `main` abgleichen.
+  Fuer exakt seinen aktuellen Head muessen nativer Codex-Review, gegebenenfalls
+  aktueller Security-Review und Pflicht-CI sauber abgeschlossen sein.
+- Der App-Review fuer exakt diesen Head muss `APPROVED` sein und in GraphQL
+  `authorCanPushToRepository: true` melden. Zusaetzlich muss derselbe PR
+  `reviewDecision: APPROVED` melden. Ein Review-Kommentar oder das erfolgreiche
+  Absenden des Reviews reicht als Abnahme nicht.
+- Den aktuellen Head, die App-Review-URL, die GraphQL-Werte und CI-Belege im
+  Einrichtungsissue dokumentieren. Rueckstaendige Branches, offene Threads oder
+  andere native Sperren werden nicht durch eine Rechteaenderung aufgehoben.
+- PR #54 mit Steuerungsdateien bleibt von der automatischen Freigabe
+  ausgeschlossen; die unabhaengige Codeowner-Freigabe bleibt erforderlich.
+  Ein Draft-Status allein beweist den Schutz der Steuerungsdateien nicht.
+
+Falls die Anrechnung trotz Installation mit Contents-Schreibrecht und lesendem
+Job-Token ausbleibt, bleibt die Einrichtung offen. Den Job-Token dann nicht
+stillschweigend auf Schreibzugriff erweitern und keine Schutzregel abschwaechen.
+
 ## Bedeutung fuer den Roboter
 
-Eine App-Freigabe und gruene CI erlauben die Softwareintegration. Fahr-,
+Eine von den Branchregeln angerechnete App-Freigabe und gruene CI erlauben die Softwareintegration. Fahr-,
 LiDAR-, Brems- und Greifverhalten brauchen weiterhin die im jeweiligen Issue
 festgelegten Geraetetests vor einer entsprechenden Freigabe am Roboter.
 
@@ -94,3 +143,6 @@ festgelegten Geraetetests vor einer entsprechenden Freigabe am Roboter.
 - [GitHub: Workflow-Berechtigungen](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#how-permissions-are-calculated-for-a-workflow-job)
 - [GitHub: Branchbeschraenkung fuer Environment-Secrets](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments#deployment-branches-and-tags)
 - [Offizielle Action fuer kurzlebige App-Token](https://github.com/actions/create-github-app-token)
+- [GitHub: erforderliche Freigaben von schreibberechtigten Reviewern](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#require-a-pull-request-before-merging)
+- [GitHub: ein Review erstellen erfordert Pull-Requests-Schreibrecht](https://docs.github.com/en/rest/pulls/reviews#create-a-review-for-a-pull-request)
+- [GitHub: zusaetzliche App-Rechte bestaetigen](https://docs.github.com/en/apps/using-github-apps/approving-updated-permissions-for-a-github-app)
