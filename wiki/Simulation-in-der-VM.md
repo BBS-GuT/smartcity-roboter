@@ -4,6 +4,8 @@ Der Simulator ersetzt Roboter, Kamera, Tiefenkamera, beide LiDARs und den Arm. K
 
 Die Simulation nutzt eine **eigene Domain-ID (77)**. Die Roboter nutzen 30. So steuert die Simulation nie aus Versehen einen echten Roboter, auch nicht im selben WLAN.
 
+**Nur eine Simulation pro Rechner gleichzeitig.** `scripts/simulation.sh` nutzt fest Domain 77, Port 8080 und feste temporäre Dateien. Zwei Läufe (auch aus zwei Git-Worktrees) stören sich gegenseitig.
+
 ## VM einrichten (einmalig)
 
 1. **VirtualBox** (kostenlos) oder VMware auf dem Laptop installieren.
@@ -12,7 +14,7 @@ Die Simulation nutzt eine **eigene Domain-ID (77)**. Die Roboter nutzen 30. So s
 4. Ubuntu in der VM installieren, dann im Terminal:
    ```bash
    sudo apt install -y git
-   git clone https://github.com/davidheinrich73/smartcity-roboter.git
+   git clone https://github.com/BBS-GuT/smartcity-roboter.git
    cd smartcity-roboter
    scripts/simulation.sh einrichten     # installiert ROS 2 Humble + Python-Pakete, fragt vorher
    ```
@@ -27,10 +29,12 @@ Die Simulation nutzt eine **eigene Domain-ID (77)**. Die Roboter nutzen 30. So s
 | `scripts/simulation.sh schwer` | wie ohne Zusatz, aber mit Fehlern wie in echt: großer Raum statt Wände am Spielfeld, zweiter LiDAR 12 cm versetzt und 4° verdreht, Lagesensor misst 3 % zu viel, Scans kommen 0,1 s zu spät |
 | `SIM_SCHWER=1 scripts/simulation.sh pruefen` | Prüfung mit diesen Fehlern |
 | `SIM_GREIFEN_NEU=1 scripts/simulation.sh pruefen` | Greifen frisch lernen. Ohne das lernt jede Prüfung mit dem weiter, was die letzten gelernt haben (wie auf dem echten Roboter). Der Arm im Simulator ist absichtlich anders gebaut, als die KI glaubt: frisch braucht sie oft mehr als 4 Versuche, dann schlägt „Würfel gegriffen“ fehl |
-| `SIM_ANTRIEB=echt scripts/simulation.sh pruefen` | Antrieb wie in echt: Motoren reagieren später und träger, Mecanum-Räder rutschen in Kurven, Radzähler/Lagesensor nur 10× pro Sekunde (geschätzte Werte, siehe [linie.md](linie.md)). `SIM_TEMPO=0.35` dazu: schneller fahren |
-| `python3 sim/linie_messen.py` | misst ohne ROS, wie genau der Linienfolger bei 0,15/0,25/0,35 m/s der Linie folgt (Tabelle, siehe [linie.md](linie.md)) |
+| `SIM_ANTRIEB=echt scripts/simulation.sh pruefen` | Antrieb wie in echt: Motoren reagieren später und träger, Mecanum-Räder rutschen in Kurven, Radzähler/Lagesensor nur 10× pro Sekunde (geschätzte Werte, siehe [docs/linie.md](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/linie.md)). `SIM_TEMPO=0.35` dazu: schneller fahren |
+| `python3 sim/linie_messen.py` | misst ohne ROS, wie genau der Linienfolger bei 0,15/0,25/0,35 m/s der Linie folgt (Tabelle, siehe [docs/linie.md](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/linie.md)) |
 
 Beenden: **Strg+C** im Terminal.
+
+Die automatischen Softwaretests ohne ROS stehen unter [Testen ohne Roboter](Testen-ohne-Roboter).
 
 ### Fehler wie am echten Roboter nachstellen (für die Karte)
 
@@ -48,14 +52,14 @@ Der Simulator hat Parameter für Fehler, die es am echten Roboter geben kann. St
 | `odom_twist`, `odom_rauschen` | `false`, `0.1` | `/odom_raw` ohne Geschwindigkeiten; Mecanum-Schlupf |
 | `sensor_stau`, `stempel` | `0.3`, `null` | Odometrie/IMU kommen gesammelt an; Zeitstempel fehlen (`null`) oder andere Uhr (`versatz`) |
 
-Schneller und ohne ROS geht es mit `python3 sim/messfahrt.py fahrt.jsonl.gz lidar0_einbau=0,0,90 imu_skala=1.03` und danach `python3 kartograf/abspielen.py fahrt.jsonl.gz` (siehe [karte.md](karte.md)). Das zeigt dann auch, wie weit die Karte je Runde wegdreht.
+Schneller und ohne ROS geht es mit `python3 sim/messfahrt.py fahrt.jsonl.gz lidar0_einbau=0,0,90 imu_skala=1.03` und danach `python3 kartograf/abspielen.py fahrt.jsonl.gz` (siehe [Messfahrt aufzeichnen](Messfahrt-aufzeichnen)). Das zeigt dann auch, wie weit die Karte je Runde wegdreht.
 
 Die Logs stehen in `/tmp/sim_*.log` (Prüfen) bzw. `logs/*.log` im Projektordner (mit Panel). Die Karte der Simulation liegt in `karten/sim/`.
 
 ## Was die Simulation kann und was nicht
 
 - Kamera, Tiefe und LiDAR werden aus der Welt berechnet. YOLO erkennt die gemalten Schilder teilweise, die eigenen Erkennungen (LED, Achteck, Zebrastreifen) funktionieren.
-- Der **Arm** wird nachgerechnet: Aus den Servowinkeln ergibt sich, wo der Greifer ist. Nur wenn er den Würfel trifft, ist er gegriffen. Die Arm-Maße (`sim/arm_sim.yaml`) sind **ausgedacht**. Auf dem Roboter rechnet Yahbooms Kinematik-Dienst (siehe [greifarm.md](greifarm.md)).
+- Der **Arm** wird nachgerechnet: Aus den Servowinkeln ergibt sich, wo der Greifer ist. Nur wenn er den Würfel trifft, ist er gegriffen. Die Arm-Maße (`sim/arm_sim.yaml`) sind **ausgedacht**. Auf dem Roboter rechnet Yahbooms Kinematik-Dienst (siehe [docs/greifarm.md](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/greifarm.md)).
 - Die Kamera dreht in der Simulation nur mit Servo 1 mit (Umschauen). Beim Greifen bleibt ihr Bild gleich, das ist in echt anders.
 - Ohne Grafikkarte rechnet die KI auf dem Prozessor (ca. 150 ms je Bild bei 4 Kernen). Mit nur 1 Kern ist sie zu langsam: Dann übersieht sie z. B. das Schild „Einfahrt verboten“. In der VM also mindestens 4 Kerne geben.
 - **Die Simulation ist nicht die Wirklichkeit.** Was hier klappt, muss auf dem Roboter trotzdem getestet werden.
