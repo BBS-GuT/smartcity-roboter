@@ -55,17 +55,17 @@
    - Ein **Zebrastreifen**, den die Kamera während des Anschauens sieht, wird vorgemerkt und danach beachtet, auch wenn er dann zu nah für die Kamera ist. In der Simulation ist er vorher einmal über den Zebrastreifen gefahren, obwohl der Fußgänger noch da war.
    - Lebewesen, Fahrzeug, zu groß, am Rand, kurz nach einem Zebrastreifen, Arm ausgeschaltet, nur TEST → **warten**, bis der Weg frei ist. **Der Grund steht immer im Ereignis**, z. B. „raeume nicht weg: Arm fuer die KI ausgeschaltet (Panel -> Arm …)“.
 3. **Ablagestelle suchen (noch im Stand):** Bevor er losfährt, rechnet er die ganze Armbewegung schon einmal so, als stünde er in Greifweite. Ablagestellen: ein Gitter neben dem Fahrschlauch (17–25 cm seitlich, 2–26 cm vorne, beide Seiten, bevorzugt die Seite, auf der der LiDAR weniger sieht). Stellen, an denen der LiDAR schon etwas sieht, fallen weg. Ist keine erreichbar und frei → gar nicht erst heranfahren, warten (Ereignis „vor dem Heranfahren geprueft“). Mit Yahbooms Kinematik probiert er für jeden Punkt die Handneigungen 80°, 65° und 50°.
-3. **In Greifweite fahren:** geregelt nach dem, was die Kamera misst (nicht nach der Zeit), bis die Vorderkante 25 cm vor der Robotermitte liegt.
-4. **Planen:** Die KI rechnet die Servowinkel für jeden Schritt aus (inverse Kinematik = aus dem Zielpunkt die Servowinkel rückwärts ausrechnen). Mit Yahbooms Kinematik-Dienst, wenn er läuft, sonst mit der eigenen Rechnung (Maße aus Yahbooms URDF oder Standard). Dazu kommt die **gelernte Korrektur** (siehe unten). Reicht der Arm nicht hin, fährt er blind bis zu 12 cm näher heran (3 cm/s) und plant neu. Erreicht er es trotzdem nicht, wird nichts bewegt und er wartet.
+4. **In Greifweite fahren:** geregelt nach dem, was die Kamera misst (nicht nach der Zeit), bis die Vorderkante 25 cm vor der Robotermitte liegt.
+5. **Planen:** Die KI rechnet die Servowinkel für jeden Schritt aus (inverse Kinematik = aus dem Zielpunkt die Servowinkel rückwärts ausrechnen). Mit Yahbooms Kinematik-Dienst, wenn er läuft, sonst mit der eigenen Rechnung (Maße aus Yahbooms URDF oder Standard). Dazu kommt die **gelernte Korrektur** (siehe unten). Reicht der Arm nicht hin, fährt er blind bis zu 12 cm näher heran (3 cm/s) und plant neu. Erreicht er es trotzdem nicht, wird nichts bewegt und er wartet.
    - **Zu nah für die Kamera?** Dann neigt er die Kamera nach unten (Pose `pruefblick`, ohne eigene Pose: Fahrstellung mit Servo 4 um 20° weiter nach unten) und misst es dort, statt zurückzufahren. Das Kameramodell für diese Pose wird aus den Kameramaßen der Fahrstellung und der Armgeometrie umgerechnet (`armlib.kamera_fuer_pose`). Die Kontrolle danach macht er ebenfalls im Prüfblick. Sieht er im Prüfblick nichts: Kamera zurück und wie bisher etwas zurückfahren (einmal je Wegräumen).
-5. **Ausführen:** Greifer auf → über das Hindernis → runter → Greifer schnell anlegen → langsam zudrücken (Wert nach gemessener Breite, eingemessen im Panel, siehe [greifarm.md](greifarm.md#greifkraft-wie-fest-drückt-der-greifer-zu)) → anheben → zur Ablagestelle (siehe 3.) → absetzen → loslassen → Fahrstellung. Höchstens 60° pro Sekunde je Servo. Ist er näher herangefahren, fährt er danach wieder so weit zurück.
-6. **Prüfen:** Kamera wieder nach vorne, mindestens 1,5 s und 5 Bilder. Sieht sie im Weg noch etwas → Fehlversuch (wird gelernt), nächster Versuch (ab 1.). Nach 4 Versuchen aufgeben und warten.
+6. **Ausführen:** Greifer auf → über das Hindernis → runter → Greifer schnell anlegen → langsam zudrücken (Wert nach gemessener Breite, eingemessen im Panel, siehe [greifarm.md](greifarm.md#greifkraft-wie-fest-drückt-der-greifer-zu)) → anheben → zur Ablagestelle (siehe 3.) → absetzen → loslassen → Fahrstellung. Höchstens 60° pro Sekunde je Servo. Ist er näher herangefahren, fährt er danach wieder so weit zurück.
+7. **Prüfen:** Kamera wieder nach vorne, mindestens 1,5 s und 5 Bilder. Sieht sie im Weg noch etwas → Fehlversuch (wird gelernt), nächster Versuch (ab 1.). Nach 4 Versuchen aufgeben und warten.
    - **Nur nahe Personen, Tiere und Fahrzeuge zählen** (Entscheidung Projektinhaber 21.10.): Die Zentrale misst mit der Tiefenkamera, wie weit das von der Kamera-KI gefundene Ding weg ist (nahe Werte im Kasten, `lib/tiefe.py` `abstand_im_kasten`). Weiter als `akteur_nah` (Standard 1 m ab Kamera) zählt beim Wegräumen nicht – Zuschauer im Hintergrund halten ihn nicht auf. Ist die Tiefe im Kasten unsicher (weniger als 70 % messbar, z. B. näher, als die Tiefenkamera messen kann) oder gehört das Tiefenbild zeitlich nicht zum Farbbild (mehr als 0,15 s auseinander), zählt es als nah.
    - Taucht während des Wegräumens eine nahe Person, ein Tier oder ein Fahrzeug auf (in jeder Phase, in der sich Arm oder Roboter bewegen oder gleich bewegen würden: Ablagestelle suchen, heranfahren, Prüfblick, planen, greifen, zurückfahren, Kontrolle), halten Arm und Roboter **still** (der Greifer bleibt, wie er ist). Erst wenn 2 s niemand mehr zu sehen ist, macht er weiter. Nach 30 s gibt er auf. Auch die Rückkehr des Arms in die Fahrstellung danach wartet, bis 2 s niemand mehr zu sehen war.
    - Wird das Wegräumen abgebrochen (STOPP, Statusausfall, Arm ausgeschaltet, Notbremse zu lange), merkt er sich, wo die Kamera das Hindernis zuletzt gesehen hat. Fehlende neue Treffer gelten nicht als „frei“.
    - Wird „KI darf den Arm bewegen“ während des Greifens ausgeschaltet, bricht er ab und fährt den Arm zurück in die Fahrstellung, bevor er weiterfährt.
    - Das blinde Heranfahren und Zurückfahren misst die Strecke mit den Radzählern, nicht mit der Zeit. Verliert die Kamera es beim Heranfahren kurz, rechnet er ebenfalls mit den Radzählern weiter (nicht über die Greifweite hinaus). Sonst „Weg ist frei (geprüft)“ → Erfolg, weiter.
-7. **Lernen:** Das Ergebnis aus 6. ist die Belohnung für das Greif-Lernen (`lib/greifen.py`). Ereignis z. B. „Greifversuch 7: Erfolg, Erfolgsquote 86 % (letzte 7)“. Wie das Lernen funktioniert, wie man im Simulator vortrainiert und was es gebracht hat: [greifarm.md](greifarm.md#greifen-lernen-libgreifenpy).
+8. **Lernen:** Das Ergebnis aus 7. ist die Belohnung für das Greif-Lernen (`lib/greifen.py`). Ereignis z. B. „Greifversuch 7: Erfolg, Erfolgsquote 86 % (letzte 7)“. Wie das Lernen funktioniert, wie man im Simulator vortrainiert und was es gebracht hat: [greifarm.md](greifarm.md#greifen-lernen-libgreifenpy).
 
 **Sicherheit:** Die KI darf den Arm standardmäßig bewegen (`ki_darf_arm_bewegen: true`), aber nur, wenn das Fahrprogramm **fährt** (START) und der Roboter steht. Im TEST und nach STOPP bewegt sie den Arm nie, ein laufender Ablauf wird abgebrochen, beim nächsten START fährt der Arm zuerst in die Fahrstellung. Taucht während des Greifens eine Person, ein Tier oder ein Fahrzeug auf → Abbruch, Arm zurück. Notbremse → Pause, nach 5 s Abbruch. Ausschalten: Panel → Arm (gilt nach ca. 2 s, ohne Neustart).
 
@@ -93,21 +93,12 @@
 
 ## Grenzen (ehrlich)
 
-- Das Modell wurde mit **echten Fotos** trainiert. Spielfiguren und Spielzeugautos erkennt es nur teilweise oder gar nicht. In der Simulation hielt es eine gezeichnete Fläche einmal kurz für eine Katze. Für die SmartCity braucht man wahrscheinlich ein **eigenes Modell**: ca. 100–300 Fotos der echten Figuren, Autos, Schilder und Ampeln machen, markieren (z. B. Roboflow oder Label Studio), mit Ultralytics trainieren, als ONNX exportieren, nach `models/` legen und die Namen in `erkennung/yolo.py` anpassen.
+- Das Modell wurde mit **echten Fotos** trainiert. Spielfiguren und Spielzeugautos erkennt es nur teilweise oder gar nicht. In der Simulation hielt es eine gezeichnete Fläche einmal kurz für eine Katze. Für die SmartCity braucht man wahrscheinlich ein **eigenes Modell** (Vorgehen: [Eigenes Erkennungsmodell](https://github.com/BBS-GuT/smartcity-roboter/wiki/Eigenes-Erkennungsmodell)).
 - Zebrastreifen-, Einbahn- und Würfelerkennung sind nur mit **gezeichneten** Bildern getestet. Echte Schilder können anders aussehen (Größe, Farbe, Licht).
 - Die Rechenzeit auf dem Jetson ist noch nicht gemessen. Das Panel zeigt sie an ("ms/Bild").
 
-## Modell neu exportieren (auf einem Laptop mit Internet)
+## Modell austauschen, Yahbooms eigene KI
 
-```bash
-pip install ultralytics
-yolo export model=yolov8n.pt format=onnx imgsz=320 opset=12
-```
-
-Auf dem Roboter läuft das Modell mit **onnxruntime** (`installieren.sh` bietet die Installation an).
-
-## Roboter-eigene KI (Yahboom)
-
-Yahboom liefert "KI-Großmodell"-Funktionen mit (Sprachmodell, auf RM03 liegt Dify). Ob dort etwas **lokal** läuft, ist ungeprüft: `scripts/ki_suchen.sh > ki.txt`. Ein Sprachmodell ist für schnelle Fahrentscheidungen zu langsam. **API-Schlüssel nie ins Repository!**
+Standardmodell neu exportieren, eigenes Modell für die SmartCity trainieren und was Yahbooms „KI-Großmodell“ kann: Wiki-Seite [Eigenes Erkennungsmodell](https://github.com/BBS-GuT/smartcity-roboter/wiki/Eigenes-Erkennungsmodell). Auf dem Roboter läuft das ONNX-Modell mit **onnxruntime** (`installieren.sh` bietet die Installation an). **API-Schlüssel nie ins Repository!**
 
 Lizenz: YOLOv8 von Ultralytics steht unter AGPL-3.0.
