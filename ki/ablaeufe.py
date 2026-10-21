@@ -22,6 +22,13 @@ LEBEWESEN = {'Person', 'Hund', 'Katze', 'Pferd', 'Vogel', 'Schaf', 'Kuh', 'Teddy
 FAHRZEUGE = {'Auto', 'Bus', 'LKW', 'Motorrad', 'Fahrrad', 'Zug'}
 
 
+def akteure_nah(w):
+    """Namen der Personen/Tiere/Fahrzeuge, die beim Wegraeumen zaehlen: nur NAHE (die Zentrale misst den Abstand mit
+    der Tiefenkamera, siehe ki/zentrale.py akteur_nah). Fehlt die Angabe 'nah', zaehlt es (lieber einmal zu viel).
+    Weiter weg im Hintergrund (Zuschauer, geparkte Autos) zaehlt nicht."""
+    return [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE and o.get('nah', True)]
+
+
 def befehl(aktion, grund, arm=None, manoever=None):
     return {'aktion': aktion, 'faktor': 0.0 if aktion == 'stopp' else 1.0, 'grund': grund,
             'arm': arm, 'manoever': manoever}
@@ -314,7 +321,7 @@ class Wegraeumen(Ablauf):
         if self.phase in self.HALT_PHASEN:
             # Person/Tier/Fahrzeug taucht auf: Arm und Roboter halten STILL (keine neue Bewegung, Greifer bleibt
             # wie er ist - sonst fiele ein gehaltener Wuerfel irgendwo hin). Weiter erst, wenn 2 s niemand mehr da ist.
-            lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE] if neu else []
+            lebend = akteure_nah(w) if neu else []
             if lebend:
                 if self.lebend_seit is None:
                     self.lebend_seit = jetzt
@@ -346,7 +353,7 @@ class Wegraeumen(Ablauf):
                     self.gesehen += 1
                 if lid is not None:
                     self.lidar_werte.append(lid)
-                lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE]
+                lebend = akteure_nah(w)
                 if lebend:
                     # erst ab 2 Bildern: ein einzelnes Fehlbild (KI irrt sich kurz) soll nicht alles blockieren
                     self.lebewesen_n += 1
@@ -525,7 +532,7 @@ class Wegraeumen(Ablauf):
         """Kontrolle: Person/Tier/Fahrzeug in den letzten 2 s gesehen? Dann Befehl zum Warten (vor neuen Arm- oder
         Fahrbewegungen), sonst None. Nur Zuschauen (Bilder zaehlen) geht weiter. Vor dem Pruefblick wartet er ohne
         Zeitgrenze (Arm steht in Fahrstellung, haelt nichts fest); vor einem neuen Versuch hoechstens 30 s."""
-        lebend = [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE] if neu else []
+        lebend = akteure_nah(w) if neu else []
         if lebend:
             if self.akteur_seit is None:
                 self.akteur_seit = jetzt

@@ -60,8 +60,9 @@ from zebra import finde_zebra  # noqa: E402
 import lidar          # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
-from tiefe import Bodenmodell        # noqa: E402
+from tiefe import Bodenmodell, abstand_im_kasten   # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
+from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
 
 # Diese Dinge fuehren zum Anhalten, wenn die Kamera-KI sie im Weg sieht. Nur Verkehrsteilnehmer:
 # Moebel/Gegenstaende (Stuhl, Flasche ...) erkennt YOLO oft falsch, z. B. die schwarze Kurve als "Stuhl".
@@ -109,6 +110,9 @@ class Zentrale(Node):
         dp('weg_rechts', 0.8)
         dp('weg_unten_min', 0.5)        # ... Unterkante in der unteren Bildhaelfte ...
         dp('weg_min_hoehe', 0.15)       # ... und gross genug (= nah)
+        # Wegraeumen: nur Personen/Tiere/Fahrzeuge zaehlen, die so nah sind (m ab Kamera, Tiefenkamera). Weiter weg
+        # (Hintergrund) halten sie das Wegraeumen nicht auf. Ohne sichere Tiefe im Kasten zaehlen sie (vorsichtig).
+        dp('akteur_nah', 1.0)
         dp('scan_topics', ['/scan0', '/scan1'])
         dp('scan_front_deg', [0.0, 0.0])
         dp('obstacle_half_deg', 30.0)
@@ -448,22 +452,26 @@ class Zentrale(Node):
             vogel = self.linien_sucher.vogel(img)     # nur die Draufsicht, die Linie sucht der Linienfolger
             zebra = finde_zebra(vogel, self.linien_sucher.RASTER, self.linien_sucher.VORNE[1])
 
-        tiefe_hindernis, tiefe_obj = None, None
-        if tmsg is not None and fahrstellung:
+        d = None
+        if tmsg is not None:
             d = self.bridge.imgmsg_to_cv2(tmsg, 'passthrough').astype(np.float32)
             if tmsg.encoding != '32FC1':
                 d /= 1000.0  # Millimeter -> Meter
+        for o in objekte:
+            if o['name'] in LEBEWESEN | FAHRZEUGE:
+                # Abstand ab Kamera (egal, wohin der Arm sie gerade richtet): nur Nahe zaehlen beim Wegraeumen
+                o['abstand'] = abstand_im_kasten(d, o['box'], (h, w))
+                o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
+        tiefe_hindernis, tiefe_obj = None, None
+        if d is not None and fahrstellung:
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
             tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
             if tiefe_obj:
                 tiefe_obj['quelle'] = 'tiefe'
-        elif (tmsg is not None and self.boden_pruef is not None
+        elif (d is not None and self.boden_pruef is not None
               and self.arm_beobachter.in_pose(self.posen['pruefblick'], time.time())):
             # Arm steht im Pruefblick: mit dessen Kameramodell messen (Boden dort nicht gelernt -> nicht lernen)
-            d = self.bridge.imgmsg_to_cv2(tmsg, 'passthrough').astype(np.float32)
-            if tmsg.encoding != '32FC1':
-                d /= 1000.0
             tiefe_hindernis, tiefe_obj = self.boden_pruef.pruefe(d, lernen=False)
             if tiefe_obj:
                 tiefe_obj.update(quelle='tiefe', blick='pruef', blick_winkel=list(self.posen['pruefblick']))
@@ -574,7 +582,8 @@ class Zentrale(Node):
             'stoppschild': w['stoppschild'], 'schild_quelle': w.get('schild_quelle'),
             'tiefe_hindernis': w['tiefe_hindernis'],
             'objekte': [{'name': o['name'], 'sicher': o['sicher'], 'im_weg': o.get('im_weg', False),
-                         'farbe': o.get('farbe')} for o in w['objekte']],
+                         'farbe': o.get('farbe'), 'abstand': o.get('abstand'), 'nah': o.get('nah')}
+                        for o in w['objekte']],
             'arm_erlaubt': self.entscheider.arm_freigabe,
             'arm_status': self.entscheider.warum_kein_arm() or 'bereit (KI darf wegraeumen)',
             'kinematik': self.kinematik_text(),

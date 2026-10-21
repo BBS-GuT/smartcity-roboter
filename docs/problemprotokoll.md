@@ -12,6 +12,14 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 
 ---
 
+## 21.10.2026, Personen im Hintergrund stoppen das Wegräumen
+
+- **Ursache:** Jede erkannte Person/jedes Tier/Fahrzeug im ganzen Bild zählte, auch weit hinten.
+- **Lösung (Entscheidung Projektinhaber):** Nur nahe zählen (Tiefenkamera, `akteur_nah` 1 m ab Kamera). Unsichere
+  Tiefe zählt als nah. Zebrastreifen und „KI sieht im Weg“ unverändert.
+- **Status:** nur Test (`tests/test_akteur_nah.py`). Am Roboter prüfen: Zuschauer hinten → räumt weiter; Hand am
+  Würfel → hält.
+
 ## 20.10.2026, Prüfung PR #78 und Gesamtcode (ohne Roboter)
 
 ### Greifkraft nur geschätzt

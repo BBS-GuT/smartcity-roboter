@@ -27,7 +27,7 @@
 
 import random
 
-from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen, LEBEWESEN, FAHRZEUGE
+from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen, akteure_nah
 
 STANDARD = {
     'notbremse_dist': 0.12,    # LiDAR naeher (m) -> sofort Stopp, ohne Rueckfrage
@@ -220,7 +220,7 @@ class Entscheider:
         neues_bild = w.get('bild_nr', -1) != self.letzte_bild_nr
         if neues_bild:
             self.letzte_bild_nr = w.get('bild_nr', -1)
-            if any(o['name'] in LEBEWESEN | FAHRZEUGE for o in w.get('objekte', [])):
+            if akteure_nah(w):                 # nur nahe zaehlen (Hintergrund haelt das Wegraeumen nicht auf)
                 self.lebewesen_zuletzt = jetzt
                 self.lebewesen_bild = w.get('bild_zeit', 0.0)
             if self.ablauf is None and self.arm_in_fahrstellung:

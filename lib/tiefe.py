@@ -117,3 +117,27 @@ class Bodenmodell:
         if quer_karte is not None:   # wie weit neben der Linie (Mitte des Fahrwegs) liegt es?
             objekt['quer'] = float(np.median(quer_karte[treffer][vorne]))
         return True, objekt
+
+
+def abstand_im_kasten(tiefe_m, box, bild_groesse, anteil=15, min_gueltig=0.4):
+    """Wie weit ist ein von der Kamera-KI gefundenes Ding weg (m, ab Kamera)? box: (x, y, b, h) im Farbbild,
+    bild_groesse: (Hoehe, Breite) des Farbbilds; das Tiefenbild darf eine andere Groesse haben (wird umgerechnet).
+    Nimmt einen NAHEN Wert (anteil-Perzentil, Standard 15 %): im Kasten liegt auch Hintergrund (z. B. zwischen den
+    Beinen), ein Teil davon ist das Ding selbst.
+    None = unsicher: weniger als min_gueltig des Kastens mit gueltiger Tiefe. Dann ist das Ding oft NAEHER als die
+    Tiefenkamera messen kann (die gueltigen Werte waeren nur der Hintergrund) -> der Aufrufer zaehlt es als nah."""
+    if tiefe_m is None:
+        return None
+    hd, wd = tiefe_m.shape[:2]
+    h, w = bild_groesse
+    x, y, bw, bh = box
+    x0, x1 = int(max(0, x) * wd / w), int(min(w, x + bw) * wd / w)
+    y0, y1 = int(max(0, y) * hd / h), int(min(h, y + bh) * hd / h)
+    teil = tiefe_m[y0:y1, x0:x1]
+    if teil.size == 0:
+        return None
+    gut = teil[np.isfinite(teil) & (teil > 0.05)]
+    if gut.size < max(10, min_gueltig * teil.size):
+        return None
+    return float(np.percentile(gut, anteil))
+
