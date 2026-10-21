@@ -18,6 +18,8 @@
 #   Karte            -> startet den Kartografen mit der KI (kartograf/kartograf.py), zeigt seine Dateien,
 #                       Messfahrt aufzeichnen + herunterladen (zum Auswerten mit kartograf/abspielen.py)
 #   Arm              -> nur auf Knopfdruck, nie waehrend der Fahrt
+#   Lichter          -> Abblendlicht an/aus (START schaltet es vor dem Losfahren ein), Blinker beim Abbiegen
+#                       (lib/lichter.py), Zustand 10x pro Sekunde auf /lichter/zustand
 import argparse
 import json
 import os
@@ -61,6 +63,7 @@ sys.path.insert(0, os.path.join(REPO, 'ki'))
 import lidar           # noqa: E402
 import arm as armlib   # noqa: E402
 import greifen         # noqa: E402
+import lichter as lichterlib  # noqa: E402
 import einstellungen   # noqa: E402
 import protokolle      # noqa: E402
 import systemlast      # noqa: E402
@@ -176,11 +179,14 @@ class PanelNode(Node):
         self.notbremse = float(cfg.get('notbremse_dist', KI_STANDARD['notbremse_dist']))
         self.arm = None
         self.tiefe_sub, self.tiefe_gewuenscht = None, 0.0
+        werte = einstellungen.lade('lichter')
+        self.lichter = lichterlib.Lichter({k: v for k, v in werte.items() if k in lichterlib.STANDARD})
 
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.ki_kommando_pub = self.create_publisher(String, '/ki/kommando', 10)
         self.karte_kommando_pub = self.create_publisher(String, '/karte/kommando', 10)
         self.tempo_pub = self.create_publisher(Float32, '/line_follower/tempo', 10)
+        self.licht_pub = self.create_publisher(String, '/lichter/zustand', 10)
         sub = self.create_subscription
         sub(String, '/line_follower/status', lambda m: self._json('lf', m), 10)
         sub(String, '/ki/befehl', lambda m: self._json('ki', m), 10)
@@ -196,6 +202,7 @@ class PanelNode(Node):
         self.create_timer(2.0, self._dynamisch_abonnieren)
         self.create_timer(3.0, self._agent_pruefen)
         self.create_timer(0.5, self._tiefe_verwalten)
+        self.create_timer(0.1, self.lichter_takt)
 
     # ---------------- Eingaenge ----------------
     def _set(self, name, wert):
@@ -208,6 +215,11 @@ class PanelNode(Node):
         if max_alter is not None and time.time() - zeit > max_alter:
             return None
         return wert
+
+    def get_frisch(self, name, max_alter=1.0):
+        """Wie get(), aber ohne Sperre (Aufrufer haelt self.lock schon)."""
+        zeit, wert = self.daten.get(name, (0.0, None))
+        return wert if time.time() - zeit <= max_alter else None
 
     def _json(self, name, msg):
         try:
@@ -276,6 +288,25 @@ class PanelNode(Node):
             self.tiefe_sub = None
 
     # ---------------- Ausgaenge ----------------
+    def lichter_takt(self):
+        """Blinker aus Linienfolger und KI neu rechnen und den Lichtzustand senden (10x pro Sekunde)."""
+        with self.lock:
+            vorher = self.lichter.blinker
+            z = self.lichter.schritt(time.time(), self.get_frisch('lf'), self.get_frisch('ki'))
+            if z['blinker'] != vorher:
+                text = f"Blinker {z['blinker']} ({z['grund']})" if z['blinker'] else 'Blinker aus'
+                self.ereignisse.appendleft({'zeit': time.time(), 'text': text, 'art': 'licht'})
+        self.licht_pub.publish(String(data=json.dumps(z)))
+        return z
+
+    def abblend_setzen(self, an):
+        with self.lock:
+            if self.lichter.abblend != an:
+                self.ereignisse.appendleft({'zeit': time.time(), 'text': 'Abblendlicht ' + ('an' if an else 'aus'),
+                                            'art': 'licht'})
+            self.lichter.abblend = an
+        self.lichter_takt()      # sofort senden, nicht erst im naechsten Takt
+
     def alter(self, name):
         """Wie alt (s) ist die letzte Meldung? None = noch nie."""
         with self.lock:
@@ -563,6 +594,8 @@ def mache_handler(node, prozesse, beenden=None):
             if 'line_follower' in node.get_node_names():
                 return ('Es laeuft schon ein Linienfolger, der NICHT vom Panel gestartet wurde (alte Version oder '
                         'aus einem Terminal). Erst beenden: Terminal -> scripts/stopp.sh, dann nochmal.')
+            if name == 'start':
+                node.abblend_setzen(True)       # Licht an, BEVOR er losfaehrt
             prozesse.start('fahren', lf_befehl(name == 'start'), 'FAEHRT' if name == 'start' else 'TESTMODUS')
             time.sleep(2.5)       # sofort wieder beendet? Dann den Grund aus dem Protokoll zeigen
             if not prozesse.laeuft('fahren'):
@@ -571,6 +604,14 @@ def mache_handler(node, prozesse, beenden=None):
                 # ausdruecklicher START: KI quittiert damit Manoever-Fehler und fehlgeschlagenes Wegraeumen
                 node.ki_kommando_pub.publish(String(data='start'))
             return ('Faehrt los.' if name == 'start' else 'Testmodus: zeigt alles, faehrt nicht.') + hinweis
+        if name == 'abblend':
+            node.abblend_setzen(bool(daten.get('an')))
+            fahrt = prozesse.laeuft('fahren') and prozesse.info.get('fahren') == 'FAEHRT'
+            if node.lichter.abblend:
+                return 'Abblendlicht AN'
+            return 'Abblendlicht AUS' + (' - Achtung: er faehrt gerade ohne Licht!' if fahrt else '')
+        if name == 'licht_diagnose':
+            return topics_mit(['light', 'led', 'rgb', 'lamp', 'licht'])
         if name == 'tempo':
             zustand['tempo'] = max(0.05, min(0.4, float(daten.get('wert', 0.15))))
             node.tempo_pub.publish(Float32(data=zustand['tempo']))
@@ -778,6 +819,7 @@ def mache_handler(node, prozesse, beenden=None):
             max(0, min(100, round((akku - AKKU_LEER) / (AKKU_VOLL - AKKU_LEER) * 100))),
             'sensoren': sensoren, 'board_diagnose': board_diagnose(
                 sensoren[1]['ok'], all(x['ok'] is not False for x in sensoren[2:] if x['topic'].startswith(('/battery', '/imu', '/odom', '/scan')))),
+            'lichter': node.lichter.zustand(),
             'tempo': zustand['tempo'], 'simulation': node.get('bild_sim', max_alter=3.0) is not None,
             'ips': ip_adressen(), 'port': node.args.port, 'netz_erlaubt': node.netz_erlaubt, 'lokal': lokal,
             'roboter': open(os.path.expanduser('~/roboter_name')).read().strip()

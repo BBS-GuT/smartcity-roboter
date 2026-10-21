@@ -106,6 +106,18 @@
   .tempo { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
   .tempo input { flex: 1; accent-color: var(--blau); height: 26px; }
   .tempo b { min-width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
+  /* Lichter: Blinker-Kontrollleuchten links/rechts, Abblendlicht-Schalter in der Mitte */
+  .lichter { display: grid; grid-template-columns: 56px 1fr 56px; gap: 6px; margin-top: 10px; align-items: stretch; }
+  .blinker { display: grid; place-items: center; border-radius: 10px; background: #0b1220; border: 1px solid var(--rand); color: #2b3a55; }
+  .blinker svg { width: 34px; height: 34px; }
+  .blinker.an { color: var(--gruen); border-color: var(--gruen); animation: blinken .667s steps(1, end) infinite; }
+  @keyframes blinken { 0% { opacity: 1; } 50% { opacity: .15; } }
+  #abblend { display: flex; align-items: center; justify-content: center; gap: 8px; font-weight: 700; border: 2px solid transparent; }
+  #abblend span { white-space: nowrap; }
+  #abblend svg { width: 30px; height: 22px; flex: none; }
+  #abblend.an { border-color: var(--blau); background: #1d3159; color: #dbeafe; }
+  #licht-grund { color: var(--grau); font-size: 13px; min-height: 1.3em; margin-top: 4px; text-align: center; }
+  .ereignisse .licht .punkt { background: var(--gruen); border-radius: 2px; }
   #antwort { color: var(--grau); font-size: 13px; min-height: 1.3em; margin-top: 8px; white-space: pre-wrap; }
   .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
   .chip { padding: 4px 9px; border-radius: 999px; background: #0b1220; font-size: 13px; border: 1px solid var(--rand); white-space: nowrap; }
@@ -245,6 +257,15 @@
         <input type="range" id="tempo" min="0.05" max="0.4" step="0.01" value="0.15">
         <b id="tempo-wert">0,15 m/s</b>
       </div>
+      <div class="lichter">
+        <div class="blinker" id="bl-links" title="Blinker links"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 12l9-8v5h11v6H11v5z"/></svg></div>
+        <button id="abblend" onclick="aktion('abblend', {an: !(S && S.lichter && S.lichter.abblend)})" title="Abblendlicht ein-/ausschalten">
+          <svg viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M17 3c6 0 10 3.5 10 8s-4 8-10 8c-1.5 0-2-1-2-8s.5-8 2-8z"/><path d="M11 5L2 8M11 10L2 13M11 15L2 18"/></svg>
+          <span id="abblend-text">Abblendlicht AUS</span>
+        </button>
+        <div class="blinker" id="bl-rechts" title="Blinker rechts"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M22 12l-9-8v5H2v6h11v5z"/></svg></div>
+      </div>
+      <div id="licht-grund"></div>
       <div id="antwort"></div>
       <div class="chips" id="sinne"></div>
       <div class="chips" id="objekte"></div>
@@ -423,6 +444,7 @@
       <button onclick="aktion('karte_stopp', {}, 'sys-antwort')">Kartograf stoppen</button>
       <button onclick="aktion('ampel_kalibrieren', {}, 'sys-antwort')">Ampel einstellen (Fenster am Roboter-Bildschirm)</button>
       <button onclick="aktion('system_info', {}, 'sys-antwort')">Systemcheck (nur lesen)</button>
+      <button onclick="aktion('licht_diagnose', {}, 'sys-antwort')">Licht-Topics anzeigen (nur lesen)</button>
       <a class="knopf" href="/logs.tar.gz">Logs herunterladen</a>
       <button onclick="aktion('update', {}, 'sys-antwort')">Neueste Version holen</button>
       <button onclick="if (confirm('Panel beenden? Roboter hält an.')) aktion('beenden', {}, 'sys-antwort')">Panel beenden</button>
@@ -934,6 +956,12 @@ function zeigeDashboard() {
   if (ki) meta.push('KI ' + ki.ki + (ki.ki_ms ? ` (${ki.ki_ms} ms/Bild)` : ''));
   if (lf) meta.push(`Linienfolger ${fmt(lf.fps, 0)} Bilder/s, ${fmt(Math.abs(lf.linear))} m/s`);
   $('g-meta').textContent = meta.join(' · ');
+  // Lichter: Blinker-Kontrollleuchten blinken im Browser selbst (Statusabfrage alle 0,4 s waere zu grob)
+  const licht = S.lichter || {};
+  for (const seite of ['links', 'rechts']) $('bl-' + seite).classList.toggle('an', licht.blinker === seite);
+  $('abblend').classList.toggle('an', !!licht.abblend);
+  $('abblend-text').textContent = 'Abblendlicht ' + (licht.abblend ? 'AN' : 'AUS');
+  $('licht-grund').textContent = licht.blinker ? `Blinkt ${licht.blinker}: ${licht.grund}` : S.fahren && S.modus === 'FAEHRT' && !licht.abblend ? 'Fährt ohne Abblendlicht!' : '';
   // Wahrnehmung als Chips
   const box = $('sinne'); box.innerHTML = '';
   for (const f of S.fremde || []) chip(box, `${f} läuft außerhalb des Panels (alte Version?) → scripts/stopp.sh`, 'rot');

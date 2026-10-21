@@ -36,6 +36,9 @@ ABLAUF = [  # (Sekunden, aktion, grund, ampel, lidar)
     (4, 'stopp', 'Hindernis 30 cm, bestaetigt durch Kamera-KI: Person', None, 0.30),
 ]
 
+GERADE = [(0.05 * i, 0.0) for i in range(1, 17)]
+ECKE_RECHTS = [(0.05 * i, 0.0) for i in range(1, 9)] + [(0.4, -0.05 * i) for i in range(1, 9)]
+
 
 def jpeg(text, farbe):
     img = np.full((480, 640, 3), 200, np.uint8)
@@ -64,7 +67,9 @@ def fake():
                          'ampel_quelle': 'LED-Erkennung', 'stoppschild': False, 'tiefe_hindernis': False,
                          'objekte': objekte})
         node._set('lf', {'status': 'Linie: Lenkung +0.05', 'fps': 15, 'linear': 0.15 if aktion != 'stopp' else 0,
-                         'angular': 0.05, 'linie': True, 'speed': 0.15})
+                         'angular': 0.05, 'linie': True, 'speed': 0.15, 'drive': True,
+                         'weg': ECKE_RECHTS if ampel == 'gruen' else GERADE})   # nach Gruen: rechts abbiegen
+        node.lichter_takt()          # Attrappe hat keinen Timer
         farbe = {'fahren': (60, 170, 60), 'langsam': (0, 170, 230), 'stopp': (40, 40, 220)}[aktion]
         node._set('bild_ki', jpeg(f'{aktion.upper()}: {grund}', farbe))
         node._set('bild_lf', jpeg('Linie erkannt', (120, 80, 40)))

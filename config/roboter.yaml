@@ -21,3 +21,10 @@ line_follower:
   ros__parameters:
     obstacle_check: true
     notbremse_dist: 0.12
+lichter:
+  ros__parameters:
+    # Abblendlicht und Blinker (Panel, lib/lichter.py, docs/lichter.md). LED-Zahl der vorderen Leiste NOCH NICHT
+    # AM ROBOTER GEPRUEFT.
+    kurve_grad: 60.0      # ab so viel Grad Abknicken der Linie voraus wird geblinkt (0 = nie wegen der Linie)
+    nachlauf: 1.0
+    mindest: 2.0

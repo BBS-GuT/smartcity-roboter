@@ -51,7 +51,7 @@ Dann im Dock **SmartCity Panel** öffnen → **TEST** (zeigt alles, fährt nicht
 |---|---|
 | [Zieldefinition](docs/zieldefinition-grundbetrieb.md) | verbindliches Ziel des Grundbetriebs (GB-01 … GB-18, Abnahmen A01 … A16) |
 | [Schnittstelle Grundbetrieb](docs/schnittstellen-grundbetrieb.md) | gemeinsamer Zustandsdatensatz für Panel und MQTT (Entwurf) |
-| [KI](docs/ki.md), [Linie](docs/linie.md), [Karte](docs/karte.md), [Greifarm](docs/greifarm.md) | wie die Programme arbeiten, alle Einstellungen |
+| [KI](docs/ki.md), [Linie](docs/linie.md), [Karte](docs/karte.md), [Greifarm](docs/greifarm.md), [Lichter](docs/lichter.md) | wie die Programme arbeiten, alle Einstellungen |
 | [CONTRIBUTING](CONTRIBUTING.md), [Aufträge](docs/auftraege/README.md), [Entwicklungsplan](docs/zusammenarbeit-und-entwicklung.md) | Mitarbeit, Dateizuständigkeiten, Arbeitspakete |
 | [CI-Betrieb](docs/entwicklung/D1-ci-betrieb.md) | automatische Prüfungen und `main`-Schutz |
 | [Geräte](docs/geraete/), [Infrastruktur](docs/infrastruktur/), [Abnahme](docs/abnahme/) | Inventar, Messpläne, Nachweise |
@@ -77,7 +77,9 @@ Die Softwaretests laufen bei jedem Pull Request automatisch (GitHub Actions). Gr
 - gemeinsamer Zustand und MQTT für die Leitzentrale
 - alle vier Roboter gleichzeitig: dafür braucht jeder eine eigene Domain-ID ([Roboter und Netz](https://github.com/BBS-GuT/smartcity-roboter/wiki/Roboter-und-Netz))
 
-**Später:** Abblendlicht und Blinker (in Arbeit), RTW-Einsatz (Sonderrechte), Einsatzaufträge über MQTT.
+**Lichter:** Abblendlicht (Panel, START schaltet es ein) und Blinker beim Abbiegen werden berechnet und im Dashboard angezeigt ([Lichter](docs/lichter.md)); die echte LED-Leiste ist noch nicht angeschlossen.
+
+**Später:** RTW-Einsatz (Sonderrechte), Einsatzaufträge über MQTT.
 
 **Bekannte Fehler / ungeprüft** (Details im [Problemprotokoll](docs/problemprotokoll.md)):
 - **LiDAR-Einbau:** Die beiden LiDARs sitzen ca. 25 cm versetzt, Hinderniserkennung und Notbremse rechnen beide in der Robotermitte. Vermessung offen, **sicherheitsrelevant**.
