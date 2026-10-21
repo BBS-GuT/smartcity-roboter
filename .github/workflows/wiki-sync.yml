@@ -1,0 +1,55 @@
+name: Wiki abgleichen
+
+# Spiegelt den Ordner wiki/ in das GitHub-Wiki dieses Repositorys.
+# Dazu kommt docs/problemprotokoll.md als Seite "Problemprotokoll" (bleibt im Repository, weil Fixes ihre
+# Eintraege im selben PR ergaenzen). Quelle ist immer main: Seiten im Browser-Wiki direkt zu bearbeiten bringt nichts,
+# der naechste Lauf ueberschreibt sie. Voraussetzung (einmalig im Browser): Wiki in den
+# Repository-Einstellungen aktivieren und die erste Seite anlegen, sonst gibt es noch kein Wiki-Repository.
+
+on:
+  push:
+    branches: [main]
+    paths: ['wiki/**', 'docs/problemprotokoll.md', '.github/workflows/wiki-sync.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-sync
+  cancel-in-progress: false
+
+jobs:
+  wiki:
+    name: Wiki / Abgleich aus wiki/
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Wiki-Repository holen, wiki/ hineinspiegeln und pushen
+        env:
+          TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          QUELLE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ziel="$RUNNER_TEMP/wiki"
+          if ! git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.wiki.git" "$ziel"; then
+            echo "::error::Wiki-Repository nicht erreichbar. Wiki aktivieren und im Browser die erste Seite anlegen, dann erneut starten."
+            exit 1
+          fi
+          rsync -a --delete --exclude '.git' wiki/ "$ziel/"
+          cp docs/problemprotokoll.md "$ziel/Problemprotokoll.md"
+          cd "$ziel"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Wiki ist bereits aktuell.'
+            exit 0
+          fi
+          git commit -q -m "Wiki aus wiki/ abgeglichen (${QUELLE})"
+          git push origin HEAD
+          echo "Wiki aktualisiert: https://github.com/${REPO}/wiki"

@@ -46,38 +46,13 @@ Auf dem echten Roboter ist vieles **ungeprüft**: wohin „vorne“ bei den LiDA
 | Wohin „vorne“ beim Haupt-LiDAR zeigt und wo er sitzt | fährt der Roboter laut Rädern geradeaus, fährt der LiDAR in **seine** Richtung „vorne“; dreht sich der Roboter, beschreibt der LiDAR einen Kreis um die Robotermitte (Hand-Auge-Kalibrierung) | wird beim Mitrechnen angewendet; die gemeldete Position ist die der Robotermitte. Bei mehr als 10° Hinweis „LiDAR-Richtung vermutlich falsch“ (die Hinderniserkennung braucht trotzdem das richtige `scan_front_deg`) |
 | Räder messen zu kurz/lang | ebenfalls aus der Hand-Auge-Kalibrierung | wird angewendet |
 
-**Standard seit 20.10.: AUS** (`selbst_kalibrieren: false`). Auf dem Roboter hatte sich die Karte nach dem Lernen verdreht/verdoppelt. Ohne Selbstkalibrierung rechnet die Karte mit den eingestellten Werten, die Selbstprüfung meldet Auffälligkeiten nur und stellt nichts um. Einschalten erst, wenn eine Messfahrt-Aufnahme mit `--setze selbst_kalibrieren=true` besser aussieht (siehe unten). Eingeschaltet wird das Gelernte mit der Karte gespeichert (`kalibrierung` in `karte.npz`) und gilt beim nächsten Start sofort. „Neue Karte“ fängt auch die Kalibrierung neu an.
+**Standard seit 20.10.: AUS** (`selbst_kalibrieren: false`). Auf dem Roboter hatte sich die Karte nach dem Lernen verdreht/verdoppelt. Ohne Selbstkalibrierung rechnet die Karte mit den eingestellten Werten, die Selbstprüfung meldet Auffälligkeiten nur und stellt nichts um. Einschalten erst, wenn eine Messfahrt-Aufnahme mit `--setze selbst_kalibrieren=true` besser aussieht (siehe [Messfahrt aufzeichnen](https://github.com/BBS-GuT/smartcity-roboter/wiki/Messfahrt-aufzeichnen)). Eingeschaltet wird das Gelernte mit der Karte gespeichert (`kalibrierung` in `karte.npz`) und gilt beim nächsten Start sofort. „Neue Karte“ fängt auch die Kalibrierung neu an.
 
 **Im Panel** (Karte): „Scan-Abgleich sicher: 95 %“ (grün ab 80 %), „Gelernt: …“, die letzte Änderung und ein gelber Kasten mit Hinweisen, z. B. „LiDAR-Richtung vermutlich um +90 Grad falsch: scan_front_deg anpassen“ oder „Scan-Abgleich passt oft nicht … Bitte Messfahrt aufzeichnen“. Auf dem Dashboard erscheint dann „Karte: Hinweis, siehe Seite Karte“.
 
-## Messfahrt aufzeichnen und schicken
+## Messfahrt aufzeichnen und auswerten
 
-Wenn die Karte auf dem Roboter nicht passt, kann man **ohne Roboter** nachsehen, warum. Dafür nimmt man eine Messfahrt auf:
-
-1. Panel → **Karte** → **Messfahrt aufzeichnen**. (Der Kartograf muss laufen, er startet mit der KI.)
-2. 2–3 Runden **normal fahren** (START), mit Kurven, Halten an der Ampel und Wenden. Am besten einmal kurz stehen bleiben (dann lernt der Lagesensor seinen Nullpunkt).
-3. **Aufnahme stoppen** (gleicher Knopf, er zeigt Dauer und Größe). Nach 30 min oder 400 MB hört sie von selbst auf.
-4. **Aufnahme herunterladen** (lädt die neueste) oder die Datei aus `karten/aufnahmen/` auf dem Roboter holen, z. B. `scp jetson@<roboter>:smartcity-roboter/karten/aufnahmen/*.jsonl.gz .`
-5. Die Datei schicken (etwa 1–3 MB pro Minute, je nach Kamerabildern). Dazu am besten einen Satz, was man gesehen hat („Karte dreht sich in jeder Runde nach links“).
-
-In der Datei steht: beide LiDAR-Scans (`/scan0`, `/scan1`), `/odom_raw`, `/imu/data_raw`, wohin der Arm geschickt wurde (`/arm6_joints`), was die KI über die Kamera meldet, die Position, die der Kartograf live gerechnet hat (`/karte/pose`), und 2 Kamerabilder je Sekunde (verkleinert). Alles mit Ankunftszeit und Zeitstempel, dazu die Einstellungen des Kartografen. Das Tiefenbild ist **nicht** dabei.
-
-### Auswerten (am Laptop, ohne ROS)
-
-```bash
-python3 kartograf/abspielen.py smartcity_20261019_101500.jsonl.gz
-python3 kartograf/abspielen.py aufnahme.jsonl.gz --setze scan_front_deg=[90,90]      # Einstellung ausprobieren
-python3 kartograf/abspielen.py aufnahme.jsonl.gz --setze selbst_kalibrieren=false    # ohne Selbstkalibrierung
-```
-
-Es braucht nur Python 3 mit `numpy` und `opencv-python`. Die Aufnahme wird genau so durchgerechnet wie im Kartografen. Ausgabe:
-
-- **Nachrichten:** wie oft (Hz), Lücken, ob sie gesammelt ankommen, Abstand Zeitstempel → Ankunft, ob `/odom_raw` Geschwindigkeiten hat, wie der Lagesensor liegt (Beschleunigung z positiv = richtig herum).
-- **LiDAR:** Strahlen je Scan, Winkelschritt, `time_increment`/`scan_time`, welche Winkel meistens verdeckt sind (eigener Aufbau, näher als 20 cm).
-- **Lokalisierung:** Anteil sicherer Abgleiche je Minute, Güte, längste unsichere Zeit.
-- **Selbstkalibrierung:** Skala/Nullpunkt des Lagesensors, wohin „vorne“ beim Haupt-LiDAR zeigt und wo er sitzt, Scan-gegen-Scan-Drehung (+1 = passt, −1 = andersherum), was gelernt wurde.
-- **Vergleich mit live:** wie weit die Position von dem abweicht, was der Roboter während der Fahrt gerechnet hat.
-- Bilder: `karte.png` (Karte mit gefahrenem Weg) und `diagnose.png` (Güte des Abgleichs über die Zeit) im Ordner `<aufnahme>_auswertung/`.
+Passt die Karte auf dem Roboter nicht, eine Messfahrt aufnehmen (Panel → Karte → „Messfahrt aufzeichnen“) und am Laptop ohne ROS mit `kartograf/abspielen.py` durchrechnen. Schritt-für-Schritt-Anleitung, Inhalt der Aufnahme und Bedeutung der Ausgabe: Wiki-Seite [Messfahrt aufzeichnen](https://github.com/BBS-GuT/smartcity-roboter/wiki/Messfahrt-aufzeichnen).
 
 ## Was in der Simulation nachgestellt wurde (vorher/nachher)
 
@@ -108,7 +83,7 @@ Wichtig fürs Nachrechnen: Das Abspielen rechnet genau wie live (in der ROS-Simu
 
 Gegenprobe in der ROS-Simulation (Simulator + KI + Linienfolger + Kartograf, großer Raum, 6 Hz, Lagesensor 3 % daneben, je ca. 230 s): Lagesensor falsch herum: vorher Position in Runde 2–3 über 1,5 m daneben, nachher 1,6–1,7 cm (Runde 2–4). Haupt-LiDAR 12/10 cm an der Ecke: vorher 15 cm, nachher 1,7–2,4 cm. Achtung: Mit verdecktem Sektor direkt am LiDAR (Messungen bei 10 cm) fährt der Linienfolger in der Simulation gar nicht los, weil er das als Hindernis vor sich sieht (`obstacle_min_range` 0,08 m).
 
-Auch die ROS-Simulation (`sim/simulator.py`) kann diese Fehler nachstellen (Parameter siehe [simulation.md](simulation.md)).
+Auch die ROS-Simulation (`sim/simulator.py`) kann diese Fehler nachstellen (Parameter siehe [Simulation in der VM](https://github.com/BBS-GuT/smartcity-roboter/wiki/Simulation-in-der-VM)).
 
 ## Dateien (`karten/<name>/`, nicht im Repository)
 
@@ -142,7 +117,7 @@ Andere Karte (z. B. andere Stadt): Panel mit `scripts/panel.sh --karte werkstatt
 
 ## Ungeprüft auf dem echten Roboter / offen
 
-- **Welche Ursache es auf dem echten Roboter ist, ist nicht bewiesen.** Alle Zahlen oben stammen aus der Simulation. Eine echte Messfahrt (siehe oben) beantwortet das.
+- Alle Zahlen oben stammen aus der Simulation. Auf RM02 zeigte die Messfahrt vom 20.10.: `/scan0` sitzt versetzt; mit `haupt_lidar: '/scan1'` ist der Abgleich zu 94 % sicher und die Karte ohne Doppelbild (am Roboter bestätigt, siehe [Problemprotokoll](problemprotokoll.md)). Ob die Selbstkalibrierung dort hilft, ist offen (Standard: aus).
 - Ob `/odom_raw` Geschwindigkeiten (`twist`) und eine Position liefert, und welche Einheiten/Vorzeichen `/imu/data_raw` hat. Der Kartograf kommt mit beidem zurecht (nimmt sonst die Positions-Unterschiede), meldet es aber nur in der Auswertung einer Messfahrt.
 - Ob die Zeitstempel der Board-Nachrichten (micro-ROS) zur Uhr des Jetson passen. Wenn nicht, rechnet der Kartograf nur mit den Abständen der Stempel.
 - Wie spät ein Scan ankommt, wenn das Board ihn erst beim Senden stempelt: Diese Verspätung kann der Kartograf nicht sehen (in der Simulation 50 ms, machte keine Probleme).

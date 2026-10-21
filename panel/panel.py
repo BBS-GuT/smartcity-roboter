@@ -447,7 +447,7 @@ def board_diagnose(board_da, sensoren_da):
     if a['domain'] is not None and a['domain'] != unsere:
         return (f"Domain-ID passt nicht: der Agent (Board) laeuft mit {a['domain']}, unsere Programme mit {unsere}. "
                 f"Dann sehen sie sich nicht. Loesung: echo {a['domain']} > ~/ros_domain_id, Panel neu starten "
-                '(oder den Agent auf dieselbe Nummer stellen, docs/roboter.md).')
+                '(oder den Agent auf dieselbe Nummer stellen, Wiki: Roboter-und-Netz).')
     if a['geraet'] and not os.path.exists(a['geraet']):
         return (f"Der Agent wartet auf {a['geraet']}, das Geraet gibt es aber nicht -> USB-Kabel Jetson <-> Board "
                 'und Strom des Boards pruefen.')
