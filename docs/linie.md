@@ -163,7 +163,7 @@ In `config/lokal/roboter.yaml` unter `line_follower:` → `ros__parameters:` ein
 | `kurven_bremse` | 0.15 | wie stark er in Kurven langsamer wird |
 | `regel_abstand` / `regel_richtung` | 44 / 13 | wie kräftig er zur Linie zurücklenkt. Schlingert er, beide etwas kleiner |
 | `max_turn` | 1.5 | höchste Drehgeschwindigkeit (rad/s) |
-| `such_zeit` / `such_dreh` | 3.0 / 0.7 | Linie weg: so lange (s) drehend suchen, danach Stopp |
+| `such_zeit` / `such_dreh` | 0.8 / 0.7 | Linie weg: so lange (s) mit dieser Drehgeschwindigkeit (rad/s) zur letzten Seite drehen (ca. 30°), danach Stopp |
 | `notbremse_dist` | 0.12 | eigene LiDAR-Notbremse (m), unabhängig von der KI |
 | `obstacle_check` | true | Notbremse an/aus (RM03 hat kein LiDAR → `false`) |
 | `ki_pflicht` | true | ohne KI-Zentrale nicht fahren |

@@ -1,9 +1,9 @@
 # Projekt SmartCity 2026 – Autonomes Fahren
 
-**Team Autonomes Fahren, BBS Trier · Stand: 02.10.2026**
-Repository: https://github.com/davidheinrich73/smartcity-roboter
+**Team Autonomes Fahren, BBS Trier · Stand: 21.10.2026**
+Repository: https://github.com/BBS-GuT/smartcity-roboter
 
-Diese Datei erklärt, was wir gebaut haben und wie es funktioniert.  Technische Details stehen in den anderen Dateien in `docs/`.
+Diese Seite erklärt verständlich (zum Vortragen), was wir gebaut haben und wie es funktioniert. Technische Details stehen im Repository in [`docs/`](https://github.com/BBS-GuT/smartcity-roboter/tree/main/docs), Fachbegriffe im [Glossar](Glossar).
 
 ---
 
@@ -61,7 +61,7 @@ Die Kamera schaut schräg nach unten. Im Kamerabild sieht eine Kurve deshalb fla
 
 **Problem aus dem Test:** Ist der Computer ausgelastet, kommen die Kamerabilder zu spät an. Dann lenkt er nach einem alten Bild. Lösung: Jedes Bild hat einen Zeitstempel. Er trägt die Linie dort ein, wo er beim **Fotografieren** stand. Ist ein Bild zu alt, wird er langsamer oder hält an.
 
-**Sicherheit:** Fahrbefehle gehen 20× pro Sekunde raus. Kommt 0,3 s lang kein Befehl, stoppt das Motorboard von selbst (Watchdog = Aufpasser-Zeitschaltung).
+**Sicherheit:** Fahrbefehle gehen 20× pro Sekunde raus. Kommt 0,3 s lang kein Befehl, soll das Motorboard von selbst stoppen (Watchdog = Aufpasser-Zeitschaltung). Diese Zeit ist **nicht gemessen**; die Zieldefinition verlangt eine echte Messung.
 
 ---
 
@@ -113,7 +113,7 @@ Der Kartograf baut bei jeder Fahrt eine Karte und verbessert sie bei jeder weite
 
 **Zwei LiDARs:** Der M3 Pro hat zwei LiDARs, diagonal an zwei Ecken. Früher hat der Kartograf so getan, als säßen beide in der Robotermitte. Dann passen die zwei Scans nicht genau zusammen, und die Karte dreht sich mit jeder Runde ein paar Grad weiter. In der Simulation nachgestellt: von 2,7° in Runde 1 auf 5,2° in Runde 5. Jetzt baut der erste LiDAR die Karte. Wo der zweite **genau** sitzt, lernt der Kartograf selbst, indem er dessen Scans auf die Karte schiebt. Erst danach zählen seine Punkte mit. Mit der Korrektur bleibt der Fehler in der Simulation über 5 Runden bei etwa 1°.
 
-In der Simulation liegt er im Mittel 1,5 cm daneben. Die Karte kann man als Bild (PNG) und als 3D-Modell (PLY) herunterladen.
+In der Simulation liegt er im Mittel 1,5 cm daneben. Am 20.10. auf RM02 bestätigt: Mit `/scan1` als Haupt-LiDAR passt die Karte (Scan-Abgleich 94 % sicher, kein Doppelbild, siehe [Problemprotokoll](Problemprotokoll)). Die Karte kann man als Bild (PNG) und als 3D-Modell (PLY) herunterladen.
 
 ---
 
@@ -121,7 +121,7 @@ In der Simulation liegt er im Mittel 1,5 cm daneben. Die Karte kann man als Bild
 
 Das Panel ist eine Webseite, die auf dem Roboter läuft. Man öffnet sie mit einem Klick im Dock oder vom Laptop über die IP-Adresse des Roboters.
 
-![Dashboard](bilder/panel_dashboard.jpg)
+![Dashboard](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/bilder/panel_dashboard.jpg?raw=true)
 
 | Seite | Inhalt |
 |---|---|
@@ -144,7 +144,7 @@ Das Panel ist eine Webseite, die auf dem Roboter läuft. Man öffnet sie mit ein
 
 Wir haben nicht immer einen Roboter. Darum gibt es eine Simulation: eine kleine 2D-Welt mit Rundkurs, Ampel, Zebrastreifen samt Fußgänger, Holzwürfel, Stoppschild und Einbahnstraße. Der Simulator erzeugt Kamerabilder, Tiefenbilder und LiDAR-Daten, die sich für die Programme wie echte Sensoren verhalten.
 
-`scripts/simulation.sh pruefen` fährt gut 2 Minuten und prüft automatisch, ob alles stimmt: Linie genau, nicht über Rot, am Zebrastreifen gewartet, Würfel weggeräumt usw. Mit `scripts/simulation.sh` läuft sie mit dem Panel, dort zeigt Kamera → „Simulation“ die Welt von oben. Sie läuft auch in einer Linux-VM auf dem Laptop ([simulation.md](simulation.md)).
+`scripts/simulation.sh pruefen` fährt gut 2 Minuten und prüft automatisch, ob alles stimmt: Linie genau, nicht über Rot, am Zebrastreifen gewartet, Würfel weggeräumt usw. Mit `scripts/simulation.sh` läuft sie mit dem Panel, dort zeigt Kamera → „Simulation“ die Welt von oben. Sie läuft auch in einer Linux-VM auf dem Laptop ([Simulation in der VM](Simulation-in-der-VM)).
 
 Die Simulation nutzt eine eigene **Domain-ID** (77). Das ist die Kanalnummer, auf der ROS-Programme miteinander reden. Die Roboter nutzen 30, so steuert die Simulation nie aus Versehen einen echten Roboter.
 
@@ -161,7 +161,7 @@ Die Simulation nutzt eine eigene **Domain-ID** (77). Das ist die Kanalnummer, au
   - Ein Not-Aus ist immer möglich (STOPP-Knopf, `scripts/stopp.sh`).
   - Nach STOPP bewegt die KI den Arm nicht.
   - Passwörter kommen nie ins Repository.
-- **Tests:** automatische Tests (`tests/`), die Simulation und dann der echte Roboter.
+- **Tests:** automatische Tests (`tests/`), die Simulation und dann der echte Roboter. Seit 20.10. laufen die Softwaretests bei jedem Pull Request automatisch auf GitHub (CI), und `main` ist geschützt: Änderungen nur über PR mit Freigabe einer anderen Person. Mehr: [Mitarbeiten mit Git](Mitarbeiten-mit-Git).
 
 ### Was bisher passiert ist (Kurzfassung)
 
@@ -178,17 +178,20 @@ Die Simulation nutzt eine eigene **Domain-ID** (77). Das ist die Kanalnummer, au
 
 ## 9. Offen
 
-**Teil 2 (als Nächstes):**
-- **Kreuzungen und Abbiegen** nach dem Stadtplan mit den Knoten K1–K8 (sechs T-Einmündungen, zwei Kreuzungen) und Einbahnrichtungen.
-- **Wegwahl**: zufällig, aber abwechslungsreich. Später **„fahr zu X“** (Ziel ansteuern).
-- **Abblendlicht** an der vorderen LED-Leiste und **Blinker** beim Abbiegen.
-- **MQTT**: Daten für die Leitzentrale veröffentlichen (laut Zieldefinition).
-- **VLAN**: VLAN Architektur steht (vermutlich), muss noch auf den Robotern konfiguriert werden
+Maßstab ist die [Zieldefinition des Grundbetriebs](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/zieldefinition-grundbetrieb.md). Danach gehören diese Punkte schon zum **Grundbetrieb**, nicht zu „später“:
 
-**Später:**
+- **Kreuzungen und Abbiegen** nach dem Stadtplan mit den Knoten K1–K8 (sechs T-Einmündungen, zwei Kreuzungen) und Einbahnrichtungen, **Wegwahl** (zufällig, aber abwechslungsreich).
+- **Gemeinsamer Motorfreigabeweg**: nur ein Programm darf Fahrbefehle an die Motoren geben, STOPP bleibt gesperrt, bis man bewusst neu startet.
+- **Gemeinsamer Zustand + MQTT**: Panel und Leitzentrale lesen denselben Datensatz ([Schnittstelle](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/schnittstellen-grundbetrieb.md), noch Entwurf).
+- **Vier Roboter gleichzeitig**: jeder mit eigener Domain-ID ([Roboter und Netz](Roboter-und-Netz)).
+- **VLAN**: Architektur steht (vermutlich), muss noch auf den Robotern konfiguriert werden.
+
+Wer gerade woran arbeitet, steht im [Auftragsregister](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/auftraege/README.md) und in den offenen Pull Requests.
+
+**Später (nicht Grundbetrieb):**
+- **Abblendlicht** an der vorderen LED-Leiste und **Blinker** beim Abbiegen (in Arbeit, Draft-PR).
 - **RTW-Einsatz** (Sonderrechte bei Rot und am Stoppschild) wieder einbauen.
-- Wegräumen auf dem echten Roboter testen (Yahbooms Kinematik-Dienst, Greifer-Werte).
-- Gleichzeitiger Betrieb von vier Robotern. Dafür braucht jeder eine eigene Domain-ID.
+- Einsatzaufträge der Leitzentrale über MQTT (z. B. „fahr zu X“).
 
 ---
 
@@ -196,9 +199,10 @@ Die Simulation nutzt eine eigene **Domain-ID** (77). Das ist die Kanalnummer, au
 
 | Fehler | Bemerkung |
 |---|---|
-| Karte drehte sich jede Runde weiter | Ursache gefunden (zweiter LiDAR versetzt), behoben, **auf dem Roboter noch ungetestet** |
+| Karte drehte sich jede Runde weiter | Ursache gefunden (zweiter LiDAR versetzt), am 20.10. auf RM02 **bestätigt behoben** |
 | Greifer: zugreifen und öffnen waren vertauscht | Werte jetzt nach Yahboom (30 = offen, 130 = zu), im Panel prüfen |
-| Teilweise **KI-Aussetzer** (unter 2 s) | Roboter hält kurz an („KI antwortet nicht“), vermutlich Rechenlast |
+| Greifen am echten Roboter unzuverlässig | 20.10.: 2 Erfolge in 15 Versuchen. Greifkraft ist nur geschätzt, bis der Greifer im Panel eingemessen ist |
+| Teilweise **KI-Aussetzer** / Rechner hängt | Ursache vermutlich Mathe-Bibliotheken auf allen Kernen (Linienfolger bis 500 % CPU), Gegenmaßnahme eingebaut, am Roboter noch nicht bestätigt |
 | Teilweise **Objekterkennung fehlerhaft** | Ampeln werden noch nicht sauber erkannt, YOLO verwechselt manchmal Dinge |
 
-Alles Neue ist zuerst in der Simulation getestet. Was auf dem echten Roboter geprüft ist, steht in den Testprotokollen bzw. in den Rückmeldungen im Projekt.
+Alle Funde mit Ursache und Prüfstand: [Problemprotokoll](Problemprotokoll).

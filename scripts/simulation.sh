@@ -1,5 +1,5 @@
 #!/bin/bash
-# Simulation OHNE Roboter, z. B. in einer Linux-VM auf dem Laptop (Anleitung: docs/simulation.md).
+# Simulation OHNE Roboter, z. B. in einer Linux-VM auf dem Laptop (Anleitung: Wiki, Seite Simulation-in-der-VM).
 #   scripts/simulation.sh einrichten -> installiert ROS 2 Humble + Python-Pakete (einmalig, fragt vorher)
 #   scripts/simulation.sh            -> Simulator + Panel, Browser geht auf: http://localhost:8080
 #                                       START druecken, Kamera-Ansicht "Simulation" = Welt von oben
@@ -14,7 +14,7 @@ if [ "$1" = "einrichten" ]; then
     . /etc/os-release
     if [ "$VERSION_CODENAME" != "jammy" ]; then
         echo "Dieses System ist $PRETTY_NAME. ROS 2 Humble gibt es fertig nur fuer Ubuntu 22.04 (jammy)."
-        echo "-> VM mit Ubuntu 22.04 anlegen (docs/simulation.md)."; exit 1
+        echo "-> VM mit Ubuntu 22.04 anlegen (Wiki: Simulation-in-der-VM)."; exit 1
     fi
     read -r -p "ROS 2 Humble und Python-Pakete installieren (braucht sudo, ca. 1 GB)? (j/n) " ok
     [ "$ok" = "j" ] || exit 1
