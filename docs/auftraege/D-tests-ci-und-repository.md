@@ -1,46 +1,60 @@
-# Entwicklungsauftrag D Tests CI und Repositoryregeln
+# Entwicklungsauftrag D: Tests, CI und Repositoryregeln
 
-**Empfänger:** Zusätzlicher Entwickler oder ausdrücklich eingeplantes Paket eines der Bereiche A/B/C. **Jetzt umzusetzen:** D1. **Branch:** `chore/gb-d1-testinfrastruktur`.
+**BBS-Betriebsstand: 21.10.2026.** D1-Basis und main-Schutz sind geliefert; die offenen Dokumentations- und Freigabeaufgaben stehen unten. Eine neue Testinfrastruktur oder eine zweite Schutzregel ist nicht zu beauftragen.
 
-Du entwickelst am Team-Repository `https://github.com/davidheinrich73/smartcity-roboter`. Lies [gemeinsame Regeln](00-gemeinsame-regeln.md), [Register](README.md) und Entwicklungsplan. Die Aufträge liegen zunächst auf `codex/grundbetrieb` in PR #11. Ein eigener Checkout und Aufgabenbranch ab aktuellem `origin/main` sind erforderlich. Diese Aufgabe ist separat zu vergeben; sie ist nicht automatisch einer bereits ausgelasteten Person zusätzlich zugeordnet.
+Schreibziel ist ausschließlich [BBS-GuT/smartcity-roboter](https://github.com/BBS-GuT/smartcity-roboter), `origin=https://github.com/BBS-GuT/smartcity-roboter.git`. Neue kleine Aufgaben beginnen in eigener Arbeitskopie auf einem zugeteilten Branch ab aktuellem `origin/main`.
 
-## Auftrag D1
+Für Repositoryadresse, Rechte und CI gilt dieser datierte BBS-Stand. Abweichende ältere Angaben in [gemeinsamen Regeln](00-gemeinsame-regeln.md), [Register](README.md) und [CI-Betriebsanleitung](../entwicklung/D1-ci-betrieb.md) sind insoweit historische Quellplanung; ihre Aktualisierung läuft über die unten genannten PRs. Die Orchestrierung vergibt weiterhin Aufgaben und Dateireservierungen. Ein freies Dokument oder ein zusätzliches KI-Fenster ist keine Zuteilung.
 
-**Geprüfter Status am 20.10.2026:** Ursprünglicher Runner, Testumgebung, CI und Beitragsvorlagen sind integriert; main `d991765` ist mit 13/13 Softwaretestskripten grün. Maßgeblich für den laufenden Betrieb ist die [CI-Betriebs- und Eigentümeranleitung](../entwicklung/D1-ci-betrieb.md). Status dieses Bearbeitungsstands: **Ergänzungen #68/#69 in Arbeit; #50 administrativ offen**. Fortschreibung und Gesamtabschluss erfolgen über #15; ein grüner Lauf bestätigt keinen aktiven main-Schutz oder Gerätebetrieb. Die folgende Beschreibung des Ausgangsstands bleibt als Auftragsgrundlage erhalten.
+## Gelieferter D1-Betrieb
 
-Mache die vorhandenen reinen Softwareprüfungen reproduzierbar und auf Pull Requests automatisch sichtbar. Der Ausgangsstand hat sechs einzelne Testskripte und keine GitHub-Actions-Workflows. Keine Fahrlogik, Testszenarioerwartungen oder fachlichen Grenzwerte ändern, um einen grünen Lauf herzustellen.
+[D1 #4](https://github.com/BBS-GuT/smartcity-roboter/issues/4) und [Repositoryschutz #28](https://github.com/BBS-GuT/smartcity-roboter/issues/28) sind abgeschlossen. `letsc4` ist inzwischen Repositoryadministrator und Organisationsinhaber von BBS-GuT. Die frühere fehlende Adminberechtigung ist keine aktuelle Blockade mehr.
 
-Liefergegenstände:
+Der vorhandene Runner `scripts/pruefen.py` führt `tests/test_*.py` dynamisch in getrennten Prozessen aus. Fehler, Timeouts, fehlende Abhängigkeiten und gemeldete Skips verhindern einen Gesamterfolg. Historische Fehlerprobes unter `docs/pruefungen/` zählen nicht als bestandene Regressionstests. Der lokale Aufruf bleibt:
 
-1. `scripts/pruefen.py` als gemeinsamer Runner. Er führt eigenständig ausführbare `tests/test_*.py` jeweils in einem eigenen Prozess aus, zeigt Einzelstatus, gibt bei Fehler/Timeout einen Fehlercode zurück und verschluckt keine fehlenden Abhängigkeiten. Neue Tests aus A/B/C werden mit erfasst. Historische Fehlerprobes unter `docs/pruefungen/` werden nicht als bestandene Regressionstests gezählt.
-2. `requirements-test.txt` mit nachvollziehbarer, getesteter Umgebung. Ziel ist eine zur Gerätebasis passende Ubuntu-22.04-/Python-3.10-Prüfung. NumPy/OpenCV/PyYAML müssen gemeinsam kompatibel sein. ROS-/Hardwaretests nicht durch Scheinerfolge ersetzen. Änderungen mit C bei zusätzlichem Vertragsprüfbedarf abstimmen.
-3. `.github/workflows/grundbetrieb-tests.yml`: auf Pull Requests und geeigneten Branch-Pushes Python-Syntax, Shellsyntax und die reinen Softwaretests ausführen. Eindeutige Checknamen, passende Zeitlimits und sichtbare Logs. Der Kartentest dauert wesentlich länger als die Logiktests. Minimale Rechte; kein Zugriff auf Roboter, Projektbroker oder private Schlüssel.
-4. `CONTRIBUTING.md`, `.github/pull_request_template.md` und eine Arbeitspaketvorlage unter `.github/ISSUE_TEMPLATE/`. Vorlage nennt Besitzer, Dateireservierung, GB-/A-Bezug, Schnittstellen, Tests, offene Geräteprüfung und Übergabe.
+```sh
+python scripts/pruefen.py
+```
 
-Der Runner soll auch lokal nutzbar sein. Syntaxprüfung muss ROS-Dateien ohne ROS-Import parsen können. Läuft ein Test im CI-System anders als beim dokumentierten Windows-Prüfstand, die konkrete Abweichung untersuchen und melden; produktive Fachmodule nur über ihren Besitzer ändern lassen.
+Die getestete CI-Basis ist Ubuntu 22.04/Python 3.10 mit `requirements-test.txt`; Paketpins und Zeitlimits werden in diesem Dokumentationsauftrag nicht geändert. Die drei Pflichtchecks aus GitHub Actions, App-ID `15368`, heißen exakt:
 
-## Dateien und Grenzen
+- `D1 / Python-Syntax (3.10)`
+- `D1 / Shell-Syntax (bash)`
+- `D1 / Softwaretests (Ubuntu 22.04, Python 3.10)`
 
-D besitzt die oben genannten Infrastrukturdateien und gemeinsame `tests/attrappen/*`. Bestehende Attrappen nur bei tatsächlichem Bedarf erweitern und mit betroffenen Testbesitzern abstimmen. Die fachlichen Tests gehören A/B/C; keine pauschalen Änderungen an allen Tests.
+Belege unterscheiden PR und main:
 
-`scripts/env.sh`, `scripts/stopp.sh` und `config/roboter.yaml` gehören A, `scripts/panel.sh` gehört C. `scripts/simulation.sh` wird in D1 nicht geändert. Keine Produktdateien oder den gemeinsamen Zustandsvertrag umbauen. Optional `docs/entwicklung/D1-tests.md` mit tatsächlich reproduzierter Umgebung und Checknamen.
+- [Erster BBS-PR-Lauf an PR #57](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39571559910): drei erfolgreiche Checks und 21/21 Skripte auf dem PR-Testmerge. Dieser Prüf-PR wurde ohne Merge geschlossen.
+- [Echter main-Pushlauf nach PR #83](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109): drei erfolgreiche Checks und 21/21 Skripte auf main `2e70550c88e30291c0db07619cff574a6ff1655b`.
 
-## Konkrete Bestehenskriterien
+Die Zahl 21 ist das Ergebnis dieser Stände, kein festes Soll. Neue Fachtests werden vom Runner mitentdeckt; sie dürfen nicht zur Erhaltung einer festen Zahl ausgelassen werden.
 
-- Ein einziger dokumentierter Aufruf führt alle vorhandenen reinen Testskripte aus und meldet einen Gesamterfolg nur bei vollständigem Erfolg.
-- Fehler und Timeout werden zuverlässig als Fehler gemeldet. Ein fehlendes Paket führt nicht zu stillem Überspringen.
-- Die Tests laufen im CI mit dokumentierten Versionen; nicht verfügbare ROS-/Geräteprüfungen sind als separate Prüfungen erkennbar.
-- PR-Checks erscheinen mit stabilen eindeutigen Namen und genügend Diagnose. Der Entwurf fordert noch keinen erforderlichen Check, der nie gelaufen ist.
-- Vorlagen bilden Aufgabenbesitzer, Dateigrenzen und tatsächliche Ergebnisse ab. Keine unbekannten GitHub-Konten in `CODEOWNERS` erfinden.
+## Vorhandenen main-Schutz verwalten
 
-Lieferung: kleiner Draft-PR mit Runner/CI/Vorlagen, getesteter Umgebung, tatsächlichem Checklauf und Übergabebericht. D1 kann unabhängig von C1 anfangen. Keine globale Systeminstallation auf Robotern und kein eigenständiger Merge nach `main`.
+Das aktive [Ruleset 25533179](https://github.com/BBS-GuT/smartcity-roboter/rules/25533179) verlangt PR, mindestens eine gültige Freigabe, Verwerfen alter Freigaben bei neuen Commits, erledigte Reviewgespräche und alle drei D1-Pflichtchecks mit aktueller main-Basis (`strict=true`). Force-Push und Löschen von main sind gesperrt; es gibt keine Bypass-Ausnahmen, auch nicht für Administratoren.
 
-## Konkreter Zusatzauftrag an den Repositoryeigentümer
+Codeowner-Freigaben sind im Ruleset aktiviert. Die zugehörige `CODEOWNERS`-Datei ist noch Bestandteil von [PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) und damit auf dem genannten main-Stand noch nicht wirksam. `CODEOWNERS` ersetzt keine Dateireservierung. Gemergte Aufgabenbranches werden durch die aktivierte Repositoryoption automatisch gelöscht; die Löschsperre für main bleibt bestehen.
 
-Sobald die CI-Checknamen tatsächlich existieren und erfolgreich gelaufen sind, für `main` PR-Prüfung mit mindestens einer fachkundigen anderen berechtigten GitHub-Reviewperson, verfallenden alten Freigaben, erledigten Gesprächen und den drei passenden erfolgreichen Checks einrichten. Required Checks müssen eine **aktuelle main-Basis** verlangen (`Require branches to be up to date before merging` / `strict=true`). Force-Push und Löschen sperren; Regeln auch für Administratoren ohne Bypass anwenden. Konkrete Einrichtung und Abnahmebelege für #50/#15 stehen in der [Betriebsanleitung](../entwicklung/D1-ci-betrieb.md).
+Automatische native Codex-Reviews sind eingerichtet. Eine Botmeldung ersetzt derzeit kein formales GitHub-Approval. Die separate formale Freigabe-App aus [#90](https://github.com/BBS-GuT/smartcity-roboter/issues/90)/[PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) bleibt bis Einrichtung, Integration und eigenem Funktionsnachweis offen. Auto-Merge ist nicht eingerichtet. Ein anderer KI-Chat unter demselben Autorenkonto ist keine unabhängige GitHub-Freigabe.
 
-Codeowner können anschließend mit echten GitHub-Konten und einer Vertretung pro Bereich eingerichtet werden. `CODEOWNERS` reserviert keine Dateien. Der gespeicherte Zugang `letsc4` hat Schreib-, aber keine Administrationsrechte; dieses Einstellen der Regeln muss ein berechtigter Eigentümer übernehmen. Die Bestätigung der tatsächlich aktivierten Regeln gehört in die Übergabe.
+## Noch offene kleine Aufträge und Dateibesitz
 
-## Folgeauftrag D2 erst nach Zuteilung
+- [#68 / PR #54](https://github.com/BBS-GuT/smartcity-roboter/pull/54): Reviewer-Chat besitzt ausschließlich `AGENTS.md` und `docs/entwicklung/D-reviewbot.md`.
+- [#69 / PR #92](https://github.com/BBS-GuT/smartcity-roboter/pull/92): aktuelle Beitrags- und Betriebsanleitung, ausschließlich `CONTRIBUTING.md` und `docs/entwicklung/D1-ci-betrieb.md`.
+- [PR #80](https://github.com/BBS-GuT/smartcity-roboter/pull/80): die Orchestrierung hält das Auftragsregister in `docs/auftraege/README.md` aktuell.
+- [#93](https://github.com/BBS-GuT/smartcity-roboter/issues/93): ausschließlich dieses Auftragsdokument auf Branch `docs/gb-d1-auftragsstatus` korrigieren. Keine Workflows, Tests oder Produktdateien mitändern.
+- [#90 / PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91): separate App-Einrichtung und formale Freigabebrücke; kein erneuter D1-Grundaufbau.
 
-Parallele ROS-Simulationen müssen getrennte Domains, Ports, Karten-, Log-, Lern- und temporäre Pfade erhalten. Dafür ein eigenes Paket zu `scripts/simulation.sh` und nötigen Parametern abstimmen. Bis dahin nur einen vorhandenen Simulationslauf im gleichen Laufzeitumfeld starten. D1 wird nicht um einen ungeprüften Umbau aller Startpfade erweitert.
+Jede Lieferung nennt Basis, Head, genaue Dateien, tatsächliche CI und offene Abnahmen. Vor Merge müssen der aktuelle Codex-Review, CI und die erforderliche unabhängige Freigabe vorliegen. Kleine Folgefehler werden als eigene Aufgaben mit Dateigrenze vergeben. Produktmodule und fachliche Tests bleiben bei ihren zugeteilten Besitzern; keine Erwartungen oder Grenzwerte für einen grünen Lauf abschwächen.
+
+D1-Softwareprüfungen greifen nicht auf Roboter oder Projektbroker zu. Sie ersetzen keine Fahr-, Sensor- oder Greifabnahme. Erlaubtes Grundbetriebsräumen bleibt Bestandteil der Fachaufträge; sein Zieldefinitionsabgleich und seine Schutzbedingungen gehören zu [#8](https://github.com/BBS-GuT/smartcity-roboter/issues/8).
+
+## Historische Quellplanung vom 20.10.2026
+
+Diese Bezüge dokumentieren das frühere Repository und sind keine aktuellen Schreibziele oder Einrichtungsaufträge:
+
+- Die ursprünglichen Aufträge lagen auf `codex/grundbetrieb` im [Quell-PR #11](https://github.com/davidheinrich73/smartcity-roboter/pull/11).
+- Der damalige Quellstand [d991765](https://github.com/davidheinrich73/smartcity-roboter/commit/d991765) war mit 13/13 Softwaretestskripten grün. Runner, getestete Paketumgebung, CI sowie Beitrags-/PR-/Aufgabenvorlagen waren die ursprünglichen D1-Liefergegenstände.
+- Die damaligen Quellenissues [#15](https://github.com/davidheinrich73/smartcity-roboter/issues/15), [#50](https://github.com/davidheinrich73/smartcity-roboter/issues/50), [#68](https://github.com/davidheinrich73/smartcity-roboter/issues/68) und [#69](https://github.com/davidheinrich73/smartcity-roboter/issues/69) wurden im BBS-Repository zu #4, #28, #44 und #45. Die frühere Adminaktion und die alten Ergänzungen sind abgeschlossen.
+
+Ein historisch vorgemerktes Folgepaket für parallele ROS-Simulationen braucht weiterhin eine eigene Zuteilung und getrennte Domains, Ports sowie Karten-, Log-, Lern- und temporäre Pfade. Bis dahin nur einen vorhandenen Simulationslauf im gleichen Laufzeitumfeld starten. Dieser Dokumentationsauftrag verändert `scripts/simulation.sh` und andere Startpfade nicht.
