@@ -12,6 +12,37 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 
 ---
 
+## 21.10.2026, Gerätetest Wegräumen (Logs 10:04)
+
+### Niedrige Gegenstände (3 cm) nie gegriffen (#71)
+- **Gesehen:** `in Greifweite? schaue hin (29 cm)` → `aus den Augen verloren -> warte`. Die 6–7 cm hohe Säule ging.
+- **Ursache:** Niedrige Dinge rutschen schon ab ca. 30 cm unter das Blickfeld der Kamera.
+- **Lösung:** Laut Radzähler in Greifweite → mit der letzten Messung greifen. Zur Kontrolle 3 cm hinter die letzte
+  Sichtung zurück; ohne Platz hinten kein „frei“.
+- **Status:** nur Test.
+
+### Kurve: „liegt am Rand“, dann START nötig (#72)
+- **Gesehen:** `liegt am Rand (11 cm neben der Linie) -> warte`, fährt wieder an, dann `wegnehmen, dann STOPP und START`.
+- **Ursache:** Randgrenze 8 cm. Bestätigt bei 37 cm, Anhaltegrenze 35 cm → er fuhr wieder los.
+- **Lösung:** Randgrenze 12 cm (Entscheidung Projektinhaber). Bestätigtes Hindernis hält mit 10 cm Spiel; weiter
+  erst, wenn der Weg 1 s frei ist.
+- **Status:** nur Test.
+
+### Schräg gegriffen, Greifer knackt (#73, #75)
+- **Lösung:** seitlich mittig davor ab 2,5 cm Versatz, in Kurven erst gerade zur Straße drehen. Knacken: nach diesem
+  Stand erneut testen (6, dann 4).
+- **Status:** nur Test / offen.
+
+### Prüfblick sieht nie etwas (#74)
+- **Lösung bisher:** Meldung zeigt, in wie vielen Bildern wirklich im Prüfblick gemessen wurde. Ursache offen.
+- **Status:** offen.
+
+### Wiederholter Versuch fährt immer weiter zurück
+- **Ursache:** Die Strecke je Phase wurde nicht zurückgesetzt, wenn dieselbe Phase in einem weiteren Versuch
+  wiederkam (im Test gefunden). Er fuhr dann jedes Mal weiter zurück, bis außerhalb des Kontrollbereichs → „frei“.
+- **Lösung:** Strecke bei jedem Phasenwechsel neu zählen.
+- **Status:** nur Test.
+
 ## 21.10.2026, Personen im Hintergrund stoppen das Wegräumen
 
 - **Ursache:** Jede erkannte Person/jedes Tier/Fahrzeug im ganzen Bild zählte, auch weit hinten.
