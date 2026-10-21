@@ -177,7 +177,7 @@ Ziel (Zieldefinition 4.2): An Verzweigungen wählt er selbst einen Ausgang, dami
 So geht es (`line_follower/linie.py`, `LinienSucher.aeste`):
 
 1. Von der eigenen Linie aus misst er die Strecke **entlang** der dunklen Fläche (nicht Luftlinie, in 16-mm-Schritten).
-2. Teilt sich die Fläche in mindestens zwei Äste, die jeweils mindestens `ast_min` lang zu sehen sind, ist das eine Kreuzung. Ein enger Bogen (U) teilt sich so nie. Äste, die zum Roboter zurückzeigen, zählen nicht (von dort kommt er).
+2. Teilt sich die Fläche in mindestens zwei Äste, die jeweils mindestens `ast_min` lang zu sehen sind **und aus dem Kamerabild hinauslaufen**, ist das eine Kreuzung. Ein enger Bogen (U) teilt sich so nie. Äste, die zum Roboter zurückzeigen, zählen nicht (von dort kommt er). Ein Querbalken, der im Bild endet (Haltelinie, Markierung), ist keine Ausfahrt. Sieht er im selben Bild einen Zebrastreifen, wählt er nicht (dessen Begrenzungen sind keine Abzweigung, Zieldefinition 4.3).
 3. Beim ersten Sehen wählt er **zufällig** einen Ast. Die Wahl merkt er sich als Richtung im Raum (mit der eigenen Drehung aus dem Linien-Gedächtnis). So bleibt es derselbe Ast, auch wenn er sich beim Abbiegen im Bild dreht.
 4. Nur Stamm + gewählter Ast kommen ins Linien-Gedächtnis, der Linienfolger fährt also dorthin.
 5. Etwa 1–1,5 s ohne Kreuzung im Bild gilt sie als durchfahren. Die nächste wird neu gewählt.
@@ -187,7 +187,8 @@ Im Log steht z. B. `Kreuzung: Aeste [-90, 90] Grad -> zufaellig gewaehlt: links 
 **Grenzen (ungetestet am Roboter):**
 - Die Kamera sieht nur ca. 25–47 cm vor dem Roboter. Die Kreuzung wird erst in diesem Bereich erkannt.
 - Er weiß nicht, welche Ausfahrt erlaubt ist. Fährt er in eine Einbahnstraße und sieht das Schild „Einfahrt verboten“, wendet er wie bisher.
-- **Haltelinien** oder andere Markierungen, die die Leitlinie quer berühren und länger als `ast_min` sind, sähen aus wie eine Kreuzung.
+- Querbalken, die die Leitlinie berühren und **über den Bildrand hinaus** reichen (und kein Zebrastreifen sind), sähen weiterhin aus wie eine Kreuzung.
+- Erlaubte Ausfahrten (Einbahnstraßen) kennt er noch nicht, siehe oben.
 - Ob er eine 90°-Abzweigung sauber fährt, ist nur mit gezeichneten Bildern geprüft (`tests/test_kreuzung.py`).
 
 ## Was er an die KI meldet

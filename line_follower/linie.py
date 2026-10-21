@@ -18,12 +18,17 @@
 #    die eigene Lage um diese Zeit vorausrechnen (sonst pendelt er bei hohem Tempo). Die Verzoegerung misst er
 #    waehrend der Fahrt selbst (Klasse Verzoegerung).
 import math
+import os
 import random
+import sys
 import time
 from collections import deque
 
 import cv2
 import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
+from zebra import finde_zebra  # noqa: E402
 
 STANDARD = {
     'threshold': 70,          # dunkler als das = Linie (0 schwarz - 255 weiss)
@@ -116,6 +121,13 @@ class LinienSucher:
         bw = int(2 * self.SEITE / self.RASTER)
         bh = int((self.VORNE[1] - self.VORNE[0]) / self.RASTER)
         self.vogel_groesse = (bw, bh)
+        # Rand des Sichtbereichs in der Draufsicht (Viertel-Aufloesung wie in aeste): Ausfahrten laufen hinaus
+        sicht = np.zeros((h, w), np.uint8)
+        sicht[int(oben):] = 1
+        sicht = cv2.warpPerspective(sicht, self.H, (bw, bh), flags=cv2.INTER_NEAREST)
+        klein = cv2.resize(sicht, (bw // 4, bh // 4), interpolation=cv2.INTER_AREA) > 0
+        self.sicht_rand = klein & ~(cv2.erode(klein.astype(np.uint8), np.ones((3, 3), np.uint8),
+                                              borderValue=0) > 0)
 
     def _zu_raster(self, x, y):
         return ((self.SEITE - y) / self.RASTER, (self.VORNE[1] - x) / self.RASTER)
@@ -137,6 +149,8 @@ class LinienSucher:
         """Teilt sich die Linienflaeche 'teil' (Draufsicht, bool) in mehrere Aeste? start: Pixel (px, py), von dem aus
         gemessen wird (auf der eigenen Linie). Gemessen wird die Strecke ENTLANG der Flaeche (nicht Luftlinie):
         ein enger Bogen (U) teilt sich so nie, eine Kreuzung schon.
+        Ein Ast zaehlt nur als Ausfahrt, wenn er aus dem Sichtbereich hinauslaeuft (eine Strasse geht weiter). Endet er
+        im Bild, ist es eine Markierung (Haltelinie, Querbalken, Zebrastreifen-Begrenzung), keine Abzweigung.
         Rueckgabe: None (keine Kreuzung) oder (stamm, [(richtung rad, + = links, maske), ...]) in voller Aufloesung.
         Gerechnet in Viertel-Aufloesung (16 mm, jedes Pixel mit etwas Linie zaehlt): ca. 1 ms."""
         h, w = teil.shape
@@ -165,7 +179,14 @@ class LinienSucher:
         for grenze in range(1, k - ast_stufen):
             weiter = (stufe >= grenze).astype(np.uint8)
             n, etik, _, _ = cv2.connectedComponentsWithStats(weiter, connectivity=8)
-            lange = [j for j in range(1, n) if stufe[etik == j].max() - grenze >= ast_stufen]
+            lange = []
+            for j in range(1, n):
+                ast = etik == j
+                ende = stufe[ast].max()
+                rand = getattr(self, 'sicht_rand', None)
+                hinaus = rand is None or rand.shape != ast.shape or (ast & rand & (stufe >= ende - 1)).any()
+                if ende - grenze >= ast_stufen and hinaus:
+                    lange.append(j)
             if len(lange) < 2:
                 continue
             # Abzweigpunkt = Ende des Stamms; Richtung je Ast = vom Abzweigpunkt zu seinem Anfang (ca. ast_min)
@@ -197,6 +218,8 @@ class LinienSucher:
         if not kamera_ok:
             return teil
         teilung = self.aeste(teil, start) if self.c.get('abbiegen', True) else None
+        if teilung is not None and finde_zebra(erg.get('vogel'), self.RASTER, self.VORNE[1]):
+            teilung = None             # Begrenzungen eines Zebrastreifens sind keine Abzweigung (Zieldefinition 4.3)
         if teilung is None:
             self.ohne_kreuzung += 1
             if self.ohne_kreuzung > 15:        # ca. 1-1,5 s keine Kreuzung mehr: durchfahren, naechste neu waehlen

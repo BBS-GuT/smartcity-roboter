@@ -39,6 +39,12 @@ U = bild([((0.0, 0.0), (0.30, 0.0)), ((0.30, 0.12), (0.0, 0.12))]
              (0.30 + 0.06 * math.sin(math.pi * (k + 1) / 40), 0.06 - 0.06 * math.cos(math.pi * (k + 1) / 40)))
             for k in range(40)])
 
+# Haltelinie: Querbalken (je 18 cm zur Seite, laenger als ast_min), endet im Bild -> keine Abzweigung
+HALTELINIE = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.18), (0.36, 0.18))])
+# Zebrastreifen quer ueber die Strasse: Balken in Fahrtrichtung, Begrenzungen quer und laenger als das Bild breit
+ZEBRA = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.5), (0.36, 0.5)), ((0.44, -0.5), (0.44, 0.5))]
+             + [((0.36, y), (0.44, y)) for y in (-0.21, -0.14, -0.07, 0.07, 0.14, 0.21)])
+
 
 def ende(erg):
     """Weitester gefundener Linienpunkt (x, y)."""
@@ -105,7 +111,8 @@ class Kreuzung(unittest.TestCase):
             self.assertEqual(s.suche(T, 0.0)['kreuzung']['wahl'], erste)
 
     def test_keine_kreuzung(self):
-        for name, img in (('gerade', GERADE), ('enger Bogen (U)', U)):
+        for name, img in (('gerade', GERADE), ('enger Bogen (U)', U), ('Haltelinie', HALTELINIE),
+                          ('Zebrastreifen-Begrenzung', ZEBRA)):
             with self.subTest(name):
                 erg = linie.LinienSucher().suche(img, 0.0)
                 self.assertTrue(erg['gefunden'])
