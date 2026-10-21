@@ -6,7 +6,7 @@ Diese Anleitung gilt für `BBS-GuT/smartcity-roboter`. Zuständigkeiten und Date
 
 **Geprüfter Stand 21.10.2026:** D1-Software, CI und main-Schutz sind eingerichtet. Die BBS-Aufträge [#4](https://github.com/BBS-GuT/smartcity-roboter/issues/4), [#28](https://github.com/BBS-GuT/smartcity-roboter/issues/28), [#44](https://github.com/BBS-GuT/smartcity-roboter/issues/44) und [#45](https://github.com/BBS-GuT/smartcity-roboter/issues/45) sind geschlossen. Das aktive [Ruleset 25533179](https://github.com/BBS-GuT/smartcity-roboter/rules/25533179) verwalten und prüfen; keine zusätzliche klassische Schutzregel anlegen. `letsc4` besitzt inzwischen Repository-Adminrechte und die Organisationsinhaberrolle für BBS-GuT. Frühere Aussagen über fehlende Rechte und ungeschütztes main betreffen das Quellrepository vom 20.10.2026, siehe Abschnitt 6.
 
-Der echte BBS-`push`-Lauf auf main `2e70550c88e30291c0db07619cff574a6ff1655b` ist [vollständig grün](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109): Ubuntu 22.04.5, Python 3.10.22, **21/21 Softwaretestskripte**, keine Fehler oder unvollständigen Tests. Diese Zahl ist das Ergebnis dieses Commits, kein festes Soll für spätere Änderungen.
+**BBS-main-Nachweis für die hier verwendete Basis, 21.10.2026:** Der echte `push`-Lauf auf main `1c07fe4fdd509532359450dc11de3fb6666a1215` nach Integration von [PR #78](https://github.com/BBS-GuT/smartcity-roboter/pull/78) ist [vollständig grün](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39589008257): Ubuntu 22.04, Python 3.10, **21/21 Softwaretestskripte**, keine Fehler oder unvollständigen Tests. Diese Zahl ist das Ergebnis dieses Commits, kein festes Soll für spätere Änderungen. Der frühere BBS-main-Lauf auf `2e70550` nach PR #83 bleibt in Abschnitt 4 als historischer Integrationsnachweis erhalten.
 
 ## 1. Auslösung, Checks und Logs
 
@@ -14,11 +14,11 @@ Maßgeblich ist [.github/workflows/grundbetrieb-tests.yml](../../.github/workflo
 
 Pushes starten den Workflow auf `main`, `chore/gb-*`, `fix/gb-*` und `test/gb-*`. Ein Push etwa auf `docs/*` allein startet ihn nicht; dessen PR nach `main` schon. Für diesen D1-Workflow gibt es keinen `workflow_dispatch`-, Zeitplan- oder Merge-Queue-Trigger.
 
-| Exakter Pflichtcheck | Prüfung | Joblimit | BBS-main-Beleg auf `2e70550` |
+| Exakter Pflichtcheck | Prüfung | Joblimit | BBS-main-Beleg auf `1c07fe4` |
 |---|---|---|---|
-| `D1 / Python-Syntax (3.10)` | Versionierte Pythondateien kompilieren, ohne ROS-/Produktimports | 5 min | [Erfolgreicher Job](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109/job/119154844395) |
-| `D1 / Shell-Syntax (bash)` | Versionierte Shellskripte mit `bash -n` | 5 min | [Erfolgreicher Job](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109/job/119154844415) |
-| `D1 / Softwaretests (Ubuntu 22.04, Python 3.10)` | Pflichtimporte, `pip check`, gemeinsamer Runner | 40 min | [21/21 Skripte](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109/job/119154844096) |
+| `D1 / Python-Syntax (3.10)` | Versionierte Pythondateien kompilieren, ohne ROS-/Produktimports | 5 min | [Erfolgreicher Job](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39589008257/job/119184971368) |
+| `D1 / Shell-Syntax (bash)` | Versionierte Shellskripte mit `bash -n` | 5 min | [Erfolgreicher Job](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39589008257/job/119184971308) |
+| `D1 / Softwaretests (Ubuntu 22.04, Python 3.10)` | Pflichtimporte, `pip check`, gemeinsamer Runner | 40 min | [21/21 Skripte](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39589008257/job/119184971027) |
 
 Alle drei Pflichtchecks sind im Ruleset an **GitHub Actions, App-ID 15368** gebunden. Zusätzliche Checks ersetzen sie nicht. Namen oder Quellen nur mit der Orchestrierung und den berechtigten Eigentümern ändern, damit Pflichtchecks nicht auf alte Namen zeigen.
 
@@ -53,7 +53,7 @@ Die acht getesteten Pins aus [requirements-test.txt](../../requirements-test.txt
 | attrs | 24.2.0 | jsonschema-specifications | 2023.12.1 |
 | referencing | 0.35.1 | rpds-py | 0.20.0 |
 
-CI wählt die Reihe `3.10` und protokolliert die tatsächliche Patchversion. Der aktuelle main-Nachweis verwendet CPython 3.10.22; ein früherer Windows-/CPython-3.12.14-Gegencheck steht im [Umgebungsnachweis](D1-testumgebung.md). Vor Paketänderungen Kompatibilität isoliert prüfen, danach Pflichtimporte, `pip check`, Schema-Prüfung und Gesamtlauf nachweisen. `jsonschema` ist Pflicht; fehlende Pakete oder wesentliche Skips gelten nicht als Erfolg.
+CI wählt die Reihe `3.10` und protokolliert die tatsächliche Patchversion. Der frühere BBS-main-Lauf auf `2e70550` verwendete CPython 3.10.22; ein früherer Windows-/CPython-3.12.14-Gegencheck steht im [Umgebungsnachweis](D1-testumgebung.md). Für einen anderen Commit die Patchversion aus dessen eigenem Lauf übernehmen. Vor Paketänderungen Kompatibilität isoliert prüfen, danach Pflichtimporte, `pip check`, Schema-Prüfung und Gesamtlauf nachweisen. `jsonschema` ist Pflicht; fehlende Pakete oder wesentliche Skips gelten nicht als Erfolg.
 
 ## 3. Einen roten Lauf untersuchen
 
@@ -70,7 +70,9 @@ Ein PR-Nachweis gehört zum konkreten Head und seiner main-Basis. `pull_request`
 
 Die erste BBS-Schutzprobe verwendete den inzwischen ohne Merge geschlossenen [PR #57](https://github.com/BBS-GuT/smartcity-roboter/pull/57): Head `ca791ca1cf07e21cab89d7269dbf3bc93ec7fbe3`, Basis `d92e366907fd538c377c272250a0e2d75120b5e2`, ausgecheckter Testmerge `025afdc`. [Run 39571559910](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39571559910) bestand alle drei Checks und **21/21 Skripte**. Das ist ein **PR-Mergestand**, kein main-Push-Nachweis. Der normale Mergeversuch als Admin `letsc4` wurde nach grüner CI mit HTTP 405 und `At least 1 approving review is required by reviewers with write access.` abgewiesen. main blieb unverändert; die Probe wurde geschlossen und ihr Branch entfernt. Die bereinigten Belege stehen in [#28](https://github.com/BBS-GuT/smartcity-roboter/issues/28).
 
-Inzwischen ist mit der Integration von [PR #83](https://github.com/BBS-GuT/smartcity-roboter/pull/83) zusätzlich der **echte BBS-main-Pushlauf 39579961109 auf `2e70550`** erfolgreich, siehe Tabelle in Abschnitt 1. Diese beiden Belegarten getrennt berichten. Für jede spätere Integration erneut PR-Head/Basis, aktuelle Pflichtchecks, Freigabe und erledigte Gespräche festhalten; nach Merge den separaten `push`-Lauf auf der tatsächlichen main-Merge-SHA samt Testzahlen, Fehlern/Skips und Paketversionen belegen. Ein alter grüner Lauf bestätigt keinen späteren Commit.
+Der frühere erfolgreiche [BBS-main-Pushlauf 39579961109](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109) auf `2e70550c88e30291c0db07619cff574a6ff1655b` nach [PR #83](https://github.com/BBS-GuT/smartcity-roboter/pull/83) ist ein **historischer Integrationsnachweis**: Ubuntu 22.04.5, Python 3.10.22, 21/21 Skripte. Er deckt die späteren Produktänderungen aus PR #78 nicht ab.
+
+Für die hier verwendete main-Basis `1c07fe4fdd509532359450dc11de3fb6666a1215` nach PR #78 liegt der eigene erfolgreiche [Pushlauf 39589008257](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39589008257) vor, siehe die drei Joblinks in Abschnitt 1. PR-Nachweis und main-Push-Nachweise getrennt berichten. Für jede spätere Integration erneut PR-Head/Basis, aktuelle Pflichtchecks, Freigabe und erledigte Gespräche festhalten; nach Merge den separaten `push`-Lauf auf der tatsächlichen main-Merge-SHA samt Testzahlen, Fehlern/Skips und Paketversionen belegen. Ein alter grüner Lauf bestätigt keinen späteren Commit.
 
 ## 5. Bestehendes main-Ruleset verwalten
 
@@ -93,7 +95,7 @@ Die Löschsperre betrifft `main`; die automatische Löschung betrifft gemergte E
 
 Zur Prüfung Datum, berechtigtes Konto und bereinigten Konfigurationsexport oder Screenshot sichern. `GET /repos/BBS-GuT/smartcity-roboter/rulesets/25533179` liest das Ruleset; `GET /repos/BBS-GuT/smartcity-roboter/rules/branches/main` die tatsächlich wirksamen Regeln. Die Bypass-Liste ist nur mit passenden Schreibrechten am Ruleset sichtbar; fehlende Sichtbarkeit ist keine nachgewiesen leere Liste. Ein HTTP 403 belegt keine fehlende oder unwirksame Regel. Keine Tokens oder Cookies veröffentlichen. [GitHub: Regeln lesen](https://docs.github.com/en/rest/repos/rules).
 
-Codex übernimmt die Produktreviews; die Orchestrierung koordiniert anhand des Bot-Ergebnisses und der CI. Die nativen Kommentare ersetzen noch kein formales GitHub-`Approve`. Die zusätzliche Freigabebrücke ist in [PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) vorbereitet; Einrichtung und Funktionsnachweis werden über [#90](https://github.com/BBS-GuT/smartcity-roboter/issues/90) geführt. Sie zum Abgleich dieses Dokuments nicht als aktiv berichten. Für Steuerungsdateien ist weiterhin eine unabhängige Codeowner-Freigabe vorgesehen. Ein zweiter KI-Chat unter demselben PR-Autorenkonto erfüllt keine unabhängige Approval; Adminrechte heben die Regel nicht auf.
+Codex übernimmt die Produktreviews; die Orchestrierung koordiniert anhand des Bot-Ergebnisses und der CI. Die nativen Kommentare ersetzen noch kein formales GitHub-`Approve`. Die separate Freigabe-App ist inzwischen installiert ([#90, abgeschlossen](https://github.com/BBS-GuT/smartcity-roboter/issues/90)); ihr Workflow ist in [PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) vorbereitet. Die praktische Abnahme der formalen Freigabe bleibt in [#95](https://github.com/BBS-GuT/smartcity-roboter/issues/95) offen. Die Freigabebrücke bis zu Integration und Funktionsnachweis nicht als aktiv berichten. Für Steuerungsdateien ist weiterhin eine unabhängige Codeowner-Freigabe vorgesehen. Ein zweiter KI-Chat unter demselben PR-Autorenkonto erfüllt keine unabhängige Approval; Adminrechte heben die Regel nicht auf.
 
 D1-Infrastruktur und Eigentümerauftrag sind bereits abgeschlossen; #69 aktualisiert deren Dokumentation. Issue-Abschlüsse erfolgen durch die Orchestrierung anhand der jeweiligen Liefer- und Abnahmebelege. Grüne Softwarechecks sind keine Gerätefreigabe: ROS-Simulation, reale Bewegung, Brokerempfang und Viergerätebetrieb benötigen eigene Abnahmen. [Praxisbefunde](../problemprotokoll.md) mit Gerätekennung, Softwarestand und Mess-/Logbezug berücksichtigen; historische Probes sind keine bestandenen Regressionen.
 
