@@ -45,6 +45,10 @@ HALTELINIE = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.18), (0.36, 0.18))])
 ZEBRA = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.5), (0.36, 0.5)), ((0.44, -0.5), (0.44, 0.5))]
              + [((0.36, y), (0.44, y)) for y in (-0.21, -0.14, -0.07, 0.07, 0.14, 0.21)])
 
+# Echte T-Kreuzung (30 cm) und daneben ein Zebrastreifen auf der linken Strasse (nicht an der Kreuzung)
+T_MIT_ZEBRA = bild([((0.0, 0.0), (0.30, 0.0)), ((0.30, -0.5), (0.30, 0.5))]
+                   + [((0.40, y), (0.46, y)) for y in (0.10, 0.15, 0.20, 0.25)])
+
 
 def ende(erg):
     """Weitester gefundener Linienpunkt (x, y)."""
@@ -117,6 +121,13 @@ class Kreuzung(unittest.TestCase):
                 erg = linie.LinienSucher().suche(img, 0.0)
                 self.assertTrue(erg['gefunden'])
                 self.assertNotIn('kreuzung', erg)
+
+    def test_zebrastreifen_woanders_hebt_kreuzung_nicht_auf(self):
+        s = linie.LinienSucher()
+        erg = s.suche(T_MIT_ZEBRA, 0.0)
+        self.assertIsNotNone(linie.finde_zebra(erg['vogel'], s.RASTER, s.VORNE[1]))   # Zebrastreifen ist im Bild
+        self.assertIn('kreuzung', erg)
+        self.assertEqual(len(erg['kreuzung']['aeste']), 2)
 
     def test_abschaltbar(self):
         erg = linie.LinienSucher({'abbiegen': False}).suche(T, 0.0)

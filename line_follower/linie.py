@@ -151,7 +151,8 @@ class LinienSucher:
         ein enger Bogen (U) teilt sich so nie, eine Kreuzung schon.
         Ein Ast zaehlt nur als Ausfahrt, wenn er aus dem Sichtbereich hinauslaeuft (eine Strasse geht weiter). Endet er
         im Bild, ist es eine Markierung (Haltelinie, Querbalken, Zebrastreifen-Begrenzung), keine Abzweigung.
-        Rueckgabe: None (keine Kreuzung) oder (stamm, [(richtung rad, + = links, maske), ...]) in voller Aufloesung.
+        Rueckgabe: None (keine Kreuzung) oder (stamm, [(richtung rad, + = links, maske), ...], abzweig_vor m) in voller
+        Aufloesung; abzweig_vor = Abstand des Abzweigpunkts vor dem Roboter.
         Gerechnet in Viertel-Aufloesung (16 mm, jedes Pixel mit etwas Linie zaehlt): ca. 1 ms."""
         h, w = teil.shape
         f = 4
@@ -207,7 +208,7 @@ class LinienSucher:
                 return None
             stamm = cv2.resize(((stufe >= 0) & (stufe < grenze)).astype(np.uint8), (w, h),
                                interpolation=cv2.INTER_NEAREST).astype(bool) & teil
-            return stamm, aeste
+            return stamm, aeste, bx
         return None
 
     def _abbiegen(self, teil, start, gier, erg, kamera_ok=True):
@@ -218,15 +219,18 @@ class LinienSucher:
         if not kamera_ok:
             return teil
         teilung = self.aeste(teil, start) if self.c.get('abbiegen', True) else None
-        if teilung is not None and finde_zebra(erg.get('vogel'), self.RASTER, self.VORNE[1]):
-            teilung = None             # Begrenzungen eines Zebrastreifens sind keine Abzweigung (Zieldefinition 4.3)
+        zebra = finde_zebra(erg.get('vogel'), self.RASTER, self.VORNE[1]) if teilung is not None else None
+        if zebra and zebra['abstand'] - 0.05 <= teilung[2] <= zebra['abstand'] + 0.30:
+            # Abzweig liegt am Zebrastreifen (vordere Kante bis ca. 25 cm dahinter): dessen Begrenzungen sind keine
+            # Abzweigung (Zieldefinition 4.3). Ein Zebrastreifen woanders im Bild hebt eine echte Kreuzung nicht auf.
+            teilung = None
         if teilung is None:
             self.ohne_kreuzung += 1
             if self.ohne_kreuzung > 15:        # ca. 1-1,5 s keine Kreuzung mehr: durchfahren, naechste neu waehlen
                 self.wahl = None
             return teil
         self.ohne_kreuzung = 0
-        stamm, aeste = teilung
+        stamm, aeste, _ = teilung
         g = gier or 0.0
         if self.wahl is None:
             richtung, _ = self.zufall.choice(aeste)
