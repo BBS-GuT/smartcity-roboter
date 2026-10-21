@@ -52,6 +52,7 @@ class Lauf:
             self.nr, self.bild_zeit = self.nr + 1, self.t
         daten = {'bild_nr': self.nr, 'bild_zeit': self.bild_zeit, 'ampel': None, 'stoppschild': False,
                  'lidar': float('inf'), 'lidar_hinten': 1.0, 'tiefe_hindernis': False, 'strecke': self.strecke,
+                 'strecke_gemessen': True,
                  'objekte': [] if akteur is None else [{'name': akteur, 'im_weg': im_weg}]}
         daten.update(w)
         self.letzter = self.e.update(self.t, daten)

@@ -527,7 +527,7 @@ arme, gruende, b = [], [], None
 for _ in range(600):
     sicht = welt['da'] and welt['vor'] > 0.30            # unter 30 cm sieht die Kamera ihn nicht mehr
     b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
-                  lidar_hinten=1.0)
+                  strecke_gemessen=True, lidar_hinten=1.0)
     m = b.get('manoever')
     if m:
         welt['vor'] -= m['lin'] * 0.1
@@ -563,7 +563,7 @@ for k in range(600):
     if a is not None and a.phase == 'planen':
         vorgefahren.append(a.vorgefahren)
     b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
-                  lidar_hinten=1.0)
+                  strecke_gemessen=True, lidar_hinten=1.0)
     m = b.get('manoever')
     if m:
         welt['vor'] -= m['lin'] * 0.1
@@ -585,7 +585,8 @@ l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 welt = {'vor': 0.34, 'strecke': 0.0}
 for _ in range(200):
     sicht = welt['vor'] > 0.30
-    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor'], seite=0.06) if sicht else None, strecke=welt['strecke'])
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor'], seite=0.06) if sicht else None, strecke=welt['strecke'],
+                  strecke_gemessen=True)
     m = b.get('manoever')
     if m:
         welt['vor'] -= m['lin'] * 0.1
@@ -594,6 +595,21 @@ texte = [t for _, t, _ in l.e.ereignisse]
 ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} beim letzten Sehen nicht ausgerichtet -> greift nicht blind ({b['grund']})")
+# Review PR #78: Strecke nur aus Fahrbefehlen geschaetzt (keine Odometrie) -> nicht blind greifen
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0}
+for _ in range(200):
+    sicht = welt['vor'] > 0.30
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  strecke_gemessen=False)
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Strecke nur geschaetzt (keine Radzaehler) -> greift nicht blind ({b['grund']})")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))

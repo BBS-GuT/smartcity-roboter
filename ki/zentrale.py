@@ -561,6 +561,8 @@ class Zentrale(Node):
         w['weg'] = self.weg_voraus()
         w['gier'] = self.gier
         w['strecke'] = self.strecke
+        # Strecke wirklich von den Radzaehlern (frisch)? Ohne sie ist sie nur aus /cmd_vel geschaetzt (siehe _cmd)
+        w['strecke_gemessen'] = jetzt - self.odom_zeit < 1.0
         st = self.linie_status
         # Faehrt das Fahrprogramm wirklich? Nur dann darf die KI den Arm bewegen (nicht im TEST, nicht nach STOPP)
         self.entscheider.fahrt_aktiv = bool(st.get('drive')) and jetzt - st.get('_zeit', 0.0) < 1.0

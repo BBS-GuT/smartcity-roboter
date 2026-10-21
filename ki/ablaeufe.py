@@ -427,7 +427,8 @@ class Wegraeumen(Ablauf):
             self.objekt_strecke = None        # Radstrecke der letzten Sichtung: nur aus DIESEM Heranfahren
             return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
-            return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg')))
+            return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg'),
+                                                 bool(w.get('strecke_gemessen'))))
         if self.phase == 'planen':
             if self.plan is None:
                 if d > 6.0:
@@ -671,7 +672,7 @@ class Wegraeumen(Ablauf):
         aus['quelle'] = 'tiefe'
         return aus
 
-    def _abstand(self, jetzt, obj, strecke=None, weg=None):
+    def _abstand(self, jetzt, obj, strecke=None, weg=None, gemessen=False):
         c = self.c
         schraeg = None
         if obj:
@@ -688,7 +689,8 @@ class Wegraeumen(Ablauf):
             self.messungen = self.messungen[-5:]
         else:
             s0 = getattr(self, 'objekt_strecke', None)
-            if (s0 is not None and strecke is not None and getattr(self, 'ausgerichtet', False)
+            # blind nur mit echten Radzaehlern: aus Fahrbefehlen geschaetzte Strecke ist kein Nachweis
+            if (s0 is not None and strecke is not None and gemessen and getattr(self, 'ausgerichtet', False)
                     and jetzt - self.zuletzt_gesehen > c['blind_warten']):
                 # Niedrige Gegenstaende (3 cm) verschwinden schon ab ca. 30 cm unter dem Blickfeld der Kamera
                 # (RM02 21.10.). Liegt die Greifweite nach Radzaehler erreicht: mit der letzten Messung greifen.
