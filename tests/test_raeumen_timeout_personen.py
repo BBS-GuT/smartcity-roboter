@@ -6,9 +6,12 @@ Echter Entscheider bis 'ausfuehren', natuerliche Phasen, reiner Planerstub; kein
 import unittest
 
 from raeum_lauf import AKTEURE, Lauf, bewegt, planer as raeum_planer
+from entscheider import STANDARD  # noqa: E402
+
+GREIF = STANDARD['greif_vor']   # Gegenstand liegt in Greifweite
 
 FAHR = [90, 120, 10, 20, 90, 30]
-OBJ = {'vor': 0.28, 'seite': 0.02, 'quer': 0.02, 'breite': 0.045, 'hoehe': 0.045, 'quelle': 'tiefe'}
+OBJ = {'vor': GREIF, 'seite': 0.02, 'quer': 0.02, 'breite': 0.045, 'hoehe': 0.045, 'quelle': 'tiefe'}
 
 
 def planer(objekt, seite):
@@ -18,7 +21,7 @@ def planer(objekt, seite):
 def bis_erster_arm():
     lauf = Lauf({'fahrstellung': FAHR}, planer)
     for _ in range(200):
-        b = lauf.schritt(lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+        b = lauf.schritt(lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
         if b['arm'] is not None:
             assert lauf.phase() == 'ausfuehren', lauf.phase()
             return lauf
@@ -33,7 +36,7 @@ class TimeoutPersonen(unittest.TestCase):
                     lauf = bis_erster_arm()
                     neue = []
                     for _ in range(330):
-                        b = lauf.schritt(akteur=akteur, im_weg=im_weg, lidar=0.28, objekt=dict(OBJ),
+                        b = lauf.schritt(akteur=akteur, im_weg=im_weg, lidar=GREIF, objekt=dict(OBJ),
                                          tiefe_hindernis=True)
                         if bewegt(b):
                             neue.append((round(lauf.t - 100, 1), b))
@@ -49,16 +52,16 @@ class TimeoutPersonen(unittest.TestCase):
                 with self.subTest(akteur=akteur, im_weg=im_weg):
                     lauf = bis_erster_arm()
                     for _ in range(330):
-                        lauf.schritt(akteur=akteur, im_weg=im_weg, lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                        lauf.schritt(akteur=akteur, im_weg=im_weg, lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
                     self.assertIsNone(lauf.e.ablauf)
                     eingefroren = lauf.bild_zeit
                     for _ in range(50):                 # 5 s ohne neues Bild
-                        b = lauf.schritt(neu=False, lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                        b = lauf.schritt(neu=False, lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
                         self.assertEqual(lauf.bild_zeit, eingefroren)
                         self.assertFalse(bewegt(b), f'{lauf.t - eingefroren:.1f} s nach dem letzten Bild: {b}')
                     armwunsch = None
                     for _ in range(40):                 # frische freie Bilder: jetzt darf er zurueck
-                        b = lauf.schritt(lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                        b = lauf.schritt(lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
                         if b['arm'] is not None:
                             armwunsch = b['arm']
                             break
@@ -67,11 +70,11 @@ class TimeoutPersonen(unittest.TestCase):
     def test_freier_gegenfall_kehrt_zurueck(self):
         lauf = bis_erster_arm()
         for _ in range(330):
-            lauf.schritt(akteur='Person', lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+            lauf.schritt(akteur='Person', lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
         gesehen = lauf.t
         armwunsch = None
         for _ in range(40):
-            b = lauf.schritt(lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+            b = lauf.schritt(lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
             if b['arm'] is not None:
                 armwunsch = (lauf.t - gesehen, b['arm'])
                 break
@@ -85,7 +88,7 @@ class TimeoutPersonen(unittest.TestCase):
         arme, b = [], None
         for _ in range(200):
             da = not any(isinstance(a, dict) and a.get('winkel', [0] * 6)[5] == 130 for a in arme)
-            b = lauf.schritt(lidar=0.28 if da else float('inf'), objekt=dict(OBJ) if da else None,
+            b = lauf.schritt(lidar=GREIF if da else float('inf'), objekt=dict(OBJ) if da else None,
                              tiefe_hindernis=da)
             if b['arm'] is not None:
                 arme.append(b['arm'])

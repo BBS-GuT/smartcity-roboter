@@ -60,7 +60,7 @@ from zebra import finde_zebra  # noqa: E402
 import lidar          # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
-from tiefe import Bodenmodell, abstand_im_kasten, tiefe_passt   # noqa: E402
+from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
 from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
 
@@ -116,6 +116,12 @@ class Zentrale(Node):
         # Wegraeumen: nur Personen/Tiere/Fahrzeuge zaehlen, die so nah sind (m ab Kamera, Tiefenkamera). Weiter weg
         # (Hintergrund) halten sie das Wegraeumen nicht auf. Ohne sichere Tiefe im Kasten zaehlen sie (vorsichtig).
         dp('akteur_nah', 1.0)
+        # Nur diese KI-Klassen gibt es in der SmartCity (Projektinhaber 21.10.: Spielfiguren, Ampeln, Stoppschilder;
+        # Einbahnschilder erkennt schilder.py). Alles andere (Vogel, Auto, Stuhl ...) waren Fehlerkennungen oder
+        # Dinge neben dem Spielfeld -> verworfen. Teddy: so erkennt das Modell Spielfiguren manchmal. Leer = alle.
+        dp('ki_klassen', ['Person', 'Teddy', 'Ampel', 'Stoppschild'])
+        # Spielfigur oder echter Mensch? Geschaetzte Groesse (Kastenhoehe x Abstand) bis hierhin = Figur (m)
+        dp('figur_max_hoehe', 0.30)
         dp('scan_topics', ['/scan0', '/scan1'])
         dp('scan_front_deg', [0.0, 0.0])
         dp('obstacle_half_deg', 30.0)
@@ -432,6 +438,9 @@ class Zentrale(Node):
         h, w = img.shape[:2]
         t0 = time.time()
         objekte = self.yolo.erkenne(img, self.p('min_conf')) if self.yolo else []
+        klassen = self.p('ki_klassen')
+        if klassen:
+            objekte = [o for o in objekte if o['name'] in klassen]
 
         ampel_farbe, ampel_quelle, schild, schild_quelle = None, None, False, None
         for o in objekte:
@@ -483,7 +492,9 @@ class Zentrale(Node):
                 # Ohne passende Tiefe: unsicher -> nah
                 o['abstand'] = abstand_im_kasten(d_akteur, o['box'], (h, w))
                 o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
-        tiefe_hindernis, tiefe_obj, blick = None, None, None
+                o['spielfigur'] = spielfigur(o['box'], o['abstand'], (h, w), self.p('kamera_fov'),
+                                             self.p('figur_max_hoehe'))
+        tiefe_hindernis, tiefe_obj, blick, pruef_tiefe = None, None, None, None
         if d is not None and fahrstellung:
             blick = 'fahr'
             lid = self.lidar_d
@@ -496,6 +507,10 @@ class Zentrale(Node):
             # Arm steht im Pruefblick: mit dessen Kameramodell messen (Boden dort nicht gelernt -> nicht lernen)
             blick = 'pruef'
             tiefe_hindernis, tiefe_obj = self.boden_pruef.pruefe(d, lernen=False)
+            # Diagnose (Pruefblick sah am 21.10. nie etwas): misst die Tiefenkamera so nah ueberhaupt?
+            t = self.boden_pruef._t
+            gut = np.isfinite(t)
+            pruef_tiefe = (float(gut.mean()), float(t[gut].min()) if gut.any() else None)
             if tiefe_obj:
                 tiefe_obj.update(quelle='tiefe', blick='pruef', blick_winkel=list(self.posen['pruefblick']))
         if blick and tmsg is not self.tiefe_ausgewertet:   # neues Tiefenbild (sonst wird das alte nur nochmal gerechnet)
@@ -510,6 +525,7 @@ class Zentrale(Node):
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
                                 'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
                                 'tiefe_nr': self.tiefe_nr,   # zaehlt nur neue, ausgewertete Tiefenbilder
+                                'pruef_tiefe': pruef_tiefe,  # Pruefblick: (Anteil gueltige Tiefe, naechster Wert m)
                                 'zebra': zebra, 'einfahrt_verboten': einfahrt is not None}
             befehl = dict(self.befehl)
         self.letzte_extras = {'einfahrt': einfahrt, 'zebra': zebra, 'tiefe': tiefe_obj}

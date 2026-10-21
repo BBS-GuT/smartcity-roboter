@@ -36,7 +36,7 @@ Es gibt **keine eingelernten Greif-Posen**. Die KI misst das Hindernis, rechnet 
      2. **Yahbooms Robotermodell (URDF)** auf dem Roboter (`lib/urdf.py` sucht das Paket `yahboom_M3Pro_description` über `ros2 pkg prefix` und in `~/yahboomcar_ws/src/…`, liest `.urdf` und `.xacro` ohne Zusatzpakete),
      3. Standardmaße in `config/arm.yaml` (aus einem öffentlichen M3-Pro-Modell, Maße laut Autor aus Yahbooms CAD: Schulter 21,8 cm hoch, Oberarm/Unterarm je 8,3 cm).
 3. **Gelernte Korrektur dazu** (siehe nächster Abschnitt). Der Greifer zielt auf *Zielpunkt + Korrektur*.
-4. **Reicht der Arm nicht hin?** Mit den Standardmaßen erreicht der Arm den Boden nur bis ca. 22 cm vor der Robotermitte. Dann rechnet die KI aus, wie viel näher sie muss (höchstens 12 cm), fährt **blind und langsam** (3 cm/s) heran, greift und fährt danach wieder zurück, damit die Kamera den Platz prüfen kann.
+4. **Reicht der Arm nicht hin?** Mit den Standardmaßen erreicht der Arm den Boden nur bis ca. 22 cm vor der Robotermitte. Dann rechnet die KI aus, wie viel näher sie muss (höchstens 15 cm), fährt **blind und langsam** (3 cm/s) heran, greift und fährt danach wieder zurück, damit die Kamera den Platz prüfen kann.
 5. **Langsam:** Kein Servo dreht schneller als 60 Grad pro Sekunde. Winkel außerhalb der Servo-Grenzen werden abgelehnt.
 6. Geht es trotzdem nicht, bewegt sich nichts, und im Panel steht der Grund (z. B. „Arm erreicht es nicht: …“).
 

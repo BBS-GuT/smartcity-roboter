@@ -13,8 +13,11 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from raeum_lauf import AKTEURE, Lauf, bewegt  # noqa: E402
 from tiefe import abstand_im_kasten, tiefe_passt  # noqa: E402
+from entscheider import STANDARD  # noqa: E402
 
-OBJ = {'vor': 0.28, 'seite': 0.0, 'quer': 0.0, 'breite': 0.04, 'hoehe': 0.04, 'quelle': 'tiefe'}
+GREIF = STANDARD['greif_vor']   # Gegenstand liegt in Greifweite
+
+OBJ = {'vor': GREIF, 'seite': 0.0, 'quer': 0.0, 'breite': 0.04, 'hoehe': 0.04, 'quelle': 'tiefe'}
 
 
 def durchlauf(akteur=None, nah=True, schritte=400):
@@ -23,7 +26,7 @@ def durchlauf(akteur=None, nah=True, schritte=400):
     weg, arme, b = False, [], None
     objekte = [] if akteur is None else [{'name': akteur, 'im_weg': False, 'nah': nah}]
     for _ in range(schritte):
-        w = {} if weg else {'lidar': 0.28, 'objekt': dict(OBJ), 'tiefe_hindernis': True}
+        w = {} if weg else {'lidar': GREIF, 'objekt': dict(OBJ), 'tiefe_hindernis': True}
         b = lauf.schritt(objekte=objekte, **w)
         a = b['arm']
         if a is not None:
@@ -57,7 +60,7 @@ class AkteurNah(unittest.TestCase):
         lauf = Lauf()
         arme = []
         for _ in range(200):
-            b = lauf.schritt(akteur='Person', im_weg=False, lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+            b = lauf.schritt(akteur='Person', im_weg=False, lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
             if b['arm'] is not None:
                 arme.append(b['arm'])
         self.assertFalse(weggeraeumt(arme))
@@ -68,11 +71,11 @@ class AkteurNah(unittest.TestCase):
             with self.subTest(nah=nah):
                 lauf = Lauf()
                 for _ in range(200):
-                    b = lauf.schritt(lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                    b = lauf.schritt(lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
                     if lauf.phase() == 'ausfuehren':
                         break
                 b = lauf.schritt(objekte=[{'name': 'Person', 'im_weg': False, 'nah': nah}],
-                                 lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                                 lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
                 gehalten = 'Arm haelt still' in b['grund']
                 self.assertEqual(gehalten, nah, b['grund'])
 

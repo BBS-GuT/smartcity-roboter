@@ -51,6 +51,7 @@ STANDARD = {
     'zebra_schauen': 0.8,      # so lange in jede Richtung schauen (s), nachdem der Arm steht
     'zebra_warten': 2.0,       # jemand da -> so lange warten, dann neu schauen (s)
     'zebra_weg': 2.0,          # nach dem Ueberqueren: erst wieder beachten, wenn so lange nicht gesehen
+    'zebra_figur_abstand': 1.0,  # Figur hoechstens so weit von der Kamera (m) -> wartet; weiter weg zaehlt nicht
     # Einbahnstrasse
     'einfahrt_bilder': 2,      # so viele der letzten 4 Bilder "Einfahrt verboten" -> wenden
     'wenden_dreh': 0.8,        # Drehgeschwindigkeit beim Wenden (rad/s, + = links herum)
@@ -70,9 +71,10 @@ STANDARD = {
                                 # 12 statt 8 cm (Projektinhaber 21.10.): in Kurven lagen Hindernisse 9-14 cm neben der
                                 # Linie, aber im Fahrschlauch (+-15 cm) - er wartete dann nur
     'zebra_kein_aufheben': 3.0,  # so lange nach einem gesehenen Zebrastreifen nichts anfassen (s): Fussgaenger!
-    'greif_vor': 0.28,         # so weit vor der Robotermitte soll die Vorderkante liegen (m): Kamera sieht es
-                               # noch sicher (RM02 20.10.: bei 27 cm gesehen, unter ~25 cm verloren). Reicht der
-                               # Arm nicht hin, faehrt er danach blind naeher (naeher_max)
+    'greif_vor': 0.33,         # so weit vor der Robotermitte soll die Vorderkante liegen (m): Kamera sieht es
+                               # noch sicher. RM02 21.10.: ab 31 cm in fast jedem Bild, bei 29 cm nur noch in 3-4
+                               # von 8 (Gegenstand am unteren Bildrand) -> mit 28 cm ging er fast immer verloren.
+                               # Der Arm reicht so nicht hin: er faehrt danach blind naeher (naeher_max)
     'greif_toleranz': 0.02,    # +- so genau (m)
     'greif_seite': 0.025,      # weiter seitlich (m) -> seitlich hinfahren (sonst dreht der Arm und fasst schraeg;
                                # 6 cm waren zu grob, RM02 21.10.)
@@ -83,7 +85,8 @@ STANDARD = {
     'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)
     'kontrolle_bereich': 0.45,  # in diesem Abstand (m) darf die Tiefenkamera dann nichts mehr sehen
     'versuche': 4,             # so oft versuchen (jeder Fehlversuch wird gelernt), dann warten
-    'naeher_max': 0.12,        # reicht der Arm nicht hin: hoechstens so weit blind naeher heranfahren (m)
+    'naeher_max': 0.15,        # reicht der Arm nicht hin: hoechstens so weit blind naeher heranfahren (m)
+                               # (greif_vor 21.10. um 5 cm weiter weg -> 3 cm mehr als vorher)
     'naeher_tempo': 0.03,      # ... so schnell (m/s)
     'notbremse_abbruch': 5.0,  # Notbremse waehrend des Wegraeumens laenger als das (s) -> abbrechen
     # Weg lange versperrt (z. B. zwei Roboter stehen sich gegenueber): nach einer ZUFAELLIGEN Wartezeit
