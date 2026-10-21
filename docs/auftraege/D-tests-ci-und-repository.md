@@ -1,6 +1,6 @@
 # Entwicklungsauftrag D: Tests, CI und Repositoryregeln
 
-**BBS-Betriebsstand: 21.10.2026.** D1-Basis und main-Schutz sind geliefert; die offenen Dokumentations- und Freigabeaufgaben stehen unten. Eine neue Testinfrastruktur oder eine zweite Schutzregel ist nicht zu beauftragen.
+**BBS-Betriebsstand: 21.10.2026, Basis main `8ee57b6cec55b5d2f4eb0c8de04d814344e9bfe8`.** D1-Basis, main-Schutz und formale Freigabe-App sind geliefert und abgenommen; die verbleibenden Dokumentationsaufträge stehen unten. Eine neue Testinfrastruktur oder eine zweite Schutzregel ist nicht zu beauftragen.
 
 Schreibziel ist ausschließlich [BBS-GuT/smartcity-roboter](https://github.com/BBS-GuT/smartcity-roboter), `origin=https://github.com/BBS-GuT/smartcity-roboter.git`. Neue kleine Aufgaben beginnen in eigener Arbeitskopie auf einem zugeteilten Branch ab aktuellem `origin/main`.
 
@@ -22,10 +22,11 @@ Die getestete CI-Basis ist Ubuntu 22.04/Python 3.10 mit `requirements-test.txt`;
 - `D1 / Shell-Syntax (bash)`
 - `D1 / Softwaretests (Ubuntu 22.04, Python 3.10)`
 
-Belege unterscheiden PR und main:
+Datierte CI-Belege vom 21.10.2026 unterscheiden PR und main:
 
 - [Erster BBS-PR-Lauf an PR #57](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39571559910): drei erfolgreiche Checks und 21/21 Skripte auf dem PR-Testmerge. Dieser Prüf-PR wurde ohne Merge geschlossen.
-- [Echter main-Pushlauf nach PR #83](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109): drei erfolgreiche Checks und 21/21 Skripte auf main `2e70550c88e30291c0db07619cff574a6ff1655b`.
+- [Historischer main-Pushlauf nach PR #83](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39579961109): drei erfolgreiche Pflichtchecks und 21/21 Skripte auf dem damaligen main `2e70550c88e30291c0db07619cff574a6ff1655b`.
+- [Main-Pushlauf nach PR #102](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39597759051): erfolgreiche CI auf der oben genannten Basis `8ee57b6`; dieser Beleg schreibt spätere main-Stände nicht automatisch fort.
 
 Die Zahl 21 ist das Ergebnis dieser Stände, kein festes Soll. Neue Fachtests werden vom Runner mitentdeckt; sie dürfen nicht zur Erhaltung einer festen Zahl ausgelassen werden.
 
@@ -33,9 +34,9 @@ Die Zahl 21 ist das Ergebnis dieser Stände, kein festes Soll. Neue Fachtests we
 
 Das aktive [Ruleset 25533179](https://github.com/BBS-GuT/smartcity-roboter/rules/25533179) verlangt PR, mindestens eine gültige Freigabe, Verwerfen alter Freigaben bei neuen Commits, erledigte Reviewgespräche und alle drei D1-Pflichtchecks mit aktueller main-Basis (`strict=true`). Force-Push und Löschen von main sind gesperrt; es gibt keine Bypass-Ausnahmen, auch nicht für Administratoren.
 
-Codeowner-Freigaben sind im Ruleset aktiviert. Die zugehörige `CODEOWNERS`-Datei ist noch Bestandteil von [PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) und damit auf dem genannten main-Stand noch nicht wirksam. `CODEOWNERS` ersetzt keine Dateireservierung. Gemergte Aufgabenbranches werden durch die aktivierte Repositoryoption automatisch gelöscht; die Löschsperre für main bleibt bestehen.
+Codeowner-Freigaben sind im Ruleset aktiviert; `.github/CODEOWNERS` ist mit [PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) auf main integriert und schützt die dort aufgeführten Steuerungsdateien. `CODEOWNERS` ersetzt keine Dateireservierung. Gemergte Aufgabenbranches werden durch die aktivierte Repositoryoption automatisch gelöscht; die Löschsperre für main bleibt bestehen.
 
-Automatische native Codex-Reviews sind eingerichtet. Eine Botmeldung ersetzt derzeit kein formales GitHub-Approval. Die separate formale Freigabe-App aus [#90](https://github.com/BBS-GuT/smartcity-roboter/issues/90)/[PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) bleibt bis Einrichtung, Integration und eigenem Funktionsnachweis offen. Auto-Merge ist nicht eingerichtet. Ein anderer KI-Chat unter demselben Autorenkonto ist keine unabhängige GitHub-Freigabe.
+Automatische native Codex-Reviews einschließlich Security laufen auf jedem Push und übernehmen die Produktreviews. Die separate formale Freigabe-App aus [#90](https://github.com/BBS-GuT/smartcity-roboter/issues/90)/[PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) ist eingerichtet; [#95](https://github.com/BBS-GuT/smartcity-roboter/issues/95) belegt ihre von GitHub angerechneten `APPROVED`-Reviews. Die Nachträge [#98 / PR #99](https://github.com/BBS-GuT/smartcity-roboter/pull/99) und [#100 / PR #102](https://github.com/BBS-GuT/smartcity-roboter/pull/102) sind integriert. Contents der Installation ist schreibend, der kurzlebige Job-Token bleibt Contents-lesend. Eine bloße Botmeldung ist kein formales Approval; die App überträgt nur einen sauberen nativen Review und erfolgreiche Pflicht-CI für den aktuellen Head. Steuerungsdateien brauchen weiterhin eine unabhängige menschliche Codeowner-Freigabe. Einzelheiten und datierte Abnahmebelege stehen in der [Freigabeanleitung](../entwicklung/codex-mergefreigabe.md). Auto-Merge ist nicht eingerichtet. Ein anderer KI-Chat unter demselben Autorenkonto ist keine unabhängige GitHub-Freigabe.
 
 ## Noch offene kleine Aufträge und Dateibesitz
 
@@ -43,7 +44,6 @@ Automatische native Codex-Reviews sind eingerichtet. Eine Botmeldung ersetzt der
 - [#69 / PR #92](https://github.com/BBS-GuT/smartcity-roboter/pull/92): aktuelle Beitrags- und Betriebsanleitung, ausschließlich `CONTRIBUTING.md` und `docs/entwicklung/D1-ci-betrieb.md`.
 - [PR #80](https://github.com/BBS-GuT/smartcity-roboter/pull/80): die Orchestrierung hält das Auftragsregister in `docs/auftraege/README.md` aktuell.
 - [#93](https://github.com/BBS-GuT/smartcity-roboter/issues/93): ausschließlich dieses Auftragsdokument auf Branch `docs/gb-d1-auftragsstatus` korrigieren. Keine Workflows, Tests oder Produktdateien mitändern.
-- [#90 / PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91): separate App-Einrichtung und formale Freigabebrücke; kein erneuter D1-Grundaufbau.
 
 Jede Lieferung nennt Basis, Head, genaue Dateien, tatsächliche CI und offene Abnahmen. Vor Merge müssen der aktuelle Codex-Review, CI und die erforderliche unabhängige Freigabe vorliegen. Kleine Folgefehler werden als eigene Aufgaben mit Dateigrenze vergeben. Produktmodule und fachliche Tests bleiben bei ihren zugeteilten Besitzern; keine Erwartungen oder Grenzwerte für einen grünen Lauf abschwächen.
 
