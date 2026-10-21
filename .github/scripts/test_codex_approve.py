@@ -263,6 +263,25 @@ class ApprovalTests(unittest.TestCase):
                 self.assertEqual(run(self.api, 1, apply=True)["action"], "blocked")
                 self.assertEqual(self.api.writes, [])
 
+    def test_ref_qualified_ci_workflow_paths_are_accepted(self):
+        for ref in ["main", "refs/heads/main", "refs/pull/1/merge", SHA]:
+            with self.subTest(ref=ref):
+                self.api.run["path"] = bridge.CI_PATH + "@" + ref
+                self.assertEqual(run(self.api, 1)["action"], "would-approve")
+                self.assertEqual(self.api.writes, [])
+
+    def test_ref_qualification_does_not_relax_ci_run_identity(self):
+        for key, value in [("path", ".github/workflows/fake.yml@main"),
+                           ("path", bridge.CI_PATH + "@"), ("workflow_id", 999),
+                           ("event", "push"), ("head_sha", OTHER),
+                           ("pull_requests", [{"number": 2}])]:
+            with self.subTest(key=key, value=value):
+                self.api = FakeAPI()
+                self.api.run["path"] = bridge.CI_PATH + "@main"
+                self.api.run[key] = value
+                self.assertEqual(run(self.api, 1, apply=True)["action"], "blocked")
+                self.assertEqual(self.api.writes, [])
+
     def test_forged_ci_details_url_and_check_job_mismatch_do_not_count(self):
         self.api.checks[0]["details_url"] = "https://attacker.example/job/1001"
         self.assertEqual(run(self.api, 1)["action"], "blocked")

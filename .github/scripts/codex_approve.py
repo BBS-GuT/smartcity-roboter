@@ -192,10 +192,19 @@ def unresolved_threads(api, number):
     raise ValueError("review-thread pagination limit exceeded")
 
 
+def ci_workflow_path(path):
+    # GitHub may qualify the API path with @ref. Identify the workflow file
+    # separately; workflow ID, event, exact SHA and PR association remain gates.
+    if not isinstance(path, str):
+        return False
+    filename, separator, ref = path.partition("@")
+    return filename == CI_PATH and (not separator or bool(ref))
+
+
 def trusted_ci(api, checks, number, sha):
     """Use the newest actual PR D1 run; ignore duplicate push-run check names."""
     runs = api.pages(PREFIX + f"/actions/workflows/{CI_WORKFLOW_ID}/runs?head_sha={sha}&event=pull_request", "workflow_runs")
-    candidates = [run for run in runs if run.get("path") == CI_PATH
+    candidates = [run for run in runs if ci_workflow_path(run.get("path"))
                   and run.get("workflow_id") == CI_WORKFLOW_ID and run.get("event") == "pull_request"
                   and run.get("head_sha") == sha and (run.get("repository") or {}).get("id") == REPOSITORY_ID
                   and any(row.get("number") == number and (row.get("head") or {}).get("sha") == sha
