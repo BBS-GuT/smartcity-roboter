@@ -40,13 +40,13 @@ Automatische native Codex-Reviews einschließlich Security laufen auf jedem Push
 
 [PR #54](https://github.com/BBS-GuT/smartcity-roboter/pull/54) zu #68 ist auf der genannten Basis integriert: `AGENTS.md` und `docs/entwicklung/D-reviewbot.md` sind geliefert. Dieser Auftrag ist abgeschlossen und keine erneute Dateizuteilung.
 
-Die ursprüngliche Lieferung dieses Dokuments zu [#93 / PR #94](https://github.com/BBS-GuT/smartcity-roboter/pull/94) erfolgte auf Branch `docs/gb-d1-auftragsstatus`. Sie ist integriert und abgeschlossen, keine erneute Zuteilung. Der begrenzte spätere Begleitdoku-Abgleich in PR #80 steht unten; er ändert keine Workflows, Tests oder Produktdateien.
+Die ursprüngliche Lieferung dieses Dokuments zu [#93 / PR #94](https://github.com/BBS-GuT/smartcity-roboter/pull/94) erfolgte auf Branch `docs/gb-d1-auftragsstatus`. Sie ist integriert und abgeschlossen, keine erneute Zuteilung. Der begrenzte spätere Begleitdoku-Abgleich in PR #80 ist ebenfalls integriert und unten dokumentiert; er änderte keine Workflows, Tests oder Produktdateien.
 
-## Integrierte Dokumentationsaufträge und laufender Abgleich
+## Integrierte Dokumentationsaufträge
 
 - [#69 / PR #92](https://github.com/BBS-GuT/smartcity-roboter/pull/92): Beitrags- und Betriebsanleitung integriert, Issue abgeschlossen. Dieser frühere Auftrag reserviert `CONTRIBUTING.md` und `docs/entwicklung/D1-ci-betrieb.md` nicht mehr.
 - [#96 / PR #97](https://github.com/BBS-GuT/smartcity-roboter/pull/97): gemeinsame Regeln integriert und verbindlich, Issue abgeschlossen. Keine aktive Reservierung aus dieser Lieferung.
-- [BBS-PR #80](https://github.com/BBS-GuT/smartcity-roboter/pull/80), Branch `docs/gb-bbs-auftragsabgleich`: laufender Register-/Begleitdoku-Abgleich der Orchestrierung für `docs/auftraege/README.md`, `docs/auftraege/L-lidar-qualitaet-und-geometrie.md`, `CONTRIBUTING.md` und diese D1-Auftragsdatei. Die erweiterte Dateiübernahme ist im PR dokumentiert; sie eröffnet die abgeschlossenen D-Aufträge nicht erneut. Der importierte Produkt-Merge `d92e366` gehört zum früheren Quellrepository und dessen gleich nummeriertem PR #80, nicht zu diesem BBS-PR.
+- [BBS-PR #80](https://github.com/BBS-GuT/smartcity-roboter/pull/80), damaliger Branch `docs/gb-bbs-auftragsabgleich`: Register-/Begleitdoku-Abgleich der Orchestrierung mit Mergecommit `53073cfe685d94a6331f8edb2e525c81e6efe873` integriert und abgeschlossen. Die damalige Dateiübernahme für `docs/auftraege/README.md`, `docs/auftraege/L-lidar-qualitaet-und-geometrie.md`, `CONTRIBUTING.md` und diese D1-Auftragsdatei ist keine aktive Reservierung mehr; die abgeschlossenen D-Aufträge bleiben abgeschlossen. Neue Arbeiten benötigen weiterhin eine eigene Zuteilung nach den gemeinsamen Regeln. Der importierte Produkt-Merge `d92e366` gehört zum früheren Quellrepository und dessen gleich nummeriertem PR #80, nicht zu diesem BBS-PR.
 
 Jede Lieferung nennt Basis, Head, genaue Dateien, tatsächliche CI und offene Abnahmen. Vor Merge müssen der aktuelle Codex-Review, CI und die erforderliche unabhängige Freigabe vorliegen. Kleine Folgefehler werden als eigene Aufgaben mit Dateigrenze vergeben. Produktmodule und fachliche Tests bleiben bei ihren zugeteilten Besitzern; keine Erwartungen oder Grenzwerte für einen grünen Lauf abschwächen.
 
