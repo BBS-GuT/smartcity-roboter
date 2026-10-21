@@ -102,6 +102,13 @@ class Kennlinie(unittest.TestCase):
         g = armlib.greifer_plan(0.004, e)                       # nie weiter zu als "Backen beruehren sich"
         self.assertLessEqual(g['zu'], 172)
 
+    def test_gemessener_anschlag_bleibt_hart(self):
+        e = dict(self.E, greifer_messpunkte=[[0.0, 150], [0.03, 147]])
+        self.assertLessEqual(armlib.greifer_plan(0.03, e)['zu'], 150)
+        e = {'greifer_auf': 130, 'greifer_zu': 30, 'greifer_druecken': 8,
+             'greifer_messpunkte': [[0.0, 10], [0.03, 13]]}
+        self.assertGreaterEqual(armlib.greifer_plan(0.03, e)['zu'], 10)
+
     def test_greifer_andersherum(self):
         e = {'greifer_auf': 130, 'greifer_zu': 30, 'greifer_druecken': 8, 'greifer_messpunkte': [[0.03, 50]]}
         g = armlib.greifer_plan(0.03, e)

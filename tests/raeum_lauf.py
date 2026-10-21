@@ -29,6 +29,7 @@ class Lauf:
     def __init__(self, posen=None, planer_fn=planer):
         self.e = Entscheider(arm_erlaubt=True, posen=dict(posen or POSEN), planer=planer_fn)
         self.t, self.nr, self.strecke = 100.0, 0, 0.0
+        self.bild_zeit = self.t
         self.letzter = None
 
     def phase(self):
@@ -36,7 +37,8 @@ class Lauf:
         return None if a is None else a.phase
 
     def schritt(self, akteur=None, im_weg=True, neu=True, **w):
-        """Ein Zyklus 0,1 s spaeter. neu=False: die KI hat seitdem kein neues Bild ausgewertet (alte Bildnummer)."""
+        """Ein Zyklus 0,1 s spaeter. neu=False: die KI hat seitdem kein neues Bild ausgewertet (alte Bildnummer und
+        alte Aufnahmezeit)."""
         a = self.e.ablauf
         ende = time.monotonic() + 3.0
         while a is not None and a.phase in ('vorpruefen', 'planen') and getattr(a, 'plan', 1) is None:
@@ -46,8 +48,9 @@ class Lauf:
         m = (self.letzter or {}).get('manoever') or {}
         self.strecke += m.get('lin', 0.0) * 0.1
         self.t = round(self.t + 0.1, 3)
-        self.nr += 1 if neu else 0
-        daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'ampel': None, 'stoppschild': False,
+        if neu:                          # neues Bild: Nummer und Aufnahmezeit neu; sonst beides eingefroren
+            self.nr, self.bild_zeit = self.nr + 1, self.t
+        daten = {'bild_nr': self.nr, 'bild_zeit': self.bild_zeit, 'ampel': None, 'stoppschild': False,
                  'lidar': float('inf'), 'lidar_hinten': 1.0, 'tiefe_hindernis': False, 'strecke': self.strecke,
                  'objekte': [] if akteur is None else [{'name': akteur, 'im_weg': im_weg}]}
         daten.update(w)

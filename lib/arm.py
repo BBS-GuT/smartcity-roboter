@@ -131,8 +131,8 @@ def greifer_plan(breite, e=None):
          Messwert. Die Kamera misst Breiten etwas zu klein (Kanten); bei bekannten Dingen ist das so egal.
       2. zwischen eingemessenen Punkten gerade verbunden (ab 2 Punkten; 1 Punkt: Steigung geschaetzt)
       3. geschaetzt aus greifer_offen_m / greifer_grad_pro_cm (noch nichts eingemessen)
-    Nie weiter zu als die eingemessene Stellung "Backen beruehren sich" bzw. greifer_zu, wenn die nicht gemessen
-    ist - ausser fuer einen eingemessenen Gegenstand (dort ist das Anliegen nachgewiesen)."""
+    Nie weiter zu als die eingemessene Stellung "Backen beruehren sich" (harte Grenze). Ist die nicht gemessen, gilt
+    greifer_zu - ausser fuer einen eingemessenen Gegenstand (dort ist das Anliegen nachgewiesen)."""
     e = lade_einstellungen() if e is None else e
     auf = int(e.get('greifer_auf', GREIFER_AUF))
     zu_max = float(e.get('greifer_zu', GREIFER_ZU))
@@ -151,10 +151,11 @@ def greifer_plan(breite, e=None):
     if naechst is not None and naechst[0] <= fang:
         _, b, beruehrt = naechst
         quelle = f"eingemessen ({b * 100:.1f} cm)".replace('.', ',')
-        if richtung > 0:
-            zu_max = max(zu_max, min(GRENZEN[6][1], beruehrt + druecken))
-        else:
-            zu_max = min(zu_max, max(GRENZEN[6][0], beruehrt - druecken))
+        if not null:            # ohne gemessenen Anschlag: Grenze greifer_zu fuer diesen Gegenstand erweitern
+            if richtung > 0:
+                zu_max = max(zu_max, min(GRENZEN[6][1], beruehrt + druecken))
+            else:
+                zu_max = min(zu_max, max(GRENZEN[6][0], beruehrt - druecken))
     elif len(pkt) >= 2:
         i = 1
         while i < len(pkt) - 1 and pkt[i][0] < breite:

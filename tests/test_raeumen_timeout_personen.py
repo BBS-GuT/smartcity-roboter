@@ -42,6 +42,28 @@ class TimeoutPersonen(unittest.TestCase):
                     self.assertTrue(any('bleibt in Sicht' in t for t in texte))
                     self.assertEqual(neue, [])
 
+    def test_ausbleibende_bilder_sind_keine_freipruefung(self):
+        """Nach dem Abbruch kommen keine neuen KI-Bilder (Nummer UND Aufnahmezeit eingefroren): kein Armwunsch."""
+        for akteur in AKTEURE:
+            for im_weg in (True, False):
+                with self.subTest(akteur=akteur, im_weg=im_weg):
+                    lauf = bis_erster_arm()
+                    for _ in range(330):
+                        lauf.schritt(akteur=akteur, im_weg=im_weg, lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                    self.assertIsNone(lauf.e.ablauf)
+                    eingefroren = lauf.bild_zeit
+                    for _ in range(50):                 # 5 s ohne neues Bild
+                        b = lauf.schritt(neu=False, lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                        self.assertEqual(lauf.bild_zeit, eingefroren)
+                        self.assertFalse(bewegt(b), f'{lauf.t - eingefroren:.1f} s nach dem letzten Bild: {b}')
+                    armwunsch = None
+                    for _ in range(40):                 # frische freie Bilder: jetzt darf er zurueck
+                        b = lauf.schritt(lidar=0.28, objekt=dict(OBJ), tiefe_hindernis=True)
+                        if b['arm'] is not None:
+                            armwunsch = b['arm']
+                            break
+                    self.assertEqual(armwunsch, 'fahrstellung')
+
     def test_freier_gegenfall_kehrt_zurueck(self):
         lauf = bis_erster_arm()
         for _ in range(330):

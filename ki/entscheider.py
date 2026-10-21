@@ -135,6 +135,7 @@ class Entscheider:
         self.hindernis_merk = None    # (Abstand m, Strecke dabei, seitdem vorgefahren): von der Kamera gesehen, nicht weggeraeumt. Ist es
                                       # zu nah fuer die Kamera, gilt der Weg NICHT als frei (sonst faehrt er drueber)
         self.lebewesen_zuletzt = 0.0  # wann die Kamera-KI zuletzt eine Person/ein Tier/ein Fahrzeug gesehen hat
+        self.lebewesen_bild = float('-inf')   # ... Aufnahmezeit (bild_zeit) dieses Bildes
         # Arm
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
         self.arm_zurueck_wegraeumen = False  # ... wegen eines Wegraeumens (dann erst zurueck, wenn niemand in Sicht ist)
@@ -221,6 +222,7 @@ class Entscheider:
             self.letzte_bild_nr = w.get('bild_nr', -1)
             if any(o['name'] in LEBEWESEN | FAHRZEUGE for o in w.get('objekte', [])):
                 self.lebewesen_zuletzt = jetzt
+                self.lebewesen_bild = w.get('bild_zeit', 0.0)
             if self.ablauf is None and self.arm_in_fahrstellung:
                 # Ampel/Schild nur zaehlen, wenn die Kamera normal nach vorne schaut (nicht beim
                 # Umschauen oder Greifen). Sonst liefe z. B. die Haltezeit am Stoppschild waehrend
@@ -247,10 +249,11 @@ class Entscheider:
         # Arm zuerst zurueck in Fahrstellung, bevor wieder gefahren wird
         # (nicht waehrend einer Notbremse: dann ist etwas sehr nah am Roboter)
         notbremse = befehl['grund'].startswith('NOTBREMSE')
-        if self.arm_zurueck_noetig and self.fahrt_aktiv and not notbremse and self._akteur_haelt_arm(jetzt):
-            # Arm kommt vom Wegraeumen und eine Person/ein Tier/ein Fahrzeug ist in Sicht: Arm bleibt, wo er ist,
-            # und der Roboter steht, bis 2 s niemand mehr zu sehen war (wie im Ablauf selbst)
-            befehl = self._b('stopp', 'Arm muss zurueck in Fahrstellung, aber jemand ist in Sicht -> warte')
+        halten = self._akteur_haelt_arm(jetzt, w) if self.arm_zurueck_noetig and self.fahrt_aktiv else None
+        if halten and not notbremse:
+            # Arm kommt vom Wegraeumen und eine Person/ein Tier/ein Fahrzeug ist in Sicht (oder es fehlen frische Bilder,
+            # dann ist nichts geprueft): Arm bleibt, wo er ist, und der Roboter steht
+            befehl = self._b('stopp', f'Arm muss zurueck in Fahrstellung, aber {halten} -> warte')
         elif self.arm_zurueck_noetig and self.fahrt_aktiv and not notbremse:
             self.arm_zurueck_noetig = False
             self.arm_zurueck_wegraeumen = False
@@ -484,10 +487,17 @@ class Entscheider:
         if a.name == 'wegraeumen' and a.merk is not None:
             self.hindernis_merk = a.merk
 
-    def _akteur_haelt_arm(self, jetzt):
-        """Armrueckkehr nach einem Wegraeumen zurueckhalten? Ja, solange in den letzten 2 s eine Person, ein Tier oder
-        ein Fahrzeug im Bild war."""
-        return self.arm_zurueck_wegraeumen and jetzt - self.lebewesen_zuletzt < 2.0
+    def _akteur_haelt_arm(self, jetzt, w):
+        """Armrueckkehr nach einem Wegraeumen zurueckhalten? Grund (Text) oder None. Frei ist es erst, wenn ein FRISCHES
+        Bild mindestens 2 s nach der letzten Sichtung niemanden mehr zeigt - ausbleibende Bilder sind keine Freipruefung."""
+        if not self.arm_zurueck_wegraeumen:
+            return None
+        bild = w.get('bild_zeit', 0.0)
+        if jetzt - bild > self.c['ki_max_alter']:
+            return 'KI liefert keine frischen Bilder'
+        if bild - self.lebewesen_bild < 2.0 or jetzt - self.lebewesen_zuletzt < 2.0:
+            return 'jemand ist in Sicht'
+        return None
 
     def _ablauf_ende(self, jetzt):
         a = self.ablauf
