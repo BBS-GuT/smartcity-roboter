@@ -38,6 +38,7 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 STANDARD_DATEI = os.path.join(REPO, 'config', 'arm.yaml')
 POSEN_DATEI = os.environ.get('SMARTCITY_ARM_YAML', os.path.join(REPO, 'config', 'lokal', 'arm.yaml'))
 BLICK_DREHUNG = 45   # Grad, um die Servo 1 zum Umschauen gedreht wird (blick_links/blick_rechts)
+PRUEF_NEIGUNG = 20   # Grad, um die Servo 4 fuer den Pruefblick verstellt wird (Kamera steiler nach unten)
 
 
 def pruefe(winkel, zeit_ms):
@@ -53,13 +54,27 @@ def pruefe(winkel, zeit_ms):
     return None
 
 
+_GELESEN = {}   # datei -> ((mtime_ns, groesse, inode), inhalt): Panel fragt mehrmals je Sekunde
+
+
 def _lies(datei):
+    """YAML-Datei als dict (Kopie, darf veraendert werden). Neu gelesen nur, wenn sich die Datei geaendert hat."""
+    import copy
     try:
-        import yaml
-        with open(datei) as f:
-            return yaml.safe_load(f) or {}
+        st = os.stat(datei)
     except FileNotFoundError:
         return {}
+    stand = (st.st_mtime_ns, st.st_size, st.st_ino)
+    alt = _GELESEN.get(datei)
+    if alt is None or alt[0] != stand:
+        try:
+            import yaml
+            with open(datei) as f:
+                alt = (stand, yaml.safe_load(f) or {})
+        except FileNotFoundError:
+            return {}
+        _GELESEN[datei] = alt
+    return copy.deepcopy(alt[1])
 
 
 def lade_einstellungen():
@@ -79,20 +94,167 @@ def greifer_werte():
     return int(e.get('greifer_auf', GREIFER_AUF)), int(e.get('greifer_zu', GREIFER_ZU))
 
 
+GREIFER_OFFEN_M = 0.085     # so weit ist der Greifer bei greifer_auf offen (m, geschaetzt)
+GREIFER_GRAD_PRO_CM = 17.6  # Servo 6: so viele Grad je cm weniger Oeffnung (geschaetzt: 150 Grad auf 8,5 cm)
+GREIFER_DRUECKEN = 8        # so viele Grad ueber das Beruehren hinaus zudruecken
+GREIFER_FANG = 0.008        # Kamera-Breite so nah (m) an einer eingemessenen Breite -> deren Messwert nehmen
+
+
+def greifer_messpunkte(e=None):
+    """Eingemessene Punkte [(Breite m, Servo 6 beim Anliegen)], nach Breite sortiert (Panel -> Arm -> Greifer
+    einmessen, gespeichert in config/lokal/arm.yaml unter greifer_messpunkte). Breite 0 = Backen beruehren sich."""
+    e = lade_einstellungen() if e is None else e
+    pkt = []
+    for p in e.get('greifer_messpunkte') or []:
+        try:
+            b, w = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if 0.0 <= b <= 0.15 and GRENZEN[6][0] <= w <= GRENZEN[6][1]:
+            pkt.append((b, w))
+    zusammen = []                       # fast gleiche Breiten (von Hand eingetragen) zu einem Punkt mitteln
+    for b, w in sorted(pkt):
+        if zusammen and b - zusammen[-1][0][-1] <= 0.002:
+            zusammen[-1][0].append(b)
+            zusammen[-1][1].append(w)
+        else:
+            zusammen.append(([b], [w]))
+    return [(sum(bs) / len(bs), sum(ws) / len(ws)) for bs, ws in zusammen]
+
+
+def greifer_plan(breite, e=None):
+    """Greiferwerte fuer einen Gegenstand dieser Breite (m, von der Kamera gemessen):
+    {'anlegen', 'zu', 'beruehrt', 'quelle', 'text'}.
+    anlegen: kurz bevor die Backen beruehren (schnell), zu: beruehren + greifer_druecken Grad (langsam).
+    Wann die Backen beruehren, kommt in dieser Reihenfolge aus:
+      1. eingemessen: Breite liegt nahe an einem eingemessenen Gegenstand (z. B. eurem Wuerfel) -> genau dessen
+         Messwert. Die Kamera misst Breiten etwas zu klein (Kanten); bei bekannten Dingen ist das so egal.
+      2. zwischen eingemessenen Punkten gerade verbunden (ab 2 Punkten; 1 Punkt: Steigung geschaetzt)
+      3. geschaetzt aus greifer_offen_m / greifer_grad_pro_cm (noch nichts eingemessen)
+    Nie weiter zu als die eingemessene Stellung "Backen beruehren sich" (harte Grenze). Ist die nicht gemessen, gilt
+    greifer_zu - ausser fuer einen eingemessenen Gegenstand (dort ist das Anliegen nachgewiesen)."""
+    e = lade_einstellungen() if e is None else e
+    auf = int(e.get('greifer_auf', GREIFER_AUF))
+    zu_max = float(e.get('greifer_zu', GREIFER_ZU))
+    druecken = float(e.get('greifer_druecken', GREIFER_DRUECKEN))
+    fang = float(e.get('greifer_fang', GREIFER_FANG))
+    pro_m = float(e.get('greifer_grad_pro_cm', GREIFER_GRAD_PRO_CM)) * 100
+    richtung = 1 if zu_max >= auf else -1   # -1: Greifer andersherum eingebaut (greifer_auf groesser als greifer_zu)
+    pro_m *= richtung
+    breite = max(0.0, float(breite))
+    pkt = greifer_messpunkte(e)
+    null = [w for b, w in pkt if b < 0.002]
+    if null:
+        zu_max = null[0]
+    gegenstand = [(abs(b - breite), b, w) for b, w in pkt if b >= 0.002]
+    naechst = min(gegenstand) if gegenstand else None
+    if naechst is not None and naechst[0] <= fang:
+        _, b, beruehrt = naechst
+        quelle = f"eingemessen ({b * 100:.1f} cm)".replace('.', ',')
+        if not null:            # ohne gemessenen Anschlag: Grenze greifer_zu fuer diesen Gegenstand erweitern
+            if richtung > 0:
+                zu_max = max(zu_max, min(GRENZEN[6][1], beruehrt + druecken))
+            else:
+                zu_max = min(zu_max, max(GRENZEN[6][0], beruehrt - druecken))
+    elif len(pkt) >= 2:
+        i = 1
+        while i < len(pkt) - 1 and pkt[i][0] < breite:
+            i += 1
+        (b0, w0), (b1, w1) = pkt[i - 1], pkt[i]
+        beruehrt = w0 + (w1 - w0) * (breite - b0) / (b1 - b0) if b1 > b0 else w0
+        quelle = 'aus Messpunkten gerechnet'
+    elif pkt:
+        b0, w0 = pkt[0]
+        beruehrt = w0 + (b0 - breite) * pro_m
+        quelle = 'aus 1 Messpunkt gerechnet (Steigung geschaetzt)'
+    else:
+        offen = float(e.get('greifer_offen_m', GREIFER_OFFEN_M))
+        beruehrt = auf + max(0.0, offen - breite) * pro_m
+        quelle = 'geschaetzt (Greifer nicht eingemessen)'
+    def begrenzt(w):                      # zwischen auf und zu_max
+        return min(max(w, min(auf, zu_max)), max(auf, zu_max))
+    zu = begrenzt(beruehrt + richtung * druecken)
+    anlegen = begrenzt(beruehrt - richtung * 10)
+    if richtung * (anlegen - zu) > 0:
+        anlegen = zu
+    text = f'Greifer {int(round(anlegen))} -> {int(round(zu))}, {quelle}'
+    gedrueckt = richtung * (zu - beruehrt)
+    if gedrueckt < 0:
+        text += f' - erreicht den Gegenstand evtl. nicht (Grenze {int(round(zu_max))})'
+    elif gedrueckt < druecken - 0.5:
+        text += f' - drueckt nur {gedrueckt:.0f} Grad (Grenze {int(round(zu_max))})'
+    return {'anlegen': int(round(anlegen)), 'zu': int(round(zu)), 'beruehrt': float(beruehrt), 'quelle': quelle,
+            'text': text}
+
+
+def greifer_stand(e=None):
+    """Kurztext: eingemessen oder geschaetzt (fuer Startmeldung und Panel)."""
+    pkt = greifer_messpunkte(e)
+    if not pkt:
+        return 'NICHT eingemessen (Werte geschaetzt, Panel -> Arm -> Greifer einmessen)'
+    teile = [('Backen zu' if b < 0.002 else f'{b * 100:.1f} cm'.replace('.', ',')) + f' = {int(w)}' for b, w in pkt]
+    return 'eingemessen: ' + ', '.join(teile)
+
+
+def greifer_fuer_breite(breite):
+    """(anlegen, zu) fuer Servo 6 bei einem Gegenstand dieser Breite (m), siehe greifer_plan."""
+    g = greifer_plan(breite)
+    return g['anlegen'], g['zu']
+
+
+def speichere_greifer_messpunkt(breite, winkel):
+    """Messpunkt (Breite m, Servo 6 beim Anliegen) in config/lokal/arm.yaml; ersetzt einen bei gleicher Breite."""
+    def aendern(d):
+        alt = [p for p in (d.get('greifer_messpunkte') or []) if abs(float(p[0]) - breite) > 0.002]
+        d['greifer_messpunkte'] = sorted(alt + [[round(float(breite), 4), int(winkel)]])
+    _speichere(aendern)
+
+
+def loesche_greifer_messpunkte():
+    _speichere(lambda d: d.pop('greifer_messpunkte', None))
+
+
 def lade_posen():
     """Alle Posen: {name: [6 Winkel]}. Fehlen blick_links/blick_rechts, werden sie aus der
     Fahrstellung berechnet (Servo 1 um BLICK_DREHUNG Grad gedreht)."""
-    posen = {k: v for k, v in (lade_einstellungen().get('posen') or {}).items()}
+    e = lade_einstellungen()
+    posen = {k: v for k, v in (e.get('posen') or {}).items()}
     fahr = posen.get('fahrstellung')
     if fahr:
-        for name, d in (('blick_links', BLICK_DREHUNG), ('blick_rechts', -BLICK_DREHUNG)):
+        links = -1 if (e.get('geometrie') or {}).get('servo1_links', 1) < 0 else 1   # Drehrichtung Servo 1
+        for name, d in (('blick_links', BLICK_DREHUNG * links), ('blick_rechts', -BLICK_DREHUNG * links)):
             if not posen.get(name):
                 posen[name] = [max(0, min(180, fahr[0] + d))] + list(fahr[1:])
+        if not posen.get('pruefblick'):
+            # Kamera steiler nach unten: sieht Hindernisse, die zu nah fuer die Fahrstellung sind
+            posen['pruefblick'] = list(fahr[:3]) + [max(0, fahr[3] - PRUEF_NEIGUNG)] + list(fahr[4:])
     return posen
+
+
+def kamera_fuer_pose(kamera, fahr, pose, geo=None):
+    """Kameramasse (kamera_hoehe, kamera_neigung, kamera_x wie fuer die Fahrstellung gemessen) fuer eine andere
+    Armstellung umrechnen. Die Kamera sitzt fest an der Hand: sie dreht sich mit der Hand und wandert mit dem
+    Handgelenk. Gerechnet mit der eigenen Kinematik (Masse aus config/arm.yaml), nur fuer Servo 1 wie in der
+    Fahrstellung (nach vorne). None: geht nicht."""
+    if pose is None or abs(pose[0] - fahr[0]) > 1:
+        return None
+    kin = Kinematik(geo)
+    handgelenk = Kinematik(dict(kin.g, hand=0.0))
+    (w0x, _, w0z), _ = handgelenk.vorwaerts(fahr)
+    (w1x, _, w1z), _ = handgelenk.vorwaerts(pose)
+    dneig = kin.vorwaerts(pose)[1] - kin.vorwaerts(fahr)[1]       # Grad, + = Hand weiter nach unten
+    cx, cz = kamera['kamera_x'] - w0x, kamera['kamera_hoehe'] - w0z
+    d = math.radians(dneig)
+    aus = dict(kamera)
+    aus['kamera_x'] = w1x + cx * math.cos(d) + cz * math.sin(d)
+    aus['kamera_hoehe'] = w1z - cx * math.sin(d) + cz * math.cos(d)
+    aus['kamera_neigung'] = kamera['kamera_neigung'] + dneig
+    return aus
 
 
 def _speichere(aenderung):
     import yaml
+    _GELESEN.pop(POSEN_DATEI, None)
     eigene = _lies(POSEN_DATEI)
     aenderung(eigene)
     os.makedirs(os.path.dirname(POSEN_DATEI), exist_ok=True)
@@ -100,6 +262,7 @@ def _speichere(aenderung):
         f.write('# Eigene Arm-Posen dieses Roboters (gespeichert ueber das Panel, Seite Arm).\n'
                 '# Nicht im Repository. Standardwerte: config/arm.yaml\n')
         yaml.safe_dump(eigene, f, allow_unicode=True, sort_keys=False)
+    _GELESEN.pop(POSEN_DATEI, None)
 
 
 def speichere_pose(name, winkel):
@@ -308,10 +471,12 @@ class YahboomKinematik:
                 float(punkt[2]) + float(versatz.get('z_offset', 0.0)))
 
 
-def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu):
+def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu, anlegen=None):
     """Armbewegung zum Wegraeumen ausrechnen.
     ik(x, y, z) -> [s1..s5] oder None; greif: Mitte des Hindernisses (x, y, z); ablagen: moegliche Ablagestellen
     (x, y, z), die erste erreichbare gilt; hoehe: Hoehe des Hindernisses (m).
+    anlegen: Greiferwert kurz vor dem Beruehren - dann erst schnell bis dahin, danach langsam zudruecken
+    (schont Greifer und Gegenstand). None: in einem Schritt zu.
     Rueckgabe: {'schritte': [(Text, [6 Winkel], Dauer s), ...], 'info': Text} oder {'fehler': Text}."""
     gx, gy, gz = greif
 
@@ -325,7 +490,8 @@ def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu):
         return aus, None
     greifen, fehler = zug([('Greifer auf, ueber das Hindernis', (gx, gy, gz + hoehe / 2 + 0.06), auf, 1.5),
                            ('runter zum Hindernis', (gx, gy, gz), auf, 1.0),
-                           ('zugreifen', (gx, gy, gz), zu, 0.8),
+                           *([('Greifer anlegen', (gx, gy, gz), anlegen, 0.5)] if anlegen is not None else []),
+                           ('zugreifen', (gx, gy, gz), zu, 0.8 if anlegen is None else 1.2),
                            ('anheben', (gx, gy, gz + hoehe / 2 + 0.08), zu, 1.0)])
     if greifen is None:
         return {'fehler': f'Arm erreicht es nicht: {fehler}'}
@@ -408,6 +574,8 @@ class ArmBeobachter:
 
     def __init__(self, node):
         self.winkel, self.zeit, self.dauer = None, 0.0, 0.0
+        # Drehrichtung von Servo 1 (config/arm.yaml geometrie.servo1_links): gier soll immer "links = +" sein
+        self.links = -1 if (lade_einstellungen().get('geometrie') or {}).get('servo1_links', 1) < 0 else 1
         from std_msgs.msg import String
         try:
             from rosidl_runtime_py.utilities import get_message
@@ -430,6 +598,12 @@ class ArmBeobachter:
         if t:
             self._neu([float(w) for w in t.group(1).split(',')], int(t.group(2) or 1000))
 
+    def in_pose(self, pose, jetzt):
+        """Steht der Arm still in dieser Pose (Servos 1-5 auf 3 Grad genau)?"""
+        if self.winkel is None or not pose or jetzt - self.zeit < self.dauer + 0.3:
+            return False
+        return all(abs(self.winkel[i] - pose[i]) <= 3 for i in range(5))
+
     def kamera(self, posen, jetzt):
         """(in_fahrstellung, gier_grad). gier_grad = Drehung von Servo 1 gegenueber der Fahrstellung,
         None = Kamera schaut irgendwohin (Arm bewegt sich oder andere Servos verstellt).
@@ -443,5 +617,5 @@ class ArmBeobachter:
         if all(gleich):
             return True, 0.0
         if all(gleich[1:]):
-            return False, self.winkel[0] - fahr[0]
+            return False, (self.winkel[0] - fahr[0]) * self.links
         return False, None

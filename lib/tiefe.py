@@ -72,12 +72,17 @@ class Bodenmodell:
         x, y, z = self.punkte(tiefe_m)
         weg = (x > 0.05) & (x < self.c['weg_laenge']) & (np.abs(y) < self.c['weg_breite'])
         if lernen:
-            # Bodenkorrektur je Zeile: Median der Hoehe der Bodenpunkte im Fahrweg
-            for zeile in range(z.shape[0]):
-                werte = z[zeile][weg[zeile]]
-                werte = werte[np.isfinite(werte)]
-                if len(werte) > 5:
-                    self.korrektur[zeile] += 0.3 * (np.median(werte) - self.korrektur[zeile])
+            # Bodenkorrektur je Zeile: Median der Hoehe der Bodenpunkte im Fahrweg (alle Zeilen auf einmal:
+            # ungueltige Werte als inf ans Ende sortieren, dann die Mitte wie np.median)
+            gut = weg & np.isfinite(z)
+            n = gut.sum(axis=1)
+            zeilen = np.nonzero(n > 5)[0]
+            if len(zeilen):
+                s = np.sort(np.where(gut[zeilen], z[zeilen], np.inf), axis=1)
+                nn, i = n[zeilen], np.arange(len(zeilen))
+                unten, oben = s[i, (nn - 1) // 2], s[i, nn // 2]
+                med = np.where(nn % 2 == 1, oben, (unten + oben) / s.dtype.type(2))
+                self.korrektur[zeilen] += 0.3 * (med - self.korrektur[zeilen])
             self.gelernt += 1
         if self.gelernt < self.c['lern_bilder']:
             return None, None
@@ -112,3 +117,38 @@ class Bodenmodell:
         if quer_karte is not None:   # wie weit neben der Linie (Mitte des Fahrwegs) liegt es?
             objekt['quer'] = float(np.median(quer_karte[treffer][vorne]))
         return True, objekt
+
+
+def tiefe_passt(stempel_bild, stempel_tiefe, empfang_bild, empfang_tiefe, max_s=0.15):
+    """Gehoert das Tiefenbild zeitlich zum Farbbild? Mit Zeitstempeln (beide > 0) nach diesen, sonst nach der
+    Empfangszeit. Ein altes Tiefenbild zeigt evtl. noch den Hintergrund, wo jetzt jemand steht."""
+    if stempel_bild and stempel_tiefe and stempel_bild > 0 and stempel_tiefe > 0:
+        return abs(stempel_bild - stempel_tiefe) <= max_s
+    if empfang_bild is None or empfang_tiefe is None:
+        return False
+    return abs(empfang_bild - empfang_tiefe) <= max_s
+
+
+def abstand_im_kasten(tiefe_m, box, bild_groesse, anteil=15, min_gueltig=0.7):
+    """Wie weit ist ein von der Kamera-KI gefundenes Ding weg (m, ab Kamera)? box: (x, y, b, h) im Farbbild,
+    bild_groesse: (Hoehe, Breite) des Farbbilds; das Tiefenbild darf eine andere Groesse haben (wird umgerechnet).
+    Nimmt einen NAHEN Wert (anteil-Perzentil, Standard 15 %): im Kasten liegt auch Hintergrund (z. B. zwischen den
+    Beinen), ein Teil davon ist das Ding selbst.
+    None = unsicher: weniger als min_gueltig (70 %) des Kastens mit gueltiger Tiefe. Die Luecken koennen genau das
+    Ding sein, wenn es NAEHER ist, als die Tiefenkamera messen kann - die gueltigen Werte waeren dann nur der
+    Hintergrund. Der Aufrufer zaehlt es dann als nah."""
+    if tiefe_m is None:
+        return None
+    hd, wd = tiefe_m.shape[:2]
+    h, w = bild_groesse
+    x, y, bw, bh = box
+    x0, x1 = int(max(0, x) * wd / w), int(min(w, x + bw) * wd / w)
+    y0, y1 = int(max(0, y) * hd / h), int(min(h, y + bh) * hd / h)
+    teil = tiefe_m[y0:y1, x0:x1]
+    if teil.size == 0:
+        return None
+    gut = teil[np.isfinite(teil) & (teil > 0.05)]
+    if gut.size < max(10, min_gueltig * teil.size):
+        return None
+    return float(np.percentile(gut, anteil))
+

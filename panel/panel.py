@@ -29,6 +29,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import uuid
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -39,6 +40,7 @@ for _v in ('OMP_NUM_THREADS', 'OPENBLAS_NUM_THREADS', 'MKL_NUM_THREADS'):
     os.environ.setdefault(_v, '1')
 
 import cv2  # noqa: E402
+cv2.setNumThreads(1)   # OpenCV-Threads (pthreads, OMP_NUM_THREADS wirkt nicht): gleiche Wandzeit, halbe CPU
 import numpy as np
 import rclpy
 from rclpy.executors import SingleThreadedExecutor
@@ -94,8 +96,13 @@ def lade_lidar_einstellungen():
         return {}
 
 
+_IPS = [0.0, []]   # (Zeit, Adressen): das Panel fragt alle 0,4 s, ein Unterprozess je Abfrage waere unnoetig
+
+
 def ip_adressen():
-    """Aktuelle IPv4-Adressen des Roboters (ohne 127.x). Aendert sich z. B. mit den VLANs."""
+    """Aktuelle IPv4-Adressen des Roboters (ohne 127.x). Aendert sich z. B. mit den VLANs (hoechstens 10 s alt)."""
+    if time.monotonic() - _IPS[0] < 10.0:
+        return list(_IPS[1])
     ips = []
     try:
         aus = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=3).stdout
@@ -110,7 +117,8 @@ def ip_adressen():
             s.close()
         except Exception:
             pass
-    return ips
+    _IPS[:] = [time.monotonic(), ips]
+    return list(ips)
 
 
 class Prozesse:
@@ -623,6 +631,10 @@ def mache_handler(node, prozesse, beenden=None):
             time.sleep(0.5)
             return 'KI: ' + (node.get('ki_antwort', max_alter=2.0) or 'keine Antwort (laeuft die KI?)')
         # ---- Arm ----
+        if name.startswith('greifer_'):
+            if prozesse.laeuft('fahren') and name in ('greifer_schritt', 'greifer_messen'):
+                return 'Arm nur, wenn das Fahrprogramm aus ist (Kamera sitzt am Arm). Erst STOPP.'
+            return greifer_einmessen(name, daten)
         if name.startswith('arm_'):
             if prozesse.laeuft('fahren') and name in ('arm_pose', 'arm_greifer'):
                 return 'Arm nur, wenn das Fahrprogramm aus ist (Kamera sitzt am Arm). Erst STOPP.'
@@ -707,6 +719,39 @@ def mache_handler(node, prozesse, beenden=None):
             return 'Panel wird beendet, Roboter haelt an.'
         return f'Unbekannte Aktion {name}'
 
+    def greifer_einmessen(name, daten):
+        """Greifer einmessen (Panel -> Arm): Servo 6 in kleinen Schritten zu, bis die Backen anliegen, merken."""
+        if name == 'greifer_messpunkte_loeschen':
+            armlib.loesche_greifer_messpunkte()
+            return 'Messpunkte geloescht. Greifer gilt wieder als geschaetzt. KI neu starten (System).'
+        if name == 'greifer_einmessen_stand':
+            return greifer_text()
+        letzte = node.arm_holen().letzte
+        if not letzte:
+            return 'Erst einmal eine ganze Pose schicken (z. B. Fahrstellung), der Roboter meldet die Armstellung nicht.'
+        if name == 'greifer_schritt':
+            winkel = list(letzte)
+            lo, hi = armlib.GRENZEN[6]
+            auf, zu = armlib.greifer_werte()
+            richtung = 1 if zu >= auf else -1          # + = weiter zu, egal wie herum der Greifer eingebaut ist
+            schritt = max(-10, min(10, int(daten.get('grad', 0)))) * richtung
+            winkel[5] = max(lo, min(hi, int(winkel[5]) + schritt))
+            fehler = node.arm.fahre(winkel, 400)
+            return fehler or f'Servo 6 (Greifer) jetzt {winkel[5]}'
+        breite = float(daten.get('breite_cm', -1)) / 100
+        if not 0.0 <= breite <= 0.12:
+            return 'Breite in cm eingeben (0 = ohne Gegenstand, Backen beruehren sich; hoechstens 12 cm)'
+        armlib.speichere_greifer_messpunkt(breite, int(letzte[5]))
+        return (f'Gemerkt: {breite * 100:.1f} cm -> Servo 6 = {int(letzte[5])}. Greifer jetzt wieder oeffnen! '
+                'KI neu starten (System), damit sie es nimmt.\n\n' + greifer_text())
+
+    def greifer_text():
+        e = armlib.lade_einstellungen()
+        zeilen = ['Greifer: ' + armlib.greifer_stand(e), 'Damit wuerde die KI so greifen (Kamera-Breite -> Servo 6):']
+        for b in (0.025, 0.03, 0.035, 0.04, 0.05, 0.06):
+            zeilen.append(f'  {b * 100:.1f} cm: ' + armlib.greifer_plan(b, e)['text'])
+        return '\n'.join(zeilen)
+
     def fremde_programme():
         """Unsere Programme, die laufen, aber NICHT vom Panel gestartet wurden (z. B. alte Version nach Update)."""
         namen = node.get_node_names()
@@ -721,6 +766,7 @@ def mache_handler(node, prozesse, beenden=None):
         akku = node.get('akku', max_alter=5.0)
         sensoren = node.sensor_status()
         posen = armlib.lade_posen()
+        e = armlib.lade_einstellungen()
         return {
             'fahren': prozesse.laeuft('fahren'), 'modus': prozesse.info.get('fahren', ''),
             'ki_prozess': prozesse.laeuft('ki'),
@@ -739,9 +785,9 @@ def mache_handler(node, prozesse, beenden=None):
             'karte': node.get('karte', max_alter=2.0), 'kartograf': prozesse.laeuft('karte'),
             'arm': {'grenzen': armlib.GRENZEN, 'namen': armlib.NAMEN, 'posen': posen,
                     'letzte': node.arm.letzte if node.arm else None,
-                    'ki_darf': bool(armlib.lade_einstellungen().get('ki_darf_arm_bewegen')),
+                    'ki_darf': bool(e.get('ki_darf_arm_bewegen')),
                     'lernen': greifen_stand(),
-                    'gespeichert': sorted(k for k, v in (armlib.lade_einstellungen().get('posen') or {}).items() if v)},
+                    'gespeichert': sorted(k for k, v in (e.get('posen') or {}).items() if v)},
         }
 
     class Handler(BaseHTTPRequestHandler):
@@ -844,11 +890,22 @@ def mache_handler(node, prozesse, beenden=None):
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def _fremde_seite(self):
+            """Kommt der Auftrag von einer fremden Webseite im selben Browser (CSRF)? Das Panel schickt JSON;
+            eine fremde Seite kann das nicht ohne Rueckfrage des Browsers. Origin muss zur eigenen Adresse passen."""
+            herkunft = self.headers.get('Origin')
+            if herkunft and herkunft != 'null':
+                # Browser schicken bei POST immer Origin: passt er, ist es das Panel (auch eine alte, noch offene Seite)
+                return urllib.parse.urlsplit(herkunft).netloc != (self.headers.get('Host') or '')
+            return (self.headers.get('Content-Type') or '').split(';')[0].strip().lower() != 'application/json'
+
         def do_POST(self):
             if not self._erlaubt():
                 return
             if not self.path.startswith('/api/'):
                 return self._senden(404, 'text/plain', b'?')
+            if self._fremde_seite():
+                return self._senden(403, 'text/plain; charset=utf-8', 'Auftrag nicht vom Panel'.encode())
             laenge = int(self.headers.get('Content-Length', 0))
             try:
                 daten = json.loads(self.rfile.read(laenge) or b'{}')

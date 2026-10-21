@@ -106,6 +106,23 @@ Lernkurve auf den neuen Robotern (Erfolg je 10 Versuche, *mit* Ausprobieren):
 - **Im ROS-Simulator** (`sim/pruefen.py`, simulierter Arm absichtlich anders als geplant): ohne Lernen griffe er dort fast immer daneben (2,5 % in der Übungswelt), vortrainiert 42,5 %. In der geprüften Fahrt ging der 1. Greifversuch daneben (Greifer stieß auf den Boden, der Arm hängt durch), die KI hob die Korrektur an, der 2. Versuch klappte.
 
 
+## Greifkraft: wie fest drückt der Greifer zu?
+
+Der Roboter meldet die Stellung der Servos nicht zurück. Ob die Backen am Würfel anliegen, kann die KI also nicht fühlen.
+Deshalb merkt sie sich, **bei welchem Servo-Wert (Servo 6) die Backen an einem Gegenstand bekannter Breite anliegen**:
+
+| Quelle | Wann | Wie genau |
+|---|---|---|
+| **eingemessen** | Die Kamera misst fast dieselbe Breite wie ein eingemessener Gegenstand (± 0,8 cm, `greifer_fang`) | Genau der gemessene Wert. Die Kamera misst Breiten etwas zu klein (in der Übungswelt im Mittel 0,7 cm, weil die Kanten fehlen) – bei einem eingemessenen Würfel spielt das keine Rolle |
+| aus Messpunkten gerechnet | Breite zwischen zwei eingemessenen Punkten | gerade Linie dazwischen; der Messfehler der Kamera geht voll ein (ca. 1,8 Grad je mm) |
+| geschätzt | nichts eingemessen | Formel mit 8,5 cm Öffnung und 17,6 Grad je cm (beides nicht gemessen), höchstens `greifer_zu` |
+
+Dann fährt der Greifer schnell bis 10 Grad vor das Anliegen und drückt langsam bis **Anliegen + `greifer_druecken`** (Standard 8 Grad) zu.
+Ein eingemessener Punkt „Breite 0“ (Backen berühren sich) ist die Grenze, weiter geht er nie zu.
+Was die KI nimmt, steht bei jedem Plan im Ereignis, z. B. „Greifer 118 -> 136, eingemessen (3,0 cm)“, und beim Start („Greifer: NICHT eingemessen …“).
+
+**Ehrlich:** Auch eingemessen ist „anliegen“ eine Augenmaß-Entscheidung beim Einmessen, und wie fest 8 Grad weiter wirklich drücken, hängt vom Servo ab. Knackt der Greifer: `greifer_druecken` kleiner. Rutscht der Würfel raus: größer (in `config/lokal/arm.yaml`).
+
 ## Sicherheitsregeln, wenn die KI den Arm bewegt
 
 `ki_darf_arm_bewegen` ist jetzt **standardmäßig an** (`config/arm.yaml`). Ausschalten: Panel → Arm → Schalter „KI darf den Arm bewegen“. Das gilt nach ca. 2 s, ohne Neustart.
@@ -124,12 +141,13 @@ Lernkurve auf den neuen Robotern (Erfolg je 10 Versuche, *mit* Ausprobieren):
    greifer_auf: 130
    greifer_zu: 30
    ```
-2. **Yahbooms Arm-Kalibrierung** machen (Mittelstellung und Versatz, siehe oben). Ohne sie greift die Kinematik weiter daneben (das Lernen gleicht nur ein paar Zentimeter aus).
-3. **Kinematik prüfen:** Panel → Arm → „Kinematik prüfen“. Das bewegt nichts. Läuft Yahbooms Dienst nicht, rechnet die KI selbst (Maße aus der URDF oder Standard). Was sie nimmt, steht beim Start im Ereignis.
-4. **Richtung von Servo 1 prüfen** (`servo1_links` in `config/arm.yaml`): Arm mit Servo 1 auf 120 schicken. Dreht er nach links, stimmt `1`, sonst `-1` in `config/lokal/arm.yaml` eintragen.
-5. Ersten Versuch mit kleinem Tempo machen, eine Hand am STOPP. Würfel mittig auf die Linie legen. Die ersten Versuche gehen eher daneben; nach 10–20 Versuchen sollte die Erfolgsquote im Panel steigen.
+2. **Greifer einmessen:** Panel → Arm → „Greifer einmessen“. Euren Würfel zwischen die Backen, Breite eintragen, mit +2/+1 zumachen, bis beide Backen gerade anliegen, „Anliegen merken“, Greifer auf. Dazu einmal ohne Gegenstand mit Breite 0 (Backen berühren sich gerade). Ohne Einmessen sind die Greiferwerte nur geschätzt (siehe unten).
+3. **Yahbooms Arm-Kalibrierung** machen (Mittelstellung und Versatz, siehe oben). Ohne sie greift die Kinematik weiter daneben (das Lernen gleicht nur ein paar Zentimeter aus).
+4. **Kinematik prüfen:** Panel → Arm → „Kinematik prüfen“. Das bewegt nichts. Läuft Yahbooms Dienst nicht, rechnet die KI selbst (Maße aus der URDF oder Standard). Was sie nimmt, steht beim Start im Ereignis.
+5. **Richtung von Servo 1 prüfen** (`servo1_links` in `config/arm.yaml`): Arm mit Servo 1 auf 120 schicken. Dreht er nach links, stimmt `1`, sonst `-1` in `config/lokal/arm.yaml` eintragen.
+6. Ersten Versuch mit kleinem Tempo machen, eine Hand am STOPP. Würfel mittig auf die Linie legen. Die ersten Versuche gehen eher daneben; nach 10–20 Versuchen sollte die Erfolgsquote im Panel steigen.
 
-**Ungeprüft auf dem Roboter:** Kinematik-Dienst, Umrechnung Kamerapunkt → Arm, Greifer-Werte, die Standardmaße und das Lesen von Yahbooms URDF (getestet nur mit einem öffentlichen Nachbau), die Richtung von Servo 1, die Greiferöffnung (8,5 cm geschätzt), ob der Arm in Fahrstellung so steht, wie die eigene Rechnung denkt, und **das ganze Lernen**. Es wurde nur in der Simulation gemessen. Auf dem Roboter kann es Fehler geben, die die Simulation nicht kennt (z. B. Würfel rutscht aus dem Greifer, Kamera sieht den Würfel aus der Nähe nicht). Die Kontrolle „Weg frei?“ ist die einzige Belohnung: Schiebt der Arm den Würfel nur zur Seite aus dem Bild, zählt das auch als Erfolg. Der LiDAR könnte den Arm sehen, wenn er vorne bis zum Boden greift. Dann greift die Notbremse (unter 12 cm).
+**Ungeprüft auf dem Roboter:** Kinematik-Dienst, Umrechnung Kamerapunkt → Arm, Greifer-Werte (solange nicht eingemessen), die Standardmaße und das Lesen von Yahbooms URDF (getestet nur mit einem öffentlichen Nachbau), die Richtung von Servo 1, die Greiferöffnung (8,5 cm geschätzt, wichtig für das Ausprobieren beim Greif-Lernen), ob der Arm in Fahrstellung so steht, wie die eigene Rechnung denkt, und **das ganze Lernen**. Es wurde nur in der Simulation gemessen. Auf dem Roboter kann es Fehler geben, die die Simulation nicht kennt (z. B. Würfel rutscht aus dem Greifer, Kamera sieht den Würfel aus der Nähe nicht). Die Kontrolle „Weg frei?“ ist die einzige Belohnung: Schiebt der Arm den Würfel nur zur Seite aus dem Bild, zählt das auch als Erfolg. Der LiDAR könnte den Arm sehen, wenn er vorne bis zum Boden greift. Dann greift die Notbremse (unter 12 cm).
 
 ## Im Panel (Seite "Arm")
 

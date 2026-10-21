@@ -131,7 +131,7 @@ class Belegung:
         self._treffer, self._treffer_stand = {}, {}
 
     def bekannt(self):
-        return bool((self.lo > 1.0).sum() > 50)
+        return bool(np.count_nonzero(self.lo > 1.0) > 50)
 
     def bekannt_anteil(self, pose, punkte):
         """Anteil der Scanpunkte, die in schon vermessenen Zellen landen (frei oder belegt).
@@ -684,17 +684,18 @@ class Lokalisierung:
                 alle.append(e.anwenden(p))
         alle = np.concatenate(alle) if len(alle) > 1 else alle[0]
         self.letzte_punkte = alle
+        bekannt = bel.bekannt()      # einmal rechnen (ganzes Gitter); aendert sich erst beim Eintragen unten
         if self.pose is None:
-            if not bel.bekannt():
+            if not bekannt:
                 self.pose, self.status = (0.0, 0.0, 0.0), 'neue Karte'
                 self.karte.fahrten += 1
             else:
                 self.puffer = (self.puffer + [(odom_scan, alle)])[-60:]
                 return False
         pose_scan = verknuepfen(self.pose, relativ(self.odom, odom_scan))   # wo ich bei der Messung war
-        sicher = not bel.bekannt()
+        sicher = not bekannt
         fenster = 0
-        if bel.bekannt():
+        if bekannt:
             # Passt es eine Weile nicht, weiter suchen (der Fehler der Odometrie waechst mit der Zeit).
             # Je weiter gesucht wird, desto besser muss es passen (sonst rastet er an einer falschen Stelle ein).
             dauer = jetzt - self.unsicher_seit if self.unsicher_seit is not None else 0.0
@@ -714,7 +715,7 @@ class Lokalisierung:
         else:
             self.zuletzt_sicher, self.odom_sicher = jetzt, self.odom
         self.letzter_abgleich = {'zeit': scan_zeit if scan_zeit is not None else jetzt, 'pose': pose_scan,
-                                 'sicher': sicher and bel.bekannt(), 'guete': self.guete, 'fenster': fenster,
+                                 'sicher': sicher and bekannt, 'guete': self.guete, 'fenster': fenster,
                                  'punkte': len(alle)}
         # Nur eintragen, was sicher ist: sonst wandert die Karte mit dem Fehler mit und dreht sich.
         # Ausnahme: neues Gebiet (dort kann der Abgleich nicht passen, weil noch nichts in der Karte steht) - aber
@@ -724,10 +725,11 @@ class Lokalisierung:
         neues_gebiet = not sicher and self._kurz_nach_sicher(jetzt) and bel.bekannt_anteil(pose_scan, alle) < 0.3
         if eintragen and (sicher or neues_gebiet) and self._weit_genug(jetzt):
             # leere Karte: erster Scan zaehlt doppelt, sonst passt der zweite evtl. schon nicht mehr genau darauf
-            bel.eintragen(pose_scan, alle, gewicht=1.0 if bel.bekannt() else 2.0)
+            bel.eintragen(pose_scan, alle, gewicht=1.0 if bekannt else 2.0)
             self.letzter_eintrag = (self.odom, jetzt)
+            bekannt = bel.bekannt()
         # weitere LiDARs: Einbau lernen, wenn die Position sicher ist und die Karte schon etwas hat
-        if sicher and bel.bekannt():
+        if sicher and bekannt:
             for name, p in roh_weitere.items():
                 if self.einbau[name].probe(bel, pose_scan, p, jetzt):
                     self.status = f'{name}: {self.einbau[name].text()}'

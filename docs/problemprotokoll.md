@@ -12,6 +12,60 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 
 ---
 
+## 21.10.2026, Personen im Hintergrund stoppen das Wegräumen
+
+- **Ursache:** Jede erkannte Person/jedes Tier/Fahrzeug im ganzen Bild zählte, auch weit hinten.
+- **Lösung (Entscheidung Projektinhaber):** Nur nahe zählen (Tiefenkamera, `akteur_nah` 1 m ab Kamera). Unsichere
+  Tiefe zählt als nah. Zebrastreifen und „KI sieht im Weg“ unverändert.
+- **Status:** nur Test (`tests/test_akteur_nah.py`). Am Roboter prüfen: Zuschauer hinten → räumt weiter; Hand am
+  Würfel → hält.
+
+## 20.10.2026, Prüfung PR #78 und Gesamtcode (ohne Roboter)
+
+### Greifkraft nur geschätzt
+- **Ursache:** Der Roboter meldet die Servostellung nicht zurück. Die Umrechnung Breite → Servo 6 war aus einer
+  geschätzten Öffnung gerechnet; beim 3-cm-Würfel kam wieder der feste Wert 130 heraus.
+- **Lösung:** Panel → Arm → „Greifer einmessen“ (Messpunkte Breite → Servo 6 beim Anliegen). Eingemessene Breiten
+  nimmt die KI genau, die KI meldet die Quelle bei jedem Plan. Siehe `docs/greifarm.md`.
+- **Status:** nur Test. Am Roboter einmessen (Würfel und Breite 0).
+
+### Personenhalt in neuen Wegräum-Phasen fehlte (#79, #76, #74), Erinnerung bei Abbruch (#52)
+- **Beleg:** Reproduktionen der Orchestrierung (Review PR #78) mit echtem Entscheider.
+- **Lösung:** Halt auch in Vorprüfung, Prüfblick-Rückkehr und Kontrolle; Armrückkehr nach Abbruch wartet auf 2 s ohne
+  Person; Abbruch behält die gemerkte Hindernisstelle.
+- **Status:** nur Test (Regressionen in `tests/`, auf dem alten Stand rot).
+
+### Veraltete Zähler im 2. Versuch nach Prüfblick, LiDAR-only-„langsam“ blieb hängen
+- **Beleg:** Skripte (Code-Prüfung): falsches „frei“ trotz LiDAR 18 cm, endloses Neustarten bei Versuch 1;
+  Kontrolle ignorierte die Kamera; dauerhaft „langsam“, obwohl die Tiefenkamera einen Würfel sah.
+- **Lösung:** nach dem Prüfblick frisch anschauen, Prüfblick-Zustand je Versuch zurücksetzen, LiDAR-only-Prüfung endet,
+  sobald die Tiefenkamera etwas sieht; Anschauen zählt keine Bilder, solange der Arm zurückfährt.
+- **Status:** nur Test (`tests/test_raeumen_zustand.py`).
+
+### Rechenlast
+- **Lösung:** Zebra, Fahrschlauch, Tiefen-Bodenkorrektur, Kartenabgleich und Panel-Statusabfrage schneller bei
+  gleichen Ergebnissen; OpenCV in KI und Panel mit einem Thread; Kartendateien nur bei Änderung schreiben.
+- **Status:** nur Test (Vergleich alt/neu bitgleich). Am Roboter mit `system.log` vorher/nachher vergleichen.
+
+## 20.10.2026, Lauf 14:0x–14:27
+
+### Greifen: mal zu fest (Greifer knackt), mal zu schwach (Würfel bleibt stehen)
+- **Beleg:** `ki.log`: 15 Greifversuche, 2 Erfolge. Würfel 3 cm breit, 7 cm hoch. Die tatsächlich benutzte
+  Korrektur wich beim Ausprobieren bis 3,5 cm von der gelernten ab (z. B. „-0.0 / +3.5“).
+- **Ursache (vermutet):** Bei 8,5 cm Öffnung und 3 cm Würfel darf er höchstens ~2,75 cm danebenliegen. Weiter
+  daneben trifft eine Backe die Kante: Würfel rutscht weg oder wird verkantet gequetscht. Dazu fuhr der Greifer
+  immer mit voller Geschwindigkeit auf festen Wert 130.
+- **Lösung:** Ausprobieren auf 40 % des Spielraums begrenzt. Greifer erst schnell anlegen, dann langsam
+  zudrücken; Zielwert nach gemessener Breite (`config/arm.yaml`, Werte geschätzt).
+- **Status:** nur Test. Am Roboter: knackt es noch → `greifer_druecken` kleiner; rutscht er → größer.
+
+### „Zu nah für die Kamera“ statt Prüfblick
+- **Beleg:** „Hindernis vorhin gesehen, jetzt nicht mehr (zu nah?) -> fahre etwas zurueck“, mehrmals
+  „hinten nicht frei -> warte (wegnehmen, dann STOPP und START)“.
+- **Lösung:** Prüfblick wieder da (war seit dem Umbau auf berechnete Armbewegungen weg), jetzt mit Messung
+  (eigenes Kameramodell für die Pose). Siehe `docs/ki.md`.
+- **Status:** nur Test. Kameramodell im Prüfblick aus nicht nachgemessenen Armmaßen gerechnet.
+
 ## 20.10.2026, Lauf 11:54–12:00 (mit PR #44; Logs + Messfahrt `smartcity_20261020_115423`)
 
 ### Karte: gelöst
