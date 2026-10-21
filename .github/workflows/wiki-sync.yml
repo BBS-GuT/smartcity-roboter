@@ -22,19 +22,23 @@ concurrency:
 jobs:
   wiki:
     name: Wiki / Abgleich aus wiki/
+    # Nur main ist Quelle: ein manueller Start von einem anderen Branch/Tag wird uebersprungen
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: main                 # auch bei erneut gestartetem altem Lauf den aktuellen main-Stand nehmen
           persist-credentials: false
       - name: Wiki-Repository holen, wiki/ hineinspiegeln und pushen
         env:
           TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          QUELLE: ${{ github.sha }}
         run: |
           set -euo pipefail
+          quelle="$(git rev-parse HEAD)"     # tatsaechlich ausgecheckter Stand, nicht der Ereignis-SHA
+          echo "Quelle: main @ ${quelle}"
           ziel="$RUNNER_TEMP/wiki"
           if ! git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.wiki.git" "$ziel"; then
             echo "::error::Wiki-Repository nicht erreichbar. Wiki aktivieren und im Browser die erste Seite anlegen, dann erneut starten."
@@ -50,6 +54,6 @@ jobs:
             echo 'Wiki ist bereits aktuell.'
             exit 0
           fi
-          git commit -q -m "Wiki aus wiki/ abgeglichen (${QUELLE})"
+          git commit -q -m "Wiki aus wiki/ abgeglichen (main @ ${quelle})"
           git push origin HEAD
           echo "Wiki aktualisiert: https://github.com/${REPO}/wiki"
