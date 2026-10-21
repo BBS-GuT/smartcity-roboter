@@ -223,6 +223,8 @@ class Zentrale(Node):
         self.create_subscription(Twist, '/cmd_vel', self._cmd, 10)
         # gefahrene Strecke (Radzaehler) fuer das blinde Heranfahren beim Wegraeumen
         self.strecke, self.odom_zeit = 0.0, 0.0
+        self.odom_abschnitt = 0         # zaehlt hoch, wenn die Radzaehler nach einer Luecke (> 1 s) wiederkommen
+        self.strecke_geschaetzt = 0.0   # seit der letzten Radmeldung aus /cmd_vel geschaetzter Anteil von strecke
         self.odom_pose = None           # letzte Odometrie-Position (x, y, w)
         self.create_subscription(Odometry, '/odom_raw', self._odom, qos_profile_sensor_data)
         self.create_subscription(String, '/line_follower/status', self._linie, 10)
@@ -311,15 +313,22 @@ class Zentrale(Node):
             self.gier += msg.angular.z * dt
         if jetzt - self.odom_zeit > 1.0:
             self.strecke += msg.linear.x * dt     # keine Radzaehler: befohlene Strecke (ungenauer)
+            self.strecke_geschaetzt += msg.linear.x * dt
 
     def _odom(self, msg):
         jetzt = time.time()
+        luecke = jetzt - self.odom_zeit > 1.0          # in der Luecke hat _cmd die Strecke aus /cmd_vel geschaetzt
+        if luecke:
+            self.odom_abschnitt += 1
         dt = min(0.2, jetzt - self.odom_zeit) if self.odom_zeit else 0.0
         self.odom_zeit = jetzt
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
         w = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
         alt, self.odom_pose = self.odom_pose, (p.x, p.y, w)
+        # Radzaehler wieder da: die Schaetzung aus der Luecke durch die gemessene Bewegung ersetzen (nicht doppelt)
+        geschaetzt, self.strecke_geschaetzt = self.strecke_geschaetzt, 0.0
         if alt is not None and math.hypot(p.x - alt[0], p.y - alt[1]) < 0.5:
+            self.strecke -= geschaetzt
             # Positions-Unterschied in Fahrtrichtung: geht auch ueber verlorene Nachrichten nichts verloren
             # (Geschwindigkeit x Zeit verlor bei Rechner-Haengern von 1-3 s Strecke, 20.10.)
             self.strecke += (p.x - alt[0]) * math.cos(alt[2]) + (p.y - alt[1]) * math.sin(alt[2])
@@ -563,6 +572,7 @@ class Zentrale(Node):
         w['strecke'] = self.strecke
         # Strecke wirklich von den Radzaehlern (frisch)? Ohne sie ist sie nur aus /cmd_vel geschaetzt (siehe _cmd)
         w['strecke_gemessen'] = jetzt - self.odom_zeit < 1.0
+        w['odom_abschnitt'] = self.odom_abschnitt   # gleich = seitdem ohne Luecke gemessen
         st = self.linie_status
         # Faehrt das Fahrprogramm wirklich? Nur dann darf die KI den Arm bewegen (nicht im TEST, nicht nach STOPP)
         self.entscheider.fahrt_aktiv = bool(st.get('drive')) and jetzt - st.get('_zeit', 0.0) < 1.0

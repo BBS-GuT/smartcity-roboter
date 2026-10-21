@@ -610,6 +610,24 @@ texte = [t for _, t, _ in l.e.ereignisse]
 ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Strecke nur geschaetzt (keine Radzaehler) -> greift nicht blind ({b['grund']})")
+# Codex-Review: Radzaehler fallen zwischen Sichtung und Greifweite kurz aus (Strecke dort aus Fahrbefehlen geschaetzt),
+# danach wieder frisch -> trotzdem nicht blind greifen
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0, 'abschnitt': 1}
+for _ in range(200):
+    sicht = welt['vor'] > 0.30
+    if not sicht:
+        welt['abschnitt'] = 2                      # Luecke nach der letzten Sichtung
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  strecke_gemessen=True, odom_abschnitt=welt['abschnitt'])
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Radzaehler-Luecke seit der Sichtung -> greift nicht blind ({b['grund']})")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))
