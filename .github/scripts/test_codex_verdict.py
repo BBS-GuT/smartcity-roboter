@@ -93,12 +93,14 @@ class VerdictTests(unittest.TestCase):
         for status in ('running', 'failed', 'pending'):
             state = review()
             state['status'] = status
-            self.assertFalse(eligible(comment(security=state), HEAD))
+            self.assertTrue(eligible(comment(security=state), HEAD))
+            self.assertFalse(eligible(comment(security=state), HEAD, require_security_review=True))
         state = review()
         state.update(status='running', has_any_findings=None, has_unresolved_findings=None)
-        self.assertFalse(eligible(comment(security=state), HEAD))
+        self.assertTrue(eligible(comment(security=state), HEAD))
+        self.assertFalse(eligible(comment(security=state), HEAD, require_security_review=True))
 
-    def test_nullable_incomplete_security_is_ignored_only_when_stale(self):
+    def test_optional_incomplete_security_does_not_delay_clean_code(self):
         for status in ('running', 'pending', 'queued', 'failed', 'cancelled'):
             state = review(OLD)
             state.update(status=status, has_any_findings=None, has_unresolved_findings=None)
@@ -106,7 +108,26 @@ class VerdictTests(unittest.TestCase):
                 self.assertTrue(eligible(comment(security=state), HEAD))
                 self.assertFalse(eligible(comment(security=state), HEAD, require_security_review=True))
                 state['commit_sha'] = HEAD
-                self.assertFalse(eligible(comment(security=state), HEAD))
+                self.assertTrue(eligible(comment(security=state), HEAD))
+                self.assertFalse(eligible(comment(security=state), HEAD, require_security_review=True))
+
+    def test_optional_security_never_ignores_known_findings(self):
+        for status in ('completed', 'running', 'pending', 'queued', 'failed', 'cancelled'):
+            for key in ('has_any_findings', 'has_unresolved_findings'):
+                state = review()
+                state['status'] = status
+                state[key] = True
+                with self.subTest(status=status, key=key):
+                    self.assertFalse(eligible(comment(security=state), HEAD))
+
+    def test_optional_security_never_replaces_current_clean_code(self):
+        security = review()
+        security.update(status='running', has_any_findings=None, has_unresolved_findings=None)
+        self.assertFalse(eligible(comment(code=review(OLD), security=security), HEAD))
+        for status in ('running', 'pending', 'queued', 'failed', 'cancelled'):
+            code = review()
+            code.update(status=status, has_any_findings=None, has_unresolved_findings=None)
+            self.assertFalse(eligible(comment(code=code, security=security), HEAD))
 
     def test_nullable_incomplete_code_never_approves(self):
         for status in ('running', 'pending', 'queued', 'failed', 'cancelled'):

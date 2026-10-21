@@ -50,10 +50,11 @@ def eligible(comment, head_sha, *, require_security_review=False):
     """Return True only for a clean current native Codex summary.
 
     `comment` is REST issue-comment data enriched with GraphQL `editor` (null
-    or Bot identity). Missing editor metadata blocks approval. Current security
-    reviews must also be clean; set require_security_review to demand a current
-    security review even if none was enabled. Stale security results never grant
-    approval. This function does not evaluate CI, review threads, or PR state.
+    or Bot identity). Missing editor metadata blocks approval. Current
+    security findings still block approval. An optional security review need not
+    finish; set require_security_review to demand a clean current security
+    review. Stale security results never grant approval. This function does not
+    evaluate CI, review threads, or PR state.
     """
     if not isinstance(head_sha, str) or SHA.fullmatch(head_sha) is None:
         return False
@@ -86,7 +87,10 @@ def eligible(comment, head_sha, *, require_security_review=False):
             if not _valid_state(security):
                 return False
             if security['commit_sha'] == head_sha:
-                return _clean(security, head_sha)
+                if require_security_review:
+                    return _clean(security, head_sha)
+                return (security['has_any_findings'] is not True
+                        and security['has_unresolved_findings'] is not True)
         return not require_security_review
     except (ValueError, TypeError, RecursionError):
         return False
