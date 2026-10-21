@@ -650,6 +650,33 @@ ok = (not any('greife nach der letzten Messung' in t for t in texte)
       and not any(x['arm'] for x in haengt))
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} KI haengt in Greifweite (keine neuen Bilder) -> greift nicht blind")
+# Codex-Review: Linie (weg) faellt waehrend des Geradedrehens aus -> nicht als "gerade" werten und planen
+SCHRAEG = [(0.05 * k * math.cos(math.radians(20)), 0.05 * k * math.sin(math.radians(20))) for k in range(1, 12)]
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=SCHRAEG)
+l.schritt(20, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=SCHRAEG)
+l.schritt(20, objekt=dict(WUERFEL, vor=0.28, seite=0.0))        # Linie weg, Roboter steht noch schraeg
+ok = l.e.ablauf is not None and l.e.ablauf.phase == 'abstand'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Linie faellt beim Geradedrehen aus -> plant nicht schraeg "
+      f"({l.e.ablauf.phase if l.e.ablauf else None})")
+# Codex-Review: Farbbilder kommen, Tiefenbild steht (dasselbe) -> zaehlt nur einmal als "leer", kein blindes Greifen
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0, 'tnr': 0}
+for _ in range(200):
+    sicht = welt['vor'] > 0.30
+    if sicht:
+        welt['tnr'] += 1                          # nur solange es zu sehen ist, kommen neue Tiefenbilder
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  strecke_gemessen=True, tiefe_nr=welt['tnr'])
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Tiefenbild steht (nur Farbbilder neu) -> greift nicht blind ({b['grund']})")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))

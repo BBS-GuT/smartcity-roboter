@@ -162,6 +162,7 @@ class Zentrale(Node):
         self.lock = threading.Lock()
         self.bild = None                # neuestes Kamerabild (ROS-Nachricht)
         self.tiefe = None
+        self.tiefe_ausgewertet, self.tiefe_nr = None, 0   # zuletzt in Fahrstellung ausgewertetes Tiefenbild, Zaehler
         self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scans = {}
         self.wahrnehmung = {'bild_nr': 0, 'bild_zeit': 0.0, 'objekte': [], 'ampel': None,
@@ -482,6 +483,8 @@ class Zentrale(Node):
         tiefe_hindernis, tiefe_obj, blick = None, None, None
         if d is not None and fahrstellung:
             blick = 'fahr'
+            if tmsg is not self.tiefe_ausgewertet:   # neues Tiefenbild (sonst wird das alte nur nochmal gerechnet)
+                self.tiefe_ausgewertet, self.tiefe_nr = tmsg, self.tiefe_nr + 1
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
             tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
@@ -503,6 +506,7 @@ class Zentrale(Node):
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
                                 'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
+                                'tiefe_nr': self.tiefe_nr,   # zaehlt nur neue Tiefenbilder in Fahrstellung
                                 'zebra': zebra, 'einfahrt_verboten': einfahrt is not None}
             befehl = dict(self.befehl)
         self.letzte_extras = {'einfahrt': einfahrt, 'zebra': zebra, 'tiefe': tiefe_obj}

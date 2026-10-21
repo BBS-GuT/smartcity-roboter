@@ -428,8 +428,12 @@ class Wegraeumen(Ablauf):
             return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
             # gemessen = Radzaehler frisch UND seit der letzten Sichtung ohne Luecke (Abschnitt gleich, siehe Zentrale)
+            # leer zaehlt nur ein NEUES Tiefenbild (Zentrale: tiefe_nr), nicht dasselbe zu neuen Farbbildern
+            tiefe_neu = neu and w.get('tiefe_nr', w.get('bild_nr')) != getattr(self, 'tiefe_nr', None)
+            if neu:
+                self.tiefe_nr = w.get('tiefe_nr', w.get('bild_nr'))
             return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg'),
-                                                 bool(w.get('strecke_gemessen')), w.get('odom_abschnitt'), neu))
+                                                 bool(w.get('strecke_gemessen')), w.get('odom_abschnitt'), tiefe_neu))
         if self.phase == 'planen':
             if self.plan is None:
                 if d > 6.0:
@@ -684,7 +688,11 @@ class Wegraeumen(Ablauf):
             seitlich = abs(obj['seite']) > c['greif_seite']
             # Kurve: Roboter steht schraeg zur Strasse (und damit zum Gegenstand) -> erst gerade drehen
             schraeg = self._schraeg(weg, obj['vor'])
-            gerade = schraeg is None or abs(schraeg) < c['greif_winkel']
+            if schraeg is not None:
+                self.schraeg_zuletzt = schraeg
+            # Linie gerade unbekannt: zuletzt gemessene Schraeglage gilt weiter (nicht einfach "gerade")
+            bekannt = schraeg if schraeg is not None else getattr(self, 'schraeg_zuletzt', None)
+            gerade = bekannt is None or abs(bekannt) < c['greif_winkel']
             self.ausgerichtet = not seitlich and gerade    # blind greifen nur, wenn er beim letzten Sehen so stand
             self.ruhig = (self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and self.ausgerichtet else 0)
             self.messungen.append(obj)
