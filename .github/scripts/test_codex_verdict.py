@@ -120,6 +120,21 @@ class VerdictTests(unittest.TestCase):
                 with self.subTest(status=status, key=key):
                     self.assertFalse(eligible(comment(security=state), HEAD))
 
+    def test_native_disabled_security_block(self):
+        disabled = dict.fromkeys(review())
+        self.assertTrue(eligible(comment(security=disabled), HEAD))
+        self.assertFalse(eligible(comment(security=disabled), HEAD, require_security_review=True))
+        self.assertFalse(eligible(comment(code=review(OLD), security=disabled), HEAD))
+        for key in disabled:
+            changed = dict(disabled)
+            changed[key] = False
+            self.assertFalse(eligible(comment(security=changed), HEAD))
+        for changed in ({}, {**disabled, 'extra': None}, None):
+            row = comment()
+            row['body'] = (SUMMARY + '\n<!-- codex-review-state:v1 '
+                           + json.dumps({'code_review': review(), 'security_review': changed}) + ' -->')
+            self.assertFalse(eligible(row, HEAD))
+
     def test_optional_security_never_replaces_current_clean_code(self):
         security = review()
         security.update(status='running', has_any_findings=None, has_unresolved_findings=None)

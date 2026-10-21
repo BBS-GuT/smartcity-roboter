@@ -84,6 +84,10 @@ def eligible(comment, head_sha, *, require_security_review=False):
         if not _valid_state(code) or not _clean(code, head_sha):
             return False
         if 'security_review' in state:
+            # Native summaries retain an all-null block when security is disabled.
+            if (isinstance(security, dict) and set(security) == FIELDS
+                    and all(value is None for value in security.values())):
+                return not require_security_review
             if not _valid_state(security):
                 return False
             if security['commit_sha'] == head_sha:
