@@ -695,9 +695,10 @@ class Wegraeumen(Ablauf):
                 self.schraeg_zuletzt = schraeg
             # Linie gerade unbekannt: zuletzt gemessene Schraeglage gilt weiter (nicht einfach "gerade")
             bekannt = schraeg if schraeg is not None else getattr(self, 'schraeg_zuletzt', None)
+            # Winkel nie bekannt: Greifen mit Sicht wie bisher erlaubt (sonst ohne Linie nie), blind aber nicht
             gerade = bekannt is None or abs(bekannt) < c['greif_winkel']
-            self.ausgerichtet = not seitlich and gerade    # blind greifen nur, wenn er beim letzten Sehen so stand
-            self.ruhig = (self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and self.ausgerichtet else 0)
+            self.ruhig = (self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and not seitlich and gerade else 0)
+            self.ausgerichtet = not seitlich and bekannt is not None and abs(bekannt) < c['greif_winkel']
             self.messungen.append(obj)
             self.messungen = self.messungen[-5:]
         else:
@@ -742,7 +743,7 @@ class Wegraeumen(Ablauf):
         quer = dreh = 0.0
         if obj and abs(o['seite']) > c['greif_seite'] * 0.6:     # seitlich nur nach frischer Messung (kein Zaehler)
             quer = max(-0.03, min(0.03, 0.6 * o['seite']))
-        if schraeg is not None and abs(schraeg) > c['greif_winkel'] * 0.5:
+        if schraeg is not None and c['greif_winkel'] * 0.5 < abs(schraeg) < math.radians(35):   # sonst unplausibel
             dreh = max(-0.25, min(0.25, 0.8 * schraeg))        # auf der Stelle gerade zur Strasse drehen
         text = f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm"
         if dreh:
@@ -773,7 +774,7 @@ class Wegraeumen(Ablauf):
     @staticmethod
     def _schraeg(weg, vor):
         """Wie schraeg steht der Roboter zur Strasse dort, wo der Gegenstand liegt (rad, + = Strasse zeigt nach links)?
-        Aus der Linie vor dem Roboter (Linienfolger). None = unbekannt oder unplausibel (dann nicht drehen)."""
+        Aus der Linie vor dem Roboter (Linienfolger). None = unbekannt."""
         if not weg or len(weg) < 2:
             return None
         p = np.asarray(weg, dtype=float).reshape(-1, 2)
@@ -783,8 +784,7 @@ class Wegraeumen(Ablauf):
         dx, dy = um[-1] - um[0]
         if math.hypot(dx, dy) < 0.04:
             return None
-        w = math.atan2(dy, dx)
-        return w if abs(w) < math.radians(35) else None
+        return math.atan2(dy, dx)     # > 35 Grad: unplausibel zum Drehen, gilt aber auch nicht als gerade (Aufrufer)
 
     letztes_w_xy = None
 

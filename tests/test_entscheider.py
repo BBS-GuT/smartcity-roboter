@@ -549,13 +549,14 @@ print(f"{'OK  ' if ok else 'FEHLER'} bestaetigt, Tiefenbild steht (nur Farbbilde
 # RM02 21.10.: niedriger Wuerfel (3 cm) verschwindet beim Heranfahren unter dem Blickfeld -> "aus den Augen verloren".
 # Jetzt: in Greifweite laut Radzaehler mit der letzten Messung greifen, danach zurueck und kontrollieren.
 NIEDRIG = dict(WUERFEL, vor=0.34, seite=0.0, breite=0.03, hoehe=0.03)
+WEG_GERADE = [(0.05 * k, 0.0) for k in range(1, 12)]     # Linie gerade voraus (blind greifen braucht den Winkel)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 welt = {'vor': 0.34, 'strecke': 0.0, 'da': True}
 arme, gruende, b = [], [], None
 for _ in range(600):
     sicht = welt['da'] and welt['vor'] > 0.30            # unter 30 cm sieht die Kamera ihn nicht mehr
     b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
-                  strecke_gemessen=True, lidar_hinten=1.0)
+                  strecke_gemessen=True, lidar_hinten=1.0, weg=WEG_GERADE)
     m = b.get('manoever')
     if m:
         welt['vor'] -= m['lin'] * 0.1
@@ -591,7 +592,7 @@ for k in range(600):
     if a is not None and a.phase == 'planen':
         vorgefahren.append(a.vorgefahren)
     b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
-                  strecke_gemessen=True, lidar_hinten=1.0)
+                  strecke_gemessen=True, lidar_hinten=1.0, weg=WEG_GERADE)
     m = b.get('manoever')
     if m:
         welt['vor'] -= m['lin'] * 0.1
@@ -718,7 +719,8 @@ for _ in range(700):
         welt['tnr'] += 1
     sicht = welt['vor'] > 0.30 and not welt['steht']
     b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
-                  strecke_gemessen=True, tiefe_nr=welt['tnr'], lidar_hinten=1.0)
+                  strecke_gemessen=True, tiefe_nr=welt['tnr'], lidar_hinten=1.0,
+                  weg=WEG_GERADE)
     m = b.get('manoever')
     if m:
         welt['vor'] -= m['lin'] * 0.1
@@ -729,6 +731,37 @@ ok = any('greife nach der letzten Messung' in t for t in texte) and 'fahren' not
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} nach blindem Greifen steht der Tiefenstrom -> Kontrolle meldet nicht frei "
       f"({b['grund']})")
+# Codex-Review: Strassenwinkel nie bekannt (keine Linie) -> mit Sicht greifen wie bisher, aber nicht blind
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0}
+for _ in range(200):
+    sicht = welt['vor'] > 0.30
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  strecke_gemessen=True)
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0}
+for _ in range(200):
+    sicht = welt['vor'] > 0.30
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  strecke_gemessen=True, weg=WEG_GERADE)
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+ok = ok and any('greife nach der letzten Messung' in t for _, t, _ in l.e.ereignisse)
+# sehr schraeg (40 Grad, nicht plausibel zum Drehen) gilt nicht als gerade -> plant nicht
+SEHR_SCHRAEG = [(0.05 * k * math.cos(math.radians(40)), 0.05 * k * math.sin(math.radians(40))) for k in range(1, 12)]
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(30, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=SEHR_SCHRAEG)
+ok = ok and l.e.ablauf is not None and l.e.ablauf.phase == 'abstand'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Winkel unbekannt -> nicht blind, mit gerader Linie blind ok, 40 Grad -> plant nicht")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))
