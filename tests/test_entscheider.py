@@ -533,6 +533,19 @@ ok = all(x['aktion'] == 'stopp' for x in haengt) and b['aktion'] == 'fahren'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} bestaetigt, KI haengt nach einem leeren Bild -> faehrt nicht los, erst mit "
       f"frischen Bildern ({haengt[-1]['grund']} / {b['grund']})")
+# Codex-Review: bestaetigt, ein leeres Tiefenbild, dann steht der Tiefenstrom (Farbbilder laufen) -> nicht losfahren
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l.schritt(25, objekt=RAND, strecke=0.0, tiefe_nr=1)
+for k in range(5):
+    l.schritt(1, objekt=dict(RAND, vor=0.37), strecke=0.0, tiefe_nr=2 + k)
+folge = [l.schritt(1, strecke=0.0, tiefe_nr=10) for _ in range(30)]     # dasselbe leere Tiefenbild, 3 s lang
+ok = all(x['aktion'] == 'stopp' for x in folge)
+nr = iter(range(11, 100))
+b = [l.schritt(1, strecke=0.0, tiefe_nr=next(nr)) for _ in range(15)][-1]   # neue Tiefenbilder, frei -> weiter
+ok = ok and b['aktion'] == 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} bestaetigt, Tiefenbild steht (nur Farbbilder neu) -> faehrt nicht los, erst mit "
+      f"neuen Tiefenbildern ({folge[-1]['grund']} / {b['grund']})")
 # RM02 21.10.: niedriger Wuerfel (3 cm) verschwindet beim Heranfahren unter dem Blickfeld -> "aus den Augen verloren".
 # Jetzt: in Greifweite laut Radzaehler mit der letzten Messung greifen, danach zurueck und kontrollieren.
 NIEDRIG = dict(WUERFEL, vor=0.34, seite=0.0, breite=0.03, hoehe=0.03)

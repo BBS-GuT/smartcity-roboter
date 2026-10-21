@@ -118,7 +118,8 @@ class Entscheider:
         self.einfahrt_n, self.einfahrt_gesperrt_bis = 0, 0.0
         self.einfahrt_bilder = []     # gesehen ja/nein in den letzten Bildern
         self.aufheben_gesperrt, self.weg_frei_seit = False, None
-        self.frei_bilder = 0          # frische KI-Bilder seit weg_frei_seit ohne Hindernis
+        self.frei_bilder = 0          # frische KI-Bilder (neues Tiefenbild) seit weg_frei_seit ohne Hindernis
+        self.frei_tiefe_nr = None
         self.umschauen_wunsch = None  # Zeit, zu der jemand (Kartograf/Panel) Umschauen gewuenscht hat
         self.fehler_halt = None       # Manoever fehlgeschlagen -> bleibt stehen bis STOPP + neuer START
         self.start_quittung = None    # Zeit eines ausdruecklichen START (Panel -> /ki/kommando 'start')
@@ -368,8 +369,10 @@ class Entscheider:
         if not (tiefe_im_weg or im_pruefbereich):
             if self.weg_frei_seit is None:
                 self.weg_frei_seit, self.frei_bilder = jetzt, 0
-            if w.get('neues_bild'):
+            tnr = w.get('tiefe_nr', w.get('bild_nr'))
+            if w.get('neues_bild') and tnr != self.frei_tiefe_nr:   # nur NEUE Tiefenbilder (Zentrale: tiefe_nr)
                 self.frei_bilder += 1
+            self.frei_tiefe_nr = tnr
             # bestaetigtes Hindernis: frei erst nach frei_zeit UND mehreren frischen Bildern ohne es (haengt die KI
             # nach einem leeren Bild, zaehlt die Zeit allein nicht)
             genug = not self.bestaetigt or self.frei_bilder >= 3
