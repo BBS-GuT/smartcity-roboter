@@ -40,23 +40,25 @@ pull requests` bleibt **aus**. Andernfalls koennte ein Workflow auf einem
 beliebigen Entwicklungsbranch einen anderen PR freigeben. CODEOWNERS allein
 verhindert die Ausfuehrung solcher Branch-Workflows nicht.
 
-Die App-Installation soll Contents **Read and write**, Pull requests **Read and
-write** sowie Checks, Actions, Issues und Metadata **Read-only** erhalten.
-Die Schreibberechtigung der Installation soll die App als schreibberechtigte
-Review-Autorin fuer die Pflichtfreigabe qualifizieren. Die REST-Erstellung eines
-`APPROVED`-Reviews allein belegt diese Anrechnung nicht.
+Die installierte App `5409664` hat Contents **Read and write**, Pull requests
+**Read and write** sowie Checks, Actions, Issues und Metadata **Read-only**.
+Die Contents-Schreibberechtigung wurde ausdruecklich genehmigt und am
+21.10.2026 fuer die Installation bestaetigt. Damit zaehlt die App als
+schreibberechtigte Review-Autorin fuer die Pflichtfreigabe. Der konkrete
+GitHub-Nachweis steht im Abschnitt zur Live-Abnahme; das erfolgreiche
+Absenden eines `APPROVED`-Reviews allein belegt diese Anrechnung nicht.
 
 Der tatsaechlich im Workflow ausgestellte App-Token bleibt ausdruecklich auf
 `permission-contents: read` begrenzt. Diese Begrenzung in
-`.github/workflows/codex-mergefreigabe.yml` wird durch diese Korrektur nicht
-angehoben. Ob GitHub die App-Freigabe bei Installation mit Contents-Schreibrecht
-und weiterhin lesendem Job-Token anrechnet, ist noch live nachzuweisen.
+`.github/workflows/codex-mergefreigabe.yml` bleibt erhalten. Die Anrechnung
+der App-Freigabe mit Contents-Schreibrecht der Installation und weiterhin
+lesendem Job-Token wurde am 21.10.2026 um 11:54 UTC nachgewiesen.
 
 **Risikodelta:** Der private App-Schluessel kann nach der Rechteerweiterung auch
 Contents-Schreibtoken ausstellen. Ein nur lesender Job-Token begrenzt den
 aktuellen Workflow, nicht die grundsaetzliche Macht dieses Schluessels. Die
-Aenderung an der bereits installierten App braucht deshalb eine ausdrueckliche
-Freigabe des Organisationsverantwortlichen. Admin-, Workflows-Schreibrechte und
+Erweiterung wurde deshalb ausdruecklich vom Nutzer genehmigt. Weitere
+Rechteerweiterungen brauchen eine eigene Zustimmung. Admin-, Workflows-Schreibrechte und
 Bypass-Ausnahmen werden nicht angefordert; der allgemeine Actions-Freigabeschalter
 bleibt aus.
 
@@ -92,8 +94,8 @@ nicht in diesen Ablauf.
    Workflowstart aendert keine bereits genehmigte Installation. Vor dieser
    ausdruecklichen Freigabe keine Rechte aendern.
 5. Den Workflow auf `main` starten und die untenstehende Live-Abnahme
-   dokumentieren. Bis deren Erfolg ist eine formale App-Freigabe kein
-   nachgewiesener Ersatz fuer die vorgeschriebene Freigabe.
+   dokumentieren. Fuer die hier beschriebene Installation wurde die Anrechnung
+   bereits erfolgreich nachgewiesen.
 
 Ohne die App-Konfiguration meldet der Workflow den noch fehlenden Schritt
 und gibt keinen PR frei. Der Schluessel wird erst mit erfolgreicher App-
@@ -108,10 +110,26 @@ GH_TOKEN=... python3 .github/scripts/codex_approve.py --pr 80
 
 ## Live-Abnahme der angerechneten Freigabe
 
-Der beobachtete Ausgangszustand vom 21.10.2026 war: App-Review `APPROVED`, aber
-`authorCanPushToRepository: false` und PR-Status `reviewDecision: REVIEW_REQUIRED`.
-Die Installation hatte Contents-Lesezugriff. Die erforderliche Anrechnung des
-weiterhin lesenden Job-Tokens ist daher eine zu pruefende Annahme.
+Vor der Erweiterung hatte die Installation Contents-Lesezugriff: App-Reviews
+waren zwar `APPROVED`, GitHub meldete aber `authorCanPushToRepository: false`
+und `reviewDecision: REVIEW_REQUIRED`.
+
+Am 21.10.2026 um 11:54 UTC war nach genehmigter Erweiterung der Installation
+auf Contents-Schreibrecht bei unveraendert lesendem Job-Token nachgewiesen:
+
+- [App-Freigabe von PR #97](https://github.com/BBS-GuT/smartcity-roboter/pull/97#pullrequestreview-5599108669)
+  fuer exakt `a00cce67e2e14c51ecad240c775247e063a0f607`: Review `APPROVED`,
+  `authorCanPushToRepository: true` und PR-Status `reviewDecision: APPROVED`.
+- Auch PR #80 hatte `reviewDecision: APPROVED`. Der Freigabeworkflow auf
+  `main` war im [Lauf 39593905480](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39593905480)
+  erfolgreich; seine App-Token-Konfiguration blieb bei `permission-contents: read`.
+- PR #54 hatte weiterhin `reviewDecision: REVIEW_REQUIRED` und keinen
+  App-Review. Der Schutz der Steuerungsdateien bleibt erhalten.
+
+PR #80 und #97 waren beim Nachweis noch `BEHIND`. Die angerechnete Freigabe
+hebt diese native Sperre nicht auf; vor dem Merge bleibt die Aktualisierung
+auf den aktuellen `main` erforderlich. Die folgenden Kriterien gelten auch
+bei spaeteren Aenderungen der Einrichtung:
 
 - Einen aktuellen Produkt-PR ohne Steuerungsdateien mit `main` abgleichen.
   Fuer exakt seinen aktuellen Head muessen nativer Codex-Review, gegebenenfalls
@@ -127,8 +145,8 @@ weiterhin lesenden Job-Tokens ist daher eine zu pruefende Annahme.
   ausgeschlossen; die unabhaengige Codeowner-Freigabe bleibt erforderlich.
   Ein Draft-Status allein beweist den Schutz der Steuerungsdateien nicht.
 
-Falls die Anrechnung trotz Installation mit Contents-Schreibrecht und lesendem
-Job-Token ausbleibt, bleibt die Einrichtung offen. Den Job-Token dann nicht
+Bei spaeteren Aenderungen an der Installation oder am Workflow ist die
+Anrechnung erneut anhand dieser GitHub-Werte zu belegen. Den Job-Token nicht
 stillschweigend auf Schreibzugriff erweitern und keine Schutzregel abschwaechen.
 
 ## Bedeutung fuer den Roboter
