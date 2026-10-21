@@ -1,0 +1,134 @@
+{
+  "date": "2026-10-21",
+  "basis_commit": "d92e366907fd538c377c272250a0e2d75120b5e2",
+  "publication_base": "d92e366907fd538c377c272250a0e2d75120b5e2",
+  "platform": "Windows",
+  "python": "3.12.14",
+  "packages": {
+    "numpy": "1.26.4",
+    "opencv-python-headless": "4.10.0.84",
+    "PyYAML": "6.0.2",
+    "jsonschema": "4.23.0",
+    "attrs": "24.2.0",
+    "jsonschema-specifications": "2023.12.1",
+    "referencing": "0.35.1",
+    "rpds-py": "0.20.0"
+  },
+  "pip_check": "No broken requirements found.",
+  "historical_reproduction": {
+    "purpose": "historical_error_reproduction",
+    "fahrpfad_cases": 12,
+    "geometry_cases": 3,
+    "signature_match": true,
+    "product_acceptance": false
+  },
+  "prototype_tests": {
+    "methods": 19,
+    "passed": 19,
+    "failed": 0,
+    "skipped": 0,
+    "scope": "archived offline design; no product integration"
+  },
+  "unchanged_software_suite": {
+    "scripts": 21,
+    "passed": 21,
+    "failed": 0,
+    "skipped": 0,
+    "results": [
+      {
+        "script": "test_akteur_nah.py",
+        "passed": true
+      },
+      {
+        "script": "test_ampel.py",
+        "passed": true
+      },
+      {
+        "script": "test_entscheider.py",
+        "passed": true
+      },
+      {
+        "script": "test_greifen.py",
+        "passed": true
+      },
+      {
+        "script": "test_hindernis_abbruch.py",
+        "passed": true
+      },
+      {
+        "script": "test_karte.py",
+        "passed": true
+      },
+      {
+        "script": "test_kartenluecken.py",
+        "passed": true
+      },
+      {
+        "script": "test_kartenwechsel.py",
+        "passed": true
+      },
+      {
+        "script": "test_line_follower.py",
+        "passed": true
+      },
+      {
+        "script": "test_panel_greifer.py",
+        "passed": true
+      },
+      {
+        "script": "test_protokolle.py",
+        "passed": true
+      },
+      {
+        "script": "test_pruefblick_personen.py",
+        "passed": true
+      },
+      {
+        "script": "test_pruefen_runner.py",
+        "passed": true
+      },
+      {
+        "script": "test_raeumen_personen.py",
+        "passed": true
+      },
+      {
+        "script": "test_raeumen_timeout_personen.py",
+        "passed": true
+      },
+      {
+        "script": "test_raeumen_zustand.py",
+        "passed": true
+      },
+      {
+        "script": "test_schilder.py",
+        "passed": true
+      },
+      {
+        "script": "test_sicherheitsfreigabe.py",
+        "passed": true
+      },
+      {
+        "script": "test_systemlast.py",
+        "passed": true
+      },
+      {
+        "script": "test_vorpruefen_personen.py",
+        "passed": true
+      },
+      {
+        "script": "test_zustandsvertrag.py",
+        "passed": true
+      }
+    ]
+  },
+  "independent_review": {
+    "scope": "portable reproduction and public-package privacy/source review",
+    "finding_corrected": "Windows Git-Blob and export byte hashes separately recorded; normalized contents checked equal"
+  },
+  "github_ci": "Not yet run at this local evidence capture; PR checks reported separately.",
+  "limitations": [
+    "Windows/CPython3.12 local verification differs from Ubuntu22.04/CPython3.10 CI target",
+    "No device connection, deployment, real ROS simulation or physical motion/stopping measurement",
+    "The original832scan replay is referenced historically; private raw data are not part of the portable rerun"
+  ]
+}
