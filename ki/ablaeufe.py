@@ -426,7 +426,7 @@ class Wegraeumen(Ablauf):
             hinten = w.get('lidar_hinten')
             self.zurueck_gefahren -= self._gefahren(w, jetzt, -c['zurueck_tempo'])
             # Zeitgrenze: melden die Radzaehler keine Bewegung (Rad blockiert), sonst ewig rueckwaerts
-            zu_lange = d > 2 * c['sicht_zurueck'] / c['zurueck_tempo'] - 1.0
+            zu_lange = d > 1.5 * c['sicht_zurueck'] / c['zurueck_tempo'] + 1.0   # erwartete Zeit + Reserve
             if zu_lange:
                 self.zurueck_gefahren = c['sicht_zurueck']    # kommt nicht zurueck: nicht nochmal versuchen
             if hinten is None or hinten < c['hinten_frei'] or self.zurueck_gefahren >= c['sicht_zurueck']:
