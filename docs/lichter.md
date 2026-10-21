@@ -18,6 +18,8 @@ Rechnet das Panel (`lib/lichter.py`, 10x pro Sekunde) und sendet den Zustand auf
 3. Die Linie vor dem Roboter (Linien-Gedächtnis, ca. 80 cm voraus) knickt um mindestens `kurve_grad` (60°) ab.
    Er blinkt also **vor** der Ecke. Sanfte Kurven blinken nicht.
 
+Die Linie zählt erst, wenn sie `bestaetigen` s (0,5 s) lang zur selben Seite abknickt; die Seite wechselt erst nach
+`wechsel` s (1,5 s). Sonst blinkte er vor Kreuzungen hin und her (mehrere Linienäste, RM02 21.10.).
 Danach blinkt er noch `nachlauf` s (1 s) weiter, insgesamt mindestens `mindest` s (2 s). Takt 1,5 Hz.
 Einstellungen: Abschnitt `lichter:` in `config/roboter.yaml` (eigene Werte in `config/lokal/roboter.yaml`).
 
@@ -27,7 +29,7 @@ Das Panel schickt die Farben an `/rgb` (`std_msgs/ColorRGBA`, Empfänger ist das
 Feld `a` wählt die LED: `0` = alle, `1`–`8` = eine LED (gefunden auf RM02, `~/rgb_zuordnung.txt`), `r`/`g`/`b` = Farbe
 0–255. Gesendet werden nur geänderte LEDs, alle 2 s einmal die ganze Leiste. Beim Beenden des Panels gehen die LEDs aus.
 
-**Noch nicht am Roboter geprüft:** ob LED 1 links sitzt (sonst `links_zuerst: false`) und wie hell 90/255 Weiß wirkt.
+Auf RM02 sitzt LED 1 rechts (`links_zuerst: false`, 21.10. geprüft).
 Von Hand ausprobieren (Panel vorher beenden):
 
 ```bash

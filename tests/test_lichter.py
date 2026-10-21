@@ -23,8 +23,16 @@ ECKE_RECHTS = [(x, -y) for x, y in ECKE_LINKS]
 SANFT = [(1.5 * math.sin(0.05 * i / 1.5), 1.5 * (1 - math.cos(0.05 * i / 1.5))) for i in range(1, 17)]
 
 
+SOFORT = {'bestaetigen': 0.0, 'wechsel': 0.0}   # ohne Entprellung (fuer Tests anderer Eigenschaften)
+
+
 def lf(weg):
     return {'drive': True, 'weg': weg}
+
+
+def fahre(li, von, bis, weg):
+    """10 Schritte je Sekunde mit gleicher Linie, Rueckgabe: Blinker nach jedem Schritt."""
+    return [li.schritt(von + i / 10, lf(weg), None)['blinker'] for i in range(round((bis - von) * 10))]
 
 
 class Blinker(unittest.TestCase):
@@ -36,21 +44,36 @@ class Blinker(unittest.TestCase):
         self.assertIsNone(lichter.knick([(0.05, 0.0), (0.1, 0.0)]))
 
     def test_ecke_blinkt_vorher_und_nicht_bei_sanfter_kurve(self):
-        li = lichter.Lichter()
+        li = lichter.Lichter(SOFORT)
         self.assertIsNone(li.schritt(0.0, lf(GERADE), None)['blinker'])
         self.assertIsNone(li.schritt(0.1, lf(SANFT), None)['blinker'])
         self.assertEqual(li.schritt(0.2, lf(ECKE_RECHTS), None)['blinker'], 'rechts')
         self.assertEqual(li.schritt(0.3, lf(ECKE_LINKS), None)['blinker'], 'links')
+        self.assertEqual(set(fahre(lichter.Lichter(), 0.0, 3.0, SANFT)), {None})
+
+    def test_entprellt_vor_kreuzung(self):
+        # RM02 21.10.: vor der Kreuzung springt der Knick zwischen links und rechts -> darf nicht blinken
+        li = lichter.Lichter()
+        for i in range(30):
+            self.assertIsNone(li.schritt(i / 10, lf(ECKE_LINKS if i % 3 else ECKE_RECHTS), None)['blinker'])
+        # echte Ecke: erst nach 0,5 s gleicher Richtung
+        b = fahre(li, 3.0, 4.0, ECKE_RECHTS)
+        self.assertIsNone(b[4])
+        self.assertEqual(b[5:], ['rechts'] * 5)
+        # kurz andere Seite: bleibt rechts, keine Seitenwechsel
+        self.assertEqual(set(fahre(li, 4.0, 5.0, ECKE_LINKS)), {'rechts'})
+        # andere Seite lange genug (1,5 s): wechselt
+        self.assertEqual(fahre(li, 5.0, 7.0, ECKE_LINKS)[-1], 'links')
 
     def test_nachlauf_und_mindestdauer(self):
-        li = lichter.Lichter()
+        li = lichter.Lichter(SOFORT)
         li.schritt(0.0, lf(ECKE_LINKS), None)
         self.assertEqual(li.schritt(0.5, lf(GERADE), None)['blinker'], 'links')   # Nachlauf
         self.assertEqual(li.schritt(1.5, lf(GERADE), None)['blinker'], 'links')   # Mindestdauer 2 s
         self.assertIsNone(li.schritt(2.1, lf(GERADE), None)['blinker'])
 
     def test_takt(self):
-        li = lichter.Lichter()
+        li = lichter.Lichter(SOFORT)
         self.assertTrue(li.schritt(0.0, lf(ECKE_LINKS), None)['blink_an'])
         self.assertFalse(li.schritt(0.4, lf(ECKE_LINKS), None)['blink_an'])      # 1,5 Hz: dunkel ab 0,33 s
         self.assertTrue(li.schritt(0.7, lf(ECKE_LINKS), None)['blink_an'])
@@ -66,12 +89,12 @@ class Blinker(unittest.TestCase):
         self.assertIsNone(lichter.Lichter().schritt(0.0, lf(GERADE), zurueck)['blinker'])
 
     def test_ohne_linienfolger_aus(self):
-        li = lichter.Lichter()
+        li = lichter.Lichter(SOFORT)
         li.schritt(0.0, lf(ECKE_LINKS), None)
         self.assertIsNone(li.schritt(0.1, None, None)['blinker'])          # STOPP: Linienfolger beendet
 
     def test_leds(self):
-        li = lichter.Lichter({'leds': 6, 'blink_leds': 2})
+        li = lichter.Lichter(dict(SOFORT, leds=6, blink_leds=2))
         self.assertEqual(li.leds(), [lichter.AUS] * 6)
         li.abblend = True
         self.assertEqual(li.leds(), [lichter.WEISS] * 6)
@@ -144,6 +167,7 @@ class PanelLichter(unittest.TestCase):
         self.assertEqual((self.node.rgb_pub.letzte.a, self.node.rgb_pub.letzte.r), (0.0, 0.0))
 
     def test_blinker_im_status_und_ereignis(self):
+        self.node.lichter.c.update(SOFORT)
         self.node._set('lf', lf(ECKE_LINKS))
         self.node.lichter_takt()
         s = self.status()

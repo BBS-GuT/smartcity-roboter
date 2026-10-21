@@ -10,6 +10,8 @@
 #   3. Linie vor dem Roboter knickt stark ab (Linien-Gedaechtnis, 'weg' vom Linienfolger):
 #      ab 'kurve_grad' Richtungsaenderung auf den naechsten ca. 80 cm = Abbiegen an einer Ecke.
 #      Normale (sanfte) Kurven blinken NICHT, wie im echten Verkehr.
+#      Entprellt: die Richtung muss 'bestaetigen' s lang gleich bleiben (vor Kreuzungen sieht die Kamera mehrere
+#      Aeste, der Knick springt dann links/rechts, RM02 21.10.), ein Wechsel der Seite sogar 'wechsel' s.
 #   Nach dem Abbiegen blinkt er noch 'nachlauf' s weiter, mindestens 'mindest' s (kein Flackern).
 #
 # Ergebnis: zustand() -> {'abblend', 'blinker': None | 'links' | 'rechts', 'blink_an', 'grund', 'leds'}
@@ -25,10 +27,12 @@ STANDARD = {
     'manoever_dreh': 0.3,    # KI-Manoever dreht schneller als das (rad/s) -> blinken
     'nachlauf': 1.0,         # s weiterblinken, wenn der Grund weg ist
     'mindest': 2.0,          # s blinkt er mindestens
+    'bestaetigen': 0.5,      # s muss die Linie gleich abknicken, bevor er blinkt
+    'wechsel': 1.5,          # s muss sie zur anderen Seite abknicken, bevor der Blinker die Seite wechselt
     'takt_hz': 1.5,          # Blinkfrequenz (StVO: 1,5 Hz +- 0,5)
     'leds': 8,               # LEDs der Leiste (a = 1..8, ~/rgb_zuordnung.txt)
     'blink_leds': 2,         # davon je Seite fuer den Blinker
-    'links_zuerst': True,    # LED 1 sitzt links (in Fahrtrichtung)? NOCH NICHT AM ROBOTER GEPRUEFT
+    'links_zuerst': False,   # LED 1 sitzt links (in Fahrtrichtung)? RM02 21.10.: LED 1 sitzt RECHTS
 }
 WEISS, GELB, AUS = (90, 90, 90), (255, 140, 0), (0, 0, 0)
 
@@ -69,20 +73,28 @@ class Lichter:
         self.seit = 0.0          # Blinker an seit
         self.zuletzt = 0.0       # Grund zuletzt gesehen
         self.jetzt = 0.0
+        self.kandidat, self.kandidat_seit = None, 0.0   # Richtung der Linie, noch nicht bestaetigt
 
     def ausloeser(self, lf, ki):
-        """(Richtung, Grund) oder (None, '') aus Linienfolger-Status und KI-Befehl (je dict oder None)."""
+        """(Richtung, Grund) oder (None, '') aus Linienfolger-Status und KI-Befehl (je dict oder None).
+        KI-Vorgabe und Manoever gelten sofort, die Linie erst, wenn sie lange genug gleich abknickt."""
         if ki:
             if ki.get('blinker') in ('links', 'rechts'):
                 return ki['blinker'], 'KI biegt ab'
             m = ki.get('manoever') if ki.get('aktion') == 'manoever' else None
             if m and abs(float(m.get('dreh', 0.0))) > self.c['manoever_dreh']:
                 return ('links' if float(m['dreh']) > 0 else 'rechts'), 'Manoever: ' + str(m.get('text', 'drehen'))
+        richtung, grund = None, ''
         if lf and self.c['kurve_grad'] > 0:
             k = knick(lf.get('weg'))
             if k is not None and abs(math.degrees(k)) >= self.c['kurve_grad']:
-                return ('links' if k > 0 else 'rechts'), f'Linie knickt {abs(math.degrees(k)):.0f} Grad ab'
-        return None, ''
+                richtung, grund = ('links' if k > 0 else 'rechts'), f'Linie knickt {abs(math.degrees(k)):.0f} Grad ab'
+        if richtung != self.kandidat:
+            self.kandidat, self.kandidat_seit = richtung, self.jetzt
+        if richtung is None or richtung == self.blinker:
+            return richtung, grund
+        noetig = self.c['wechsel'] if self.blinker else self.c['bestaetigen']
+        return (richtung, grund) if self.jetzt - self.kandidat_seit >= noetig else (None, '')
 
     def schritt(self, jetzt, lf, ki):
         """lf/ki: neueste Meldung (dict) oder None, wenn das Programm nicht laeuft/zu alt."""

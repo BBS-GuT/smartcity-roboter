@@ -25,7 +25,7 @@ lichter:
   ros__parameters:
     # Abblendlicht und Blinker (Panel, lib/lichter.py, docs/lichter.md).
     rgb_topic: '/rgb'     # LED-Leiste am Board (std_msgs/ColorRGBA, a = LED 1..8). '' = nur im Panel anzeigen
-    links_zuerst: true    # LED 1 links? Blinkt beim Test die falsche Seite -> false (config/lokal/roboter.yaml)
+    links_zuerst: false   # LED 1 links? RM02 21.10.: LED 1 sitzt rechts. Falsche Seite -> umstellen
     kurve_grad: 60.0      # ab so viel Grad Abknicken der Linie voraus wird geblinkt (0 = nie wegen der Linie)
     nachlauf: 1.0
     mindest: 2.0
