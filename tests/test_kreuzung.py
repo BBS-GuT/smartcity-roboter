@@ -92,6 +92,18 @@ class Kreuzung(unittest.TestCase):
         erg = s.suche(gedreht, math.radians(90))
         self.assertLess(abs(erg['kreuzung']['wahl']), 30, erg['kreuzung'])
 
+    def test_kamera_weggedreht_aendert_nichts(self):
+        """Arm dreht die Kamera weg (Zebrastreifen, Greifen): Wahl bleibt, auch nach vielen Bildern."""
+        s = linie.LinienSucher()
+        erste = s.suche(T, 0.0)['kreuzung']['wahl']
+        for _ in range(50):
+            erg = s.suche(GERADE, 0.0, kamera_ok=False)
+            self.assertNotIn('kreuzung_neu', erg)
+        self.assertIsNotNone(s.wahl)
+        for n in range(10):
+            s.zufall.seed(n)
+            self.assertEqual(s.suche(T, 0.0)['kreuzung']['wahl'], erste)
+
     def test_keine_kreuzung(self):
         for name, img in (('gerade', GERADE), ('enger Bogen (U)', U)):
             with self.subTest(name):

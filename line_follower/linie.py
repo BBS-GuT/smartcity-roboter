@@ -189,10 +189,13 @@ class LinienSucher:
             return stamm, aeste
         return None
 
-    def _abbiegen(self, teil, start, gier, erg):
+    def _abbiegen(self, teil, start, gier, erg, kamera_ok=True):
         """Kreuzung? Dann einen Ast waehlen (zufaellig beim ersten Sehen, danach derselbe) und nur Stamm + diesen Ast
         zurueckgeben. gier: Drehung des Roboters (rad, Gedaechtnis) - damit bleibt die Wahl beim Abbiegen dieselbe,
-        auch wenn sich der Ast im Bild dreht."""
+        auch wenn sich der Ast im Bild dreht. kamera_ok False (Arm dreht die Kamera weg): Bild zeigt nicht den Boden
+        davor -> Kreuzungszustand nicht aendern (sonst verfiele die Wahl, waehrend er an der Kreuzung steht)."""
+        if not kamera_ok:
+            return teil
         teilung = self.aeste(teil, start) if self.c.get('abbiegen', True) else None
         if teilung is None:
             self.ohne_kreuzung += 1
@@ -211,9 +214,9 @@ class LinienSucher:
                            'wahl': round(math.degrees(richtung))}
         return stamm | ast
 
-    def suche(self, img, gier=None):
+    def suche(self, img, gier=None, kamera_ok=True):
         """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige.
-        gier: Drehung des Roboters (rad), fuer die Wahl an Kreuzungen."""
+        gier: Drehung des Roboters (rad), fuer die Wahl an Kreuzungen. kamera_ok: Kamera schaut in Fahrstellung."""
         h, w = img.shape[:2]
         c = self.c
         oben = int(h * c['zeilen_oben'])
@@ -246,7 +249,7 @@ class LinienSucher:
                 beste, beste_d = i, d
         if beste is None:
             return erg
-        teil = self._abbiegen(etiketten == beste, (zx, zy), gier, erg)
+        teil = self._abbiegen(etiketten == beste, (zx, zy), gier, erg, kamera_ok)
         a = abstand * teil
         grat = teil & (a >= 0.6 * a.max())                     # Mittellinie (Grat der Abstandskarte)
         ys, xs = np.nonzero(grat)

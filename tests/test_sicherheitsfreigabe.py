@@ -22,7 +22,7 @@ class Sensorfreigabe(unittest.TestCase):
         n._p.update(show=False, publish_image=False)
         n.scans = {'/scan0': (1000.0, 1.0)}
         n.ki = (1000.0, {'aktion': 'fahren', 'faktor': 1.0})
-        n.sucher.suche = lambda img, gier=None: {
+        n.sucher.suche = lambda img, *_, **__: {
             'gefunden': True, 'boden': [(0.05 + k * 0.02, 0.0) for k in range(30)],
             'quer': 0.0, 'kurs': 0.0}
         return n
