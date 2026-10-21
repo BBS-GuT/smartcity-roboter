@@ -126,11 +126,21 @@ def blocking_review(reviews):
 
 def native_guards(api):
     rule = api.get(PREFIX + "/rulesets/25533179")
-    if (rule.get("enforcement") != "active" or rule.get("bypass_actors") != []
+    # GitHub hides bypass actors from tokens without ruleset-write permission.
+    # Do not grant the approval App Administration just to inspect that field;
+    # repository administrators audit bypass configuration separately.
+    if (rule.get("enforcement") != "active"
+            or "bypass_actors" in rule and rule["bypass_actors"] != []
             or rule.get("conditions", {}).get("ref_name", {}).get("include") != ["refs/heads/main"]
             or rule.get("conditions", {}).get("ref_name", {}).get("exclude") != []):
         return False
-    rules = {row["type"]: row.get("parameters", {}) for row in rule["rules"]}
+    # Effective rules contain only active rules actually applying to main. This
+    # read needs Metadata permission, including for the narrowly scoped App.
+    effective = api.get(PREFIX + "/rules/branches/main")
+    if not isinstance(effective, list):
+        return False
+    rules = {row["type"]: row.get("parameters", {}) for row in effective
+             if row.get("ruleset_id") == 25533179}
     pr = rules.get("pull_request", {})
     ci = rules.get("required_status_checks", {})
     contexts = {(row.get("context"), row.get("integration_id"))

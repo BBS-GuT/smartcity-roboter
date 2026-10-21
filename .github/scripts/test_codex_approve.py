@@ -59,12 +59,16 @@ class FakeAPI:
                         "base": {"ref": "main", "repo": {"id": bridge.REPOSITORY_ID}}}]}
         self.job_change = {}
         self.extra_runs = []
+        self.effective_rules = None
         self.thread_pages = [{"nodes": [], "pageInfo": {"hasNextPage": False, "endCursor": None}}]
         self.fail_after_write = False
 
     def get(self, path):
         if "/rulesets/" in path:
             return copy.deepcopy(self.rules)
+        if "/rules/branches/main" in path:
+            return (copy.deepcopy(self.effective_rules) if self.effective_rules is not None else
+                    [dict(row, ruleset_id=25533179) for row in copy.deepcopy(self.rules["rules"])])
         if "/contents/" in path:
             return {"encoding": "base64", "content": base64.b64encode(self.owner_text.encode()).decode()}
         if "/actions/jobs/" in path:
@@ -282,6 +286,23 @@ class ApprovalTests(unittest.TestCase):
                 self.api.extra_runs = [newer]
                 self.assertEqual(run(self.api, 1, apply=True)["action"], "blocked")
                 self.assertEqual(self.api.writes, [])
+
+    def test_least_privilege_rules_response_without_hidden_bypass_is_supported(self):
+        del self.api.rules["bypass_actors"]
+        self.assertTrue(bridge.native_guards(self.api))
+        self.assertEqual(run(self.api, 1)["action"], "would-approve")
+        self.api.rules["bypass_actors"] = [{"actor_id": 123, "actor_type": "Integration"}]
+        self.assertFalse(bridge.native_guards(self.api))
+
+    def test_only_effective_rules_of_expected_main_ruleset_count(self):
+        self.api.effective_rules = []
+        self.assertFalse(bridge.native_guards(self.api))
+        self.api.effective_rules = [dict(row, ruleset_id=999) for row in self.api.rules["rules"]]
+        self.assertFalse(bridge.native_guards(self.api))
+        self.api.effective_rules = [dict(copy.deepcopy(row), ruleset_id=25533179)
+                                    for row in self.api.rules["rules"]]
+        self.api.effective_rules[0]["parameters"]["require_code_owner_review"] = False
+        self.assertFalse(bridge.native_guards(self.api))
 
 
 if __name__ == "__main__":
