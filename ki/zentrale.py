@@ -67,6 +67,9 @@ from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
 # Diese Dinge fuehren zum Anhalten, wenn die Kamera-KI sie im Weg sieht. Nur Verkehrsteilnehmer:
 # Moebel/Gegenstaende (Stuhl, Flasche ...) erkennt YOLO oft falsch, z. B. die schwarze Kurve als "Stuhl".
 # Echte Hindernisse auf der Strasse finden LiDAR und Tiefenkamera trotzdem.
+# Radzaehler (/odom_raw, Yahboom ca. 20-50 Hz) gelten als frisch, wenn die letzte Meldung so jung ist (s). Laenger ohne
+# Meldung: gefahrene Strecke ist nicht mehr gemessen (blindes Greifen nicht erlaubt), danach beginnt ein neuer Abschnitt
+ODOM_FRISCH = 0.3
 STOPP_NAMEN = ['Person', 'Fahrrad', 'Auto', 'Motorrad', 'Bus', 'LKW', 'Hund', 'Katze', 'Teddy']
 FARBE_BGR = {'rot': (0, 0, 255), 'gelb': (0, 220, 255), 'gruen': (0, 200, 0)}
 AKTION_BGR = {'fahren': (60, 170, 60), 'langsam': (0, 170, 230), 'stopp': (40, 40, 220)}
@@ -318,7 +321,7 @@ class Zentrale(Node):
 
     def _odom(self, msg):
         jetzt = time.time()
-        luecke = jetzt - self.odom_zeit > 1.0          # in der Luecke hat _cmd die Strecke aus /cmd_vel geschaetzt
+        luecke = jetzt - self.odom_zeit > ODOM_FRISCH  # Meldungen fehlten: Strecke dazwischen nicht durchgehend gemessen
         if luecke:
             self.odom_abschnitt += 1
         dt = min(0.2, jetzt - self.odom_zeit) if self.odom_zeit else 0.0
@@ -575,7 +578,7 @@ class Zentrale(Node):
         w['gier'] = self.gier
         w['strecke'] = self.strecke
         # Strecke wirklich von den Radzaehlern (frisch)? Ohne sie ist sie nur aus /cmd_vel geschaetzt (siehe _cmd)
-        w['strecke_gemessen'] = jetzt - self.odom_zeit < 1.0
+        w['strecke_gemessen'] = jetzt - self.odom_zeit < ODOM_FRISCH
         w['odom_abschnitt'] = self.odom_abschnitt   # gleich = seitdem ohne Luecke gemessen
         st = self.linie_status
         # Faehrt das Fahrprogramm wirklich? Nur dann darf die KI den Arm bewegen (nicht im TEST, nicht nach STOPP)
