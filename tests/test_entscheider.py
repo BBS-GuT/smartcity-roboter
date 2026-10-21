@@ -705,6 +705,30 @@ texte = [t for _, t, _ in l.e.ereignisse]
 ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Tiefenbild steht (nur Farbbilder neu) -> greift nicht blind ({b['grund']})")
+# Codex-Review: nach blindem Greifen steht der Tiefenstrom auf einem leeren Bild (Farbbilder laufen) -> Kontrolle
+# darf daraus kein "frei" machen (Gegenstand liegt noch da, waere von der Kontrollstelle aus sichtbar)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0, 'tnr': 0, 'steht': False}
+aktionen = []
+for _ in range(700):
+    a = l.e.ablauf
+    if a is not None and a.phase in ('rueckweg', 'kontrolle'):
+        welt['steht'] = True                         # ab dem Rueckweg kommen keine neuen Tiefenbilder mehr
+    if not welt['steht']:
+        welt['tnr'] += 1
+    sicht = welt['vor'] > 0.30 and not welt['steht']
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  strecke_gemessen=True, tiefe_nr=welt['tnr'], lidar_hinten=1.0)
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+    aktionen.append(b['aktion'])
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = any('greife nach der letzten Messung' in t for t in texte) and 'fahren' not in aktionen
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} nach blindem Greifen steht der Tiefenstrom -> Kontrolle meldet nicht frei "
+      f"({b['grund']})")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))

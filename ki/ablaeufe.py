@@ -318,6 +318,12 @@ class Wegraeumen(Ablauf):
         if w.get('lidar_xy') is not None:
             self.letztes_w_xy = w['lidar_xy']
         neu = w.get('neues_bild')
+        # NEUES Tiefenbild (Zentrale: tiefe_nr)? Laufen nur Farbbilder weiter, zaehlt dasselbe Tiefenbild nicht mehrfach
+        # (ohne jede Nummer - nur in reinen Ablauftests - zaehlt jedes neue Bild)
+        nr = w.get('tiefe_nr', w.get('bild_nr'))
+        tiefe_neu = neu and (nr is None or nr != getattr(self, 'tiefe_nr', None))
+        if neu:
+            self.tiefe_nr = nr
         obj = w.get('objekt') if neu else None
         kamera_obj = obj if obj and obj.get('quelle') == 'tiefe' else None
         if kamera_obj:
@@ -428,10 +434,7 @@ class Wegraeumen(Ablauf):
             return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
             # gemessen = Radzaehler frisch UND seit der letzten Sichtung ohne Luecke (Abschnitt gleich, siehe Zentrale)
-            # leer zaehlt nur ein NEUES Tiefenbild (Zentrale: tiefe_nr), nicht dasselbe zu neuen Farbbildern
-            tiefe_neu = neu and w.get('tiefe_nr', w.get('bild_nr')) != getattr(self, 'tiefe_nr', None)
-            if neu:
-                self.tiefe_nr = w.get('tiefe_nr', w.get('bild_nr'))
+            # leer zaehlt nur ein neues Tiefenbild (tiefe_neu, oben)
             return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg'),
                                                  bool(w.get('strecke_gemessen')), w.get('odom_abschnitt'), tiefe_neu))
         if self.phase == 'planen':
@@ -519,7 +522,7 @@ class Wegraeumen(Ablauf):
             else:
                 self.arm_bewegt = False      # ab jetzt schaut die Kamera wieder nach vorne
             if neu:
-                self.kontrolle_bilder += 1
+                self.kontrolle_bilder += bool(tiefe_neu)   # "frei" nur aus verschiedenen Tiefenbildern
                 if (kamera_obj and kamera_obj['vor'] < c['kontrolle_bereich']) or (
                         lid is not None and lid < c['pruef_dist']):
                     self.kontrolle_da += 1
