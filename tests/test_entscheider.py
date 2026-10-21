@@ -547,6 +547,53 @@ ok = (len(arme) >= 9 and any('greife nach der letzten Messung' in t for t in tex
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} niedriger Wuerfel verschwindet beim Heranfahren -> greift nach Radzaehler, faehrt "
       f"zur Kontrolle zurueck ({welt['vor'] * 100:.0f} cm), weiter ({b['grund']})")
+# Codex-Review: zuletzt schon in Greifweite gesehen (kaum vorgefahren) -> trotzdem zur Kontrolle zurueck
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0, 'da': True, 'nah': 0}
+gruende, vorgefahren = [], []
+for k in range(600):
+    # KI langsam (beim Heranfahren nur jedes 4. Bild), 29-29,6 cm nicht zu sehen, darunter nur noch EIN Bild:
+    # zuletzt schon in Greifweite gesehen, aber nicht 3x ruhig -> blind, fast ohne Fahrstrecke seit der Messung
+    a = l.e.ablauf
+    heran = a is not None and a.phase == 'abstand'
+    sicht = welt['da'] and ((not heran or k % 4 == 0) and welt['vor'] > 0.296
+                            or heran and welt['vor'] <= 0.2905 and welt['nah'] < 1)
+    if sicht and heran and welt['vor'] <= 0.2905:
+        welt['nah'] += 1
+    if a is not None and a.phase == 'planen':
+        vorgefahren.append(a.vorgefahren)
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']) if sicht else None, strecke=welt['strecke'],
+                  lidar_hinten=1.0)
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+    a = b['arm']
+    if a and not isinstance(a, str) and a.get('winkel') and a['winkel'][5] == 130:
+        welt['da'] = False
+    gruende.append(b['grund'])
+    if b['aktion'] == 'fahren':
+        break
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = (any('greife nach der letzten Messung' in t for t in texte) and vorgefahren and vorgefahren[0] <= 0.005
+      and any('fahre zurueck, damit die Kamera' in g for g in gruende) and b['aktion'] == 'fahren')
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} blind gegriffen, kaum vorgefahren ({(vorgefahren or [0])[0] * 100:.1f} cm) "
+      f"-> faehrt trotzdem zur Kontrolle zurueck ({welt['vor'] * 100:.1f} cm)")
+# Codex-Review: beim letzten Sehen noch 6 cm seitlich -> nicht blind greifen (wuerde schraeg/daneben fassen)
+l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+welt = {'vor': 0.34, 'strecke': 0.0}
+for _ in range(200):
+    sicht = welt['vor'] > 0.30
+    b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor'], seite=0.06) if sicht else None, strecke=welt['strecke'])
+    m = b.get('manoever')
+    if m:
+        welt['vor'] -= m['lin'] * 0.1
+        welt['strecke'] += m['lin'] * 0.1
+texte = [t for _, t, _ in l.e.ereignisse]
+ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} beim letzten Sehen nicht ausgerichtet -> greift nicht blind ({b['grund']})")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))

@@ -482,7 +482,7 @@ class Wegraeumen(Ablauf):
                 return befehl('stopp', f'Wegraeumen: {self.schritte[self.nr][0]}')
             self.nr += 1
             if self.nr >= len(self.schritte):
-                if self.vorgefahren > 0.005:
+                if self.vorgefahren > 0.005 or self.kontroll_rand > 0:   # blind gegriffen: immer zurueck zur Kontrolle
                     self._phase(jetzt, 'rueckweg')
                     self.letzte = jetzt
                     return befehl('stopp', 'Wegraeumen: Arm faehrt zurueck, dann fahre ich zurueck und pruefe')
@@ -682,13 +682,14 @@ class Wegraeumen(Ablauf):
             # Kurve: Roboter steht schraeg zur Strasse (und damit zum Gegenstand) -> erst gerade drehen
             schraeg = self._schraeg(weg, obj['vor'])
             gerade = schraeg is None or abs(schraeg) < c['greif_winkel']
-            self.ruhig = (self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and not seitlich and gerade
-                          else 0)
+            self.ausgerichtet = not seitlich and gerade    # blind greifen nur, wenn er beim letzten Sehen so stand
+            self.ruhig = (self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and self.ausgerichtet else 0)
             self.messungen.append(obj)
             self.messungen = self.messungen[-5:]
         else:
             s0 = getattr(self, 'objekt_strecke', None)
-            if s0 is not None and strecke is not None and jetzt - self.zuletzt_gesehen > c['blind_warten']:
+            if (s0 is not None and strecke is not None and getattr(self, 'ausgerichtet', False)
+                    and jetzt - self.zuletzt_gesehen > c['blind_warten']):
                 # Niedrige Gegenstaende (3 cm) verschwinden schon ab ca. 30 cm unter dem Blickfeld der Kamera
                 # (RM02 21.10.). Liegt die Greifweite nach Radzaehler erreicht: mit der letzten Messung greifen.
                 gefahren = strecke - s0
