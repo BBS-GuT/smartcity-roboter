@@ -9,7 +9,7 @@
   },
   "default_events": [],
   "default_permissions": {
-    "contents": "read",
+    "contents": "write",
     "checks": "read",
     "actions": "read",
     "issues": "read",
