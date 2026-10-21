@@ -21,10 +21,20 @@ Rechnet das Panel (`lib/lichter.py`, 10x pro Sekunde) und sendet den Zustand auf
 Danach blinkt er noch `nachlauf` s (1 s) weiter, insgesamt mindestens `mindest` s (2 s). Takt 1,5 Hz.
 Einstellungen: Abschnitt `lichter:` in `config/roboter.yaml` (eigene Werte in `config/lokal/roboter.yaml`).
 
-## Offen: echte LEDs am Roboter
+## LED-Leiste am Roboter
 
-Welches Topic die vordere LED-Leiste des Motorboards annimmt, ist **noch nicht geprüft**. Bis dahin leuchtet am
-Roboter nichts, nur das Dashboard zeigt es an. Nachsehen: Panel → System → „Licht-Topics anzeigen“
-(oder `ros2 topic list -t | grep -i -E 'light|led|rgb'`). Dann einen kleinen Treiber schreiben, der
-`/lichter/zustand` liest und `leds` (Farben von links nach rechts, Anzahl `leds`, je Seite `blink_leds` für den
-Blinker) ans Board gibt.
+Das Panel schickt die Farben an `/rgb` (`std_msgs/ColorRGBA`, Empfänger ist das Board über den micro-ROS-Agent).
+Feld `a` wählt die LED: `0` = alle, `1`–`8` = eine LED (gefunden auf RM02, `~/rgb_zuordnung.txt`), `r`/`g`/`b` = Farbe
+0–255. Gesendet werden nur geänderte LEDs, alle 2 s einmal die ganze Leiste. Beim Beenden des Panels gehen die LEDs aus.
+
+**Noch nicht am Roboter geprüft:** ob LED 1 links sitzt (sonst `links_zuerst: false`) und wie hell 90/255 Weiß wirkt.
+Von Hand ausprobieren (Panel vorher beenden):
+
+```bash
+ros2 topic pub --once /rgb std_msgs/msg/ColorRGBA "{r: 90.0, g: 90.0, b: 90.0, a: 0.0}"    # alle weiß
+ros2 topic pub --once /rgb std_msgs/msg/ColorRGBA "{r: 255.0, g: 140.0, b: 0.0, a: 1.0}"   # LED 1 gelb
+ros2 topic pub --once /rgb std_msgs/msg/ColorRGBA "{r: 0.0, g: 0.0, b: 0.0, a: 0.0}"       # alle aus
+```
+
+Achtung: Das Gamepad (`yahboom_joy_M3Pro.py`) schaltet mit seiner Lichttaste ebenfalls auf `/rgb` (Effekte, `a` ab 100).
+Während der Fahrt nicht drücken.

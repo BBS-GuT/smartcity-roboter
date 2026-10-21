@@ -50,7 +50,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image, CompressedImage, LaserScan
 from geometry_msgs.msg import Twist
-from std_msgs.msg import String, Float32
+from std_msgs.msg import String, Float32, ColorRGBA
 from cv_bridge import CvBridge
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -187,6 +187,10 @@ class PanelNode(Node):
         self.karte_kommando_pub = self.create_publisher(String, '/karte/kommando', 10)
         self.tempo_pub = self.create_publisher(Float32, '/line_follower/tempo', 10)
         self.licht_pub = self.create_publisher(String, '/lichter/zustand', 10)
+        # LED-Leiste am Board (lib/lichter.py). Leer = Leiste nicht ansteuern, nur anzeigen.
+        self.rgb_topic = str(werte.get('rgb_topic', '/rgb'))
+        self.rgb_pub = self.create_publisher(ColorRGBA, self.rgb_topic, 10) if self.rgb_topic else None
+        self.led_gesendet, self.led_voll = None, 0.0
         sub = self.create_subscription
         sub(String, '/line_follower/status', lambda m: self._json('lf', m), 10)
         sub(String, '/ki/befehl', lambda m: self._json('ki', m), 10)
@@ -297,7 +301,24 @@ class PanelNode(Node):
                 text = f"Blinker {z['blinker']} ({z['grund']})" if z['blinker'] else 'Blinker aus'
                 self.ereignisse.appendleft({'zeit': time.time(), 'text': text, 'art': 'licht'})
         self.licht_pub.publish(String(data=json.dumps(z)))
+        self.leiste_senden(z['leds'])
         return z
+
+    def leiste_senden(self, leds):
+        """Nur geaenderte LEDs ans Board, alle 2 s die ganze Leiste (falls das Board neu gestartet ist)."""
+        if self.rgb_pub is None:
+            return
+        jetzt = time.time()
+        alt = self.led_gesendet if jetzt - self.led_voll < 2.0 else None
+        if alt is None:
+            self.led_voll = jetzt
+        for a, (r, g, b) in lichterlib.rgb_befehle(alt, leds, self.lichter.c['links_zuerst']):
+            self.rgb_pub.publish(ColorRGBA(r=float(r), g=float(g), b=float(b), a=float(a)))
+        self.led_gesendet = list(leds)
+
+    def leiste_aus(self):
+        if self.rgb_pub is not None:
+            self.rgb_pub.publish(ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.0))
 
     def abblend_setzen(self, an):
         with self.lock:
@@ -1028,8 +1049,9 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        # Beim Beenden des Panels: Roboter anhalten und alle gestarteten Programme beenden
+        # Beim Beenden des Panels: Roboter anhalten, Lichter aus und alle gestarteten Programme beenden
         node.stillstand()
+        node.leiste_aus()
         prozesse.alle_stoppen()
         node.stillstand()
         server.server_close()

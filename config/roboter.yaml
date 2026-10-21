@@ -23,8 +23,9 @@ line_follower:
     notbremse_dist: 0.12
 lichter:
   ros__parameters:
-    # Abblendlicht und Blinker (Panel, lib/lichter.py, docs/lichter.md). LED-Zahl der vorderen Leiste NOCH NICHT
-    # AM ROBOTER GEPRUEFT.
+    # Abblendlicht und Blinker (Panel, lib/lichter.py, docs/lichter.md).
+    rgb_topic: '/rgb'     # LED-Leiste am Board (std_msgs/ColorRGBA, a = LED 1..8). '' = nur im Panel anzeigen
+    links_zuerst: true    # LED 1 links? Blinkt beim Test die falsche Seite -> false (config/lokal/roboter.yaml)
     kurve_grad: 60.0      # ab so viel Grad Abknicken der Linie voraus wird geblinkt (0 = nie wegen der Linie)
     nachlauf: 1.0
     mindest: 2.0

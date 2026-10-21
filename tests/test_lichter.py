@@ -79,6 +79,18 @@ class Blinker(unittest.TestCase):
         self.assertEqual(z['leds'], [lichter.WEISS] * 4 + [lichter.GELB] * 2)
 
 
+class Leiste(unittest.TestCase):
+    def test_rgb_befehle(self):
+        w, g, x = lichter.WEISS, lichter.GELB, lichter.AUS
+        self.assertEqual(lichter.rgb_befehle(None, [w] * 8), [(0, w)])                 # alle gleich: eine Nachricht
+        self.assertEqual(lichter.rgb_befehle([w] * 8, [w] * 8), [])                    # nichts geaendert
+        neu = [g, g] + [w] * 6
+        self.assertEqual(lichter.rgb_befehle([w] * 8, neu), [(1, g), (2, g)])
+        self.assertEqual(lichter.rgb_befehle([w] * 8, neu, links_zuerst=False), [(8, g), (7, g)])
+        self.assertEqual(len(lichter.rgb_befehle(None, neu)), 8)                      # unbekannt: alle einzeln
+        self.assertEqual(lichter.rgb_befehle(None, [x] * 8), [(0, x)])
+
+
 class Args:
     port = 0
     kein_netz = False
@@ -117,6 +129,19 @@ class PanelLichter(unittest.TestCase):
         self.assertEqual(self.post('abblend', {'an': False}), 'Abblendlicht AUS')
         self.assertFalse(self.status()['lichter']['abblend'])
         self.assertFalse(json.loads(self.node.licht_pub.letzte.data)['abblend'])
+
+    def test_leiste_am_board(self):
+        self.node._set('lf', None)                                                    # kein Blinker
+        self.node.lichter_takt()
+        self.node.led_gesendet, self.node.led_voll = None, 0.0
+        self.post('abblend', {'an': True})
+        m = self.node.rgb_pub.letzte
+        self.assertEqual((m.a, m.r, m.g, m.b), (0.0, 90.0, 90.0, 90.0))                # alle weiss
+        n = self.node.rgb_pub.n
+        self.node.lichter_takt()
+        self.assertEqual(self.node.rgb_pub.n, n)                                       # unveraendert: nichts senden
+        self.node.leiste_aus()
+        self.assertEqual((self.node.rgb_pub.letzte.a, self.node.rgb_pub.letzte.r), (0.0, 0.0))
 
     def test_blinker_im_status_und_ereignis(self):
         self.node._set('lf', lf(ECKE_LINKS))

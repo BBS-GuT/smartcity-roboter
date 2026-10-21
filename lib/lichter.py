@@ -13,7 +13,11 @@
 #   Nach dem Abbiegen blinkt er noch 'nachlauf' s weiter, mindestens 'mindest' s (kein Flackern).
 #
 # Ergebnis: zustand() -> {'abblend', 'blinker': None | 'links' | 'rechts', 'blink_an', 'grund', 'leds'}
-#   leds = Farben der vorderen LED-Leiste [(r, g, b), ...] von links nach rechts (fuer den Leisten-Treiber)
+#   leds = Farben der vorderen LED-Leiste [(r, g, b), ...] von links nach rechts
+#
+# LED-Leiste am Board (RM02, ~/rgb_zuordnung.txt): Topic /rgb, std_msgs/ColorRGBA. Feld a waehlt die LED
+# (0 = alle, 1..8 = eine LED), r/g/b = Farbe. a ab 100 = fertige Effekte des Gamepads (nutzen wir nicht).
+# rgb_befehle() rechnet aus, welche Nachrichten noetig sind (nur geaenderte LEDs, das Board haengt am micro-ROS).
 import math
 
 STANDARD = {
@@ -22,8 +26,9 @@ STANDARD = {
     'nachlauf': 1.0,         # s weiterblinken, wenn der Grund weg ist
     'mindest': 2.0,          # s blinkt er mindestens
     'takt_hz': 1.5,          # Blinkfrequenz (StVO: 1,5 Hz +- 0,5)
-    'leds': 14,              # LEDs der vorderen Leiste (NOCH NICHT AM ROBOTER GEPRUEFT)
-    'blink_leds': 3,         # davon je Seite fuer den Blinker
+    'leds': 8,               # LEDs der Leiste (a = 1..8, ~/rgb_zuordnung.txt)
+    'blink_leds': 2,         # davon je Seite fuer den Blinker
+    'links_zuerst': True,    # LED 1 sitzt links (in Fahrtrichtung)? NOCH NICHT AM ROBOTER GEPRUEFT
 }
 WEISS, GELB, AUS = (90, 90, 90), (255, 140, 0), (0, 0, 0)
 
@@ -38,6 +43,21 @@ def knick(weg):
         return None
     d = math.atan2(y3 - y2, x3 - x2) - math.atan2(y1 - y0, x1 - x0)
     return (d + math.pi) % (2 * math.pi) - math.pi
+
+
+def rgb_befehle(alt, neu, links_zuerst=True):
+    """Noetige Nachrichten fuer die Leiste: [(a, (r, g, b)), ...]. alt = zuletzt gesendet oder None (alles senden).
+    neu von links nach rechts; a = Nummer der LED am Board (1..n), 0 = alle gleich."""
+    n = len(neu)
+    if alt is None or len(alt) != n:
+        if len(set(neu)) == 1:
+            return [(0, neu[0])]
+        alt = [None] * n
+    aus = []
+    for i, (vorher, farbe) in enumerate(zip(alt, neu)):
+        if vorher != farbe:
+            aus.append((i + 1 if links_zuerst else n - i, farbe))
+    return aus
 
 
 class Lichter:
