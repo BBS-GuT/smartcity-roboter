@@ -52,9 +52,22 @@ class HindernisAbbruch(unittest.TestCase):
         self.assertIn('zu nah fuer die Kamera', w.lauf.letzter['grund'])
 
     def test_kontrolle_ohne_abbruch(self):
+        """Verloren in Greifweite (laut Radstrecke): greift blind, faehrt zur Kontrolle hinter die letzte Sichtung
+        zurueck. Liegt es danach noch da (Welt nimmt es hier nie weg), faehrt er nie drueber."""
         w = Welt()
         w.bis_abstand_und_verloren()
-        self.pruefe_gesperrt(w, abgebrochen=False)   # Ablauf laeuft weiter, endet nach 2,5 s ohne Sicht als Fehler
+        aktionen = [w.schritt()['aktion'] for _ in range(1500)]
+        self.assertNotIn('fahren', aktionen)
+        texte = [t for _, t, _ in w.lauf.e.ereignisse]
+        self.assertTrue(any('greife nach der letzten Messung' in t for t in texte), texte)
+        self.assertTrue(any('Weg noch nicht frei' in t for t in texte), texte)
+
+    def test_blind_ohne_platz_hinten(self):
+        """Blind gegriffen, hinten nicht frei: Kontrolle saehe die Stelle nicht -> nicht 'frei', sondern warten."""
+        w = Welt()
+        w.bis_abstand_und_verloren()
+        aktionen = [w.schritt(lidar_hinten=0.1)['aktion'] for _ in range(300)]
+        self.assertNotIn('fahren', aktionen)
 
     def test_blind_nicht_ueber_die_greifweite(self):
         """Kamera verliert es beim Heranfahren: mit der Radstrecke weiterrechnen statt mit der alten Messung."""
