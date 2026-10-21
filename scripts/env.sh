@@ -9,7 +9,7 @@ done
 # Domain-ID: Programme mit derselben Nummer hoeren sich gegenseitig. Alle Roboter haben ab Werk 30.
 # Fahren mehrere Roboter gleichzeitig, braucht jeder eine eigene Nummer: in ~/ros_domain_id eintragen
 # (z. B. "31"). ACHTUNG: Der Yahboom-Teil (micro-ROS-Agent im Autostart) muss dieselbe Nummer haben,
-# sonst sehen unsere Programme den Roboter nicht mehr (siehe docs/roboter.md). Ohne Datei: 30.
+# sonst sehen unsere Programme den Roboter nicht mehr (siehe Wiki, Seite Roboter-und-Netz). Ohne Datei: 30.
 DOMAIN_DATEI="$HOME/ros_domain_id"
 DOMAIN_STANDARD=30
 [ -f "$DOMAIN_DATEI" ] && DOMAIN_STANDARD="$(tr -dc '0-9' < "$DOMAIN_DATEI")"
