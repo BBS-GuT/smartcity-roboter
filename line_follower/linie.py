@@ -7,6 +7,8 @@
 # 2. Dunkle Flaechen suchen. Genommen wird die, die am besten zur bisherigen Linie passt
 #    (nicht die groesste) -> Zebrastreifen und Kreuzungen stoeren weniger.
 #    Mittellinie = "Grat" der Abstandstransformation (Punkte, die am weitesten vom Rand weg sind).
+#    Kreuzung (die Flaeche teilt sich in mehrere lange Aeste): ZUFAELLIG einen Ast waehlen und bis hinter die
+#    Kreuzung dabei bleiben, nur dessen Punkte zaehlen (Zieldefinition 4.2: abwechslungsreicher Verkehr).
 # 3. Gedaechtnis: Linienpunkte in Metern (x = vorne, y = links) merken und mit der eigenen Bewegung
 #    mitverschieben. So ist die Linie auch direkt UNTER dem Roboter bekannt (die Kamera sieht dort
 #    nichts) -> Abstand, Winkel und Kruemmung der Linie genau am Roboter.
@@ -16,6 +18,7 @@
 #    die eigene Lage um diese Zeit vorausrechnen (sonst pendelt er bei hohem Tempo). Die Verzoegerung misst er
 #    waehrend der Fahrt selbst (Klasse Verzoegerung).
 import math
+import random
 import time
 from collections import deque
 
@@ -47,6 +50,9 @@ STANDARD = {
     'such_zeit': 0.8,         # Linie weg: so lange (s) vorsichtig zur letzten Seite drehen (ca. 30 Grad), dann Stopp.
                               # Nicht laenger: blindes Drehen kann Aufbauten streifen (Zieldefinition 4.1)
     'such_dreh': 0.7,         # Drehgeschwindigkeit beim Suchen (rad/s)
+    # Kreuzungen
+    'abbiegen': True,         # an Kreuzungen zufaellig abbiegen (False = immer dem bisherigen Verlauf nach)
+    'ast_min': 0.10,          # ein Ast der Kreuzung muss mindestens so lang zu sehen sein (m), sonst Stummel
 }
 
 
@@ -89,6 +95,9 @@ class LinienSucher:
         self.c.update(cfg or {})
         self.groesse = None
         self.erwartung = None      # wo die Linie vermutlich ist (Roboter-System), vom Gedaechtnis
+        self.wahl = None           # an der aktuellen Kreuzung gewaehlter Ast: Richtung (rad, wie gier) oder None
+        self.ohne_kreuzung = 0     # so viele Bilder in Folge ohne Kreuzung (danach gilt sie als durchfahren)
+        self.zufall = random.Random()
 
     def _vogel(self, w, h):
         """Umrechnung Kamerabild -> Draufsicht (Homographie, gilt fuer den ebenen Boden)."""
@@ -124,8 +133,87 @@ class LinienSucher:
         maske[oben:] = (gray[oben:] < self.c['threshold']).astype(np.uint8) * 255
         return cv2.warpPerspective(maske, self.H, self.vogel_groesse, flags=cv2.INTER_NEAREST)
 
-    def suche(self, img):
-        """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige."""
+    def aeste(self, teil, start):
+        """Teilt sich die Linienflaeche 'teil' (Draufsicht, bool) in mehrere Aeste? start: Pixel (px, py), von dem aus
+        gemessen wird (auf der eigenen Linie). Gemessen wird die Strecke ENTLANG der Flaeche (nicht Luftlinie):
+        ein enger Bogen (U) teilt sich so nie, eine Kreuzung schon.
+        Rueckgabe: None (keine Kreuzung) oder (stamm, [(richtung rad, + = links, maske), ...]) in voller Aufloesung.
+        Gerechnet in Viertel-Aufloesung (16 mm, jedes Pixel mit etwas Linie zaehlt): ca. 1 ms."""
+        h, w = teil.shape
+        f = 4
+        klein = cv2.resize(teil.astype(np.uint8), (w // f, h // f), interpolation=cv2.INTER_AREA) > 0
+        sx = min(w // f - 1, max(0, int(start[0]) // f))
+        sy = min(h // f - 1, max(0, int(start[1]) // f))
+        ys, xs = np.nonzero(klein)
+        if not len(xs):
+            return None
+        i = np.argmin(np.hypot(xs - sx, ys - sy))
+        stufe = np.full(klein.shape, -1, np.int16)
+        front = np.zeros(klein.shape, np.uint8)
+        front[ys[i], xs[i]] = 1
+        erreicht = front.astype(bool)
+        kern = np.ones((3, 3), np.uint8)
+        k = 0
+        while front.any():
+            stufe[front.astype(bool)] = k
+            neu = (cv2.dilate(front, kern) > 0) & klein & ~erreicht
+            erreicht |= neu
+            front = neu.astype(np.uint8)
+            k += 1
+        schritt_m = f * self.RASTER                     # eine Stufe = 1 Pixel zu 16 mm
+        ast_stufen = max(2, int(self.c['ast_min'] / schritt_m))
+        for grenze in range(1, k - ast_stufen):
+            weiter = (stufe >= grenze).astype(np.uint8)
+            n, etik, _, _ = cv2.connectedComponentsWithStats(weiter, connectivity=8)
+            lange = [j for j in range(1, n) if stufe[etik == j].max() - grenze >= ast_stufen]
+            if len(lange) < 2:
+                continue
+            # Abzweigpunkt = Ende des Stamms; Richtung je Ast = vom Abzweigpunkt zu seinem Anfang (ca. ast_min)
+            py, px = np.nonzero((stufe >= max(0, grenze - 2)) & (stufe < grenze))
+            if not len(px):
+                return None
+            bx, by = self._zu_boden(f * px.mean(), f * py.mean())
+            aeste = []
+            for j in lange:
+                py, px = np.nonzero((etik == j) & (stufe < grenze + ast_stufen))
+                ax, ay = self._zu_boden(f * px.mean(), f * py.mean())
+                richtung = math.atan2(ay - by, ax - bx)
+                if abs(richtung) > math.radians(110):    # zeigt zum Roboter zurueck: woher er kommt, kein Ausgang
+                    continue
+                aeste.append((richtung, cv2.resize((etik == j).astype(np.uint8), (w, h),
+                                                    interpolation=cv2.INTER_NEAREST).astype(bool) & teil))
+            if len(aeste) < 2:
+                return None
+            stamm = cv2.resize(((stufe >= 0) & (stufe < grenze)).astype(np.uint8), (w, h),
+                               interpolation=cv2.INTER_NEAREST).astype(bool) & teil
+            return stamm, aeste
+        return None
+
+    def _abbiegen(self, teil, start, gier, erg):
+        """Kreuzung? Dann einen Ast waehlen (zufaellig beim ersten Sehen, danach derselbe) und nur Stamm + diesen Ast
+        zurueckgeben. gier: Drehung des Roboters (rad, Gedaechtnis) - damit bleibt die Wahl beim Abbiegen dieselbe,
+        auch wenn sich der Ast im Bild dreht."""
+        teilung = self.aeste(teil, start) if self.c.get('abbiegen', True) else None
+        if teilung is None:
+            self.ohne_kreuzung += 1
+            if self.ohne_kreuzung > 15:        # ca. 1-1,5 s keine Kreuzung mehr: durchfahren, naechste neu waehlen
+                self.wahl = None
+            return teil
+        self.ohne_kreuzung = 0
+        stamm, aeste = teilung
+        g = gier or 0.0
+        if self.wahl is None:
+            richtung, _ = self.zufall.choice(aeste)
+            self.wahl = g + richtung
+            erg['kreuzung_neu'] = True
+        richtung, ast = min(aeste, key=lambda a: abs(math.remainder(g + a[0] - self.wahl, 2 * math.pi)))
+        erg['kreuzung'] = {'aeste': sorted(round(math.degrees(r)) for r, _ in aeste),
+                           'wahl': round(math.degrees(richtung))}
+        return stamm | ast
+
+    def suche(self, img, gier=None):
+        """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige.
+        gier: Drehung des Roboters (rad), fuer die Wahl an Kreuzungen."""
         h, w = img.shape[:2]
         c = self.c
         oben = int(h * c['zeilen_oben'])
@@ -158,7 +246,7 @@ class LinienSucher:
                 beste, beste_d = i, d
         if beste is None:
             return erg
-        teil = etiketten == beste
+        teil = self._abbiegen(etiketten == beste, (zx, zy), gier, erg)
         a = abstand * teil
         grat = teil & (a >= 0.6 * a.max())                     # Mittellinie (Grat der Abstandskarte)
         ys, xs = np.nonzero(grat)
