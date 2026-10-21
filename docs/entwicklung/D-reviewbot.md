@@ -73,7 +73,7 @@ Maßgebliche Checks: `D1 / Python-Syntax (3.10)`, `D1 / Shell-Syntax (bash)` und
 | Vorhandene Anweisungen | Vor dem Schreiben keine `AGENTS.md`/`AGENTS.override.md` im Checkout oder in den geprüften Elternverzeichnissen gefunden. Gemeinsame Regeln, D-Auftrag, Register, Zieldefinition und vorhandene Vertragsdateien gelesen. |
 | Dateiumfang | Ausschließlich Root-`AGENTS.md` und dieses Dokument. Keine öffentlichen Schnittstellen oder Produkt-/CI-Dateien geändert. |
 | Dokumentationsprüfung | 21.10.2026: 29 lokale Links/Anker, verwendete GB-/A-Kennungen, drei Regelgruppen, Dateiumfang, UTF-8 und Markdown geprüft; keine Fehler. `git diff --cached --check` fehlerfrei. Reguläre PR-CI folgt separat. Keine Produkt-Unit-Tests für Markdown hinzugefügt. |
-| Regel-PR / Liefercommit | Link und exakter Head werden nach Erstellung hier ergänzt; bis dahin offen. |
+| Regel-PR / Liefercommit | [Draft-PR #84](https://github.com/davidheinrich73/smartcity-roboter/pull/84), 21.10.2026; Regelinhalt im Commit [c275f635b5601add9beb57404c84dd4e4575fefc](https://github.com/davidheinrich73/smartcity-roboter/commit/c275f635b5601add9beb57404c84dd4e4575fefc). Spätere reine Nachweisergänzungen und der jeweils aktuelle Lieferhead sind im PR nachvollziehbar. Noch nicht integriert. |
 | Regeln integriert | Offen: menschlicher fachlicher Gegencheck und Merge durch die Orchestrierung erforderlich. |
 | Betreiber / Nutzung | Offen: bestehendes Codex-Konto, Verfügbarkeit, Kontingent/Abrechnung und Kostenzuordnung durch David bestätigen. Keine kostenlose Nutzung zugesagt. |
 | GitHub-Verbindung freigegeben | Offen: ausführendes Konto, Datum, ausgewähltes Repository und bereinigten Installationsbeleg erfassen. |
