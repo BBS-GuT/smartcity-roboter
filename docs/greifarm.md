@@ -141,7 +141,7 @@ Was die KI nimmt, steht bei jedem Plan im Ereignis, z. B. „Greifer 118 -> 136,
    greifer_auf: 130
    greifer_zu: 30
    ```
-2. **Greifer einmessen:** Panel → Arm → „Greifer einmessen“. Euren Würfel zwischen die Backen, Breite eintragen, mit +2/+1 zumachen, bis beide Backen gerade anliegen, „Anliegen merken“, Greifer auf. Dazu einmal ohne Gegenstand mit Breite 0 (Backen berühren sich gerade). Ohne Einmessen sind die Greiferwerte nur geschätzt (siehe unten).
+2. **Greifer einmessen:** Panel → Arm → „Greifer einmessen“. Euren Würfel zwischen die Backen, Breite eintragen, mit +2/+1 zumachen, bis beide Backen gerade anliegen, „Anliegen merken“, Greifer auf. Dazu einmal ohne Gegenstand mit Breite 0 (Backen berühren sich gerade). Ohne Einmessen sind die Greiferwerte nur geschätzt (siehe „Greifkraft“ oben).
 3. **Yahbooms Arm-Kalibrierung** machen (Mittelstellung und Versatz, siehe oben). Ohne sie greift die Kinematik weiter daneben (das Lernen gleicht nur ein paar Zentimeter aus).
 4. **Kinematik prüfen:** Panel → Arm → „Kinematik prüfen“. Das bewegt nichts. Läuft Yahbooms Dienst nicht, rechnet die KI selbst (Maße aus der URDF oder Standard). Was sie nimmt, steht beim Start im Ereignis.
 5. **Richtung von Servo 1 prüfen** (`servo1_links` in `config/arm.yaml`): Arm mit Servo 1 auf 120 schicken. Dreht er nach links, stimmt `1`, sonst `-1` in `config/lokal/arm.yaml` eintragen.
