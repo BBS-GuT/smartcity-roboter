@@ -1,0 +1,19 @@
+# F1: Lichter (Abblendlicht, Blinker, Blaulicht). Gelesen von lichter/lichter.py, Logik in lib/lichtlogik.py.
+# Eigene Werte dieses Roboters: config/lokal/lichter.yaml (gleicher Aufbau, nicht im Repository).
+lichter:
+  # Vordere LED-Leiste. Anzahl und Reihenfolge sind NICHT am Roboter geprueft.
+  anzahl_leds: 14
+  blinker_links: [0, 1]
+  blinker_rechts: [12, 13]
+  abblendlicht_immer: true
+  blink_hz: 1.5          # StVZO/ECE R6: 90 +- 30 Takte pro Minute
+  blaulicht_hz: 2.5
+  ki_max_alter_s: 0.6
+  dreh_schwelle: 0.15    # rad/s
+  quer_schwelle: 0.03    # m/s
+  nachlauf_s: 1.0
+
+  # Wohin die Farben gehen:
+  #   keiner = nur /lichter/zustand veroeffentlichen (Panel, Simulation, Tests). Standard, bis der
+  #            Ansteuerweg der Yahboom-Platine am Roboter festgestellt ist (siehe docs/lichter.md).
+  ausgang: keiner
