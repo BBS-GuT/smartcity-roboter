@@ -11,6 +11,17 @@ permissions:
   contents: read
 
 jobs:
+  codex-freigaberegeln:
+    name: Codex / Freigaberegeln
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Freigaberegeln ohne GitHub-Zugriff testen
+        run: python3 -m unittest discover -s .github/scripts -p 'test_codex_*.py' -v
+
   python-syntax:
     name: D1 / Python-Syntax (3.10)
     runs-on: ubuntu-22.04
