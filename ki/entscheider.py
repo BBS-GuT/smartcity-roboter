@@ -264,6 +264,10 @@ class Entscheider:
         w = dict(w, neues_bild=neues_bild, kamera_vorne=not arm_kommt)
 
         befehl = self._entscheide(jetzt, w)
+        a = self.ablauf
+        if a is not None and a.name == 'zebra' and a.zuletzt != jetzt:
+            # Zebrastreifen in diesem Zyklus nicht beobachtet (vorher gehalten): Fenster faengt neu an (#70)
+            a.unterbrochen(befehl['grund'])
         befehl = self._blockade(jetzt, w, befehl)
         # Arm zuerst zurueck in Fahrstellung, bevor wieder gefahren wird
         # (nicht waehrend einer Notbremse: dann ist etwas sehr nah am Roboter)

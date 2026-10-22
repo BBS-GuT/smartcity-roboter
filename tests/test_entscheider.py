@@ -336,6 +336,24 @@ lauf, folge = zebra_lauf(80, lidar_xy=wand)
 ok = folge[-1]['aktion'] == 'fahren' and not any(x['arm'] for x in folge)
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} #70 gueltige freie Beobachtung (LiDAR-Punkte) -> weiter ohne Arm ({folge[-1]['grund']})")
+# Codex-Review PR #154: Ausfall WAEHREND des Beobachtens (Entscheider haelt vorher, ruft den Ablauf nicht auf) ->
+# gezaehlte Bilder verfallen; nach der Rueckkehr braucht er wieder anschauen_bilder neue gueltige Bilder
+for name, ausfall in (('LiDAR-Ausfall', lambda lauf: dict(lidar=None)),
+                      ('keine frischen Bilder', lambda lauf: dict(bild_zeit=lauf.t - 3.0)),
+                      ('Notbremse', lambda lauf: dict(lidar=0.05))):
+    lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+    lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+    lauf.schritt(9, zebra={'abstand': 0.3}, **FREI)                   # 0,5 s Halt + 4 gueltige Bilder
+    vorher = lauf.e.ablauf.bilder if lauf.e.ablauf else -1
+    for _ in range(30):
+        lauf.schritt(1, zebra={'abstand': 0.3}, **dict(FREI, **ausfall(lauf)))
+    nach = [lauf.schritt(1, zebra={'abstand': 0.3}, **FREI) for _ in range(20)]
+    erst = next((i for i, x in enumerate(nach) if x['aktion'] == 'fahren'), None)
+    ok = 0 < vorher < STANDARD['anschauen_bilder'] and erst is not None and erst + 1 >= STANDARD['anschauen_bilder']
+    ok = ok and not any(x['arm'] for x in nach)
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} #70 {name} beim Beobachten -> Zaehlung neu ({vorher} Bilder verfallen, "
+          f"frei erst im {erst + 1 if erst is not None else '-'}. neuen Zyklus)")
 # Armschalter waehrend des Halts aus: Zebrastreifen bleibt (kein Arm-Ablauf), haelt weiter bis frei
 lauf = Lauf(arm_erlaubt=True, posen=POSEN)
 lauf.schritt(3, zebra={'abstand': 0.3}, **FREI)

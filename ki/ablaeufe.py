@@ -90,6 +90,7 @@ class Zebrastreifen(Ablauf):
         self.bild_nr = None         # zuletzt gezaehltes Bild
         self.luecke = None          # warum zuletzt ein Bild nicht zaehlte (fuer den Haltegrund)
         self.grund_warten = ''
+        self.zuletzt = jetzt          # Zeit des letzten schritt(): fehlt ein Zyklus, war die Beobachtung nicht lueckenlos
         self._phase(jetzt, 'halt')
 
     def _beobachten(self, w):
@@ -126,6 +127,7 @@ class Zebrastreifen(Ablauf):
 
     def schritt(self, jetzt, w):
         c, d = self.c, self.dauer(jetzt)
+        self.zuletzt = jetzt
         if self.phase == 'halt':
             if d >= 0.5:
                 # neues Beobachtungsfenster: nichts aus frueheren Runden zaehlt mit
@@ -173,6 +175,13 @@ class Zebrastreifen(Ablauf):
         self.ereignisse.append((f"Zebrastreifen frei ({self.bilder} Bilder mit LiDAR) -> weiter", 'fahren'))
         self.ergebnis = 'ok'
         return None
+
+    def unterbrochen(self, grund):
+        """Der Entscheider hat in diesem Zyklus schon vorher gehalten (kein LiDAR, keine frischen Bilder, Notbremse,
+        ...) und schritt() nicht aufgerufen: Die Beobachtung war nicht lueckenlos, gezaehlte Bilder verfallen.
+        (Codex-Review PR #154: sonst gab nach einem LiDAR-Ausfall schon ein einziges Bild frei.)"""
+        if self.phase == 'beobachten':
+            self.bilder, self.luecke = 0, f'unterbrochen: {grund}'
 
 
 class Umschauen(Ablauf):
