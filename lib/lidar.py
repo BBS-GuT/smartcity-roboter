@@ -10,6 +10,28 @@ import math
 import numpy as np
 
 
+def scan_pruefen(msg):
+    """Ist der Scan ueberhaupt verwertbar? None = ja, sonst der Grund (Text).
+
+    Unbrauchbar: kaputte Bereichs-/Winkelangaben, keine Messwerte oder kein einziger gueltiger Wert
+    (alle 0 unter range_min, NaN, inf, ausserhalb range_max). Ein solcher Scan sagt NICHTS ueber den Weg -
+    er darf nie als "frei" gelten (vorher: keine Punkte -> kein Hindernis -> frei). Die Verbraucher
+    halten dann wie ohne LiDAR; der naechste verwertbare Scan desselben Kanals gibt wieder frei.
+    """
+    try:
+        meta = [float(msg.range_min), float(msg.range_max), float(msg.angle_min), float(msg.angle_increment)]
+        r = np.asarray(msg.ranges, dtype=np.float64)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return 'Scan unlesbar'
+    if (not all(math.isfinite(v) for v in meta) or meta[0] < 0 or meta[1] <= meta[0] or meta[3] == 0):
+        return 'Bereichs-/Winkelangaben ungueltig'
+    if r.ndim != 1 or r.size == 0:
+        return 'keine Messwerte'
+    if not np.any(np.isfinite(r) & (r > meta[0]) & (r < meta[1])):
+        return 'kein gueltiger Messwert (alle 0/NaN/inf/ausserhalb)'
+    return None
+
+
 def winkel_und_abstand(msg, front_deg=0.0):
     """Gueltige Messpunkte eines LaserScan.
 

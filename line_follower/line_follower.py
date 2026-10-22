@@ -163,9 +163,11 @@ class LineFollower(Node):
     # ---------------- Eingaenge ----------------
     def on_scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
-        d = lidar.naechster_vorne(msg, fronts[i] if i < len(fronts) else 0.0, self.p('obstacle_half_deg'),
-                                  self.p('obstacle_min_range'), rueckwaerts=self.p('direction') < 0)
-        self.scans[topic] = (time.time(), d)
+        grund = lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt -> Halt (nie "frei")
+        d = None if grund else lidar.naechster_vorne(msg, fronts[i] if i < len(fronts) else 0.0,
+                                                     self.p('obstacle_half_deg'), self.p('obstacle_min_range'),
+                                                     rueckwaerts=self.p('direction') < 0)
+        self.scans[topic] = (time.time(), d, grund)
 
     def on_odom(self, msg):
         t = msg.twist.twist
@@ -238,17 +240,21 @@ class LineFollower(Node):
         self.set_parameters([Parameter('speed', value=speed)])
 
     def notbremse(self):
-        """Grund (Text) oder None."""
+        """Grund (Text) oder None. Ein frischer, aber unbrauchbarer Scan haelt wie ein fehlender, bis derselbe
+        Kanal wieder einen verwertbaren Scan liefert (dann sofort wieder frei, kein Nachlauf)."""
         if not self.p('obstacle_check'):
             return None
         jetzt = time.time()
-        frisch = [(t, d) for t, (z, d) in self.scans.items() if jetzt - z < 1.0]
+        frisch = [(t, d, g) for t, (z, d, g) in self.scans.items() if jetzt - z < 1.0]
         if not frisch:
             if not self.scans:
                 return 'KEIN LIDAR: noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
-            alter = min(jetzt - z for z, _ in self.scans.values())
+            alter = min(jetzt - z for z, _, _ in self.scans.values())
             return f'KEIN LIDAR: letzter Scan vor {alter:.1f} s'
-        t, d = min(frisch, key=lambda x: x[1])
+        ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
+        if ungueltig:
+            return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'
+        t, d, _ = min(frisch, key=lambda x: x[1])
         if d < self.p('notbremse_dist'):
             return f'NOTBREMSE {d * 100:.0f} cm ({t})'
         return None
