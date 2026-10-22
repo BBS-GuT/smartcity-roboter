@@ -60,6 +60,16 @@ Projekttextverweise und Archiv-Inhaltsverzeichnisse.
   `OneDrive - ENKO Software GmbH & Co. KG` und `iuk26b` unter dem lokalen
   Benutzerprofil: kein benannter RM02-Datensatz gefunden. Fachfremde persönliche
   Archive wurden nicht inhaltlich geöffnet.
+- Ergänzend `C:\Users\CarstenHaas\.codex\attachments`: alle sechs Dateien
+  anhand Namen/Dateikennungen geprüft (fünf TXT, eine JSON, keine ZIP-/GZIP-/
+  TAR-Kennung). Aufgabenbezogene Textsuche fand nur den bereits gelesenen
+  Startauftrag, keine Aufnahme oder weitere lokale Work-Datenreferenz.
+  Die Dateinameninventur der lokalen `.codex\codex-remote-attachments` und
+  `.codex\.chatgpt-projects` lieferte ebenfalls keinen passenden Aufnahme-
+  oder Archivkandidaten. Keine beliebigen privaten Inhalte und keine Cloud
+  wurden durchsucht. Die tatsächlich referenzierten Projektablagen liegen
+  unter dem oben geprüften `C:\SmartCity`; ein weiterer konkreter Work-Pfad
+  ging aus den geprüften aufgabenbezogenen Quellen nicht hervor.
 - Inhaltsverzeichnisse aller 14 gefundenen Projekt-ZIP/TAR/TAR.GZ-Archive unter
   `C:\SmartCity` gelesen: zwei alte SmartCity-Quell-TARs, Upstream-ZIP,
   Yahboom-Workspace-ZIP, drei RM01-Sicherungsarchive, RM01-Paket,
@@ -82,7 +92,8 @@ Containerformate und nicht durchsuchte Gitobjekte bleiben außerhalb des Nachwei
 Kein Roboter, Netzwerkgerät oder externer Nachrichtendienst wurde angesprochen.
 Lokale Suchbelege liegen außerhalb des Repositorys unter
 `C:\SmartCity\uebergaben\nacht-20261022\107\40` (`dateikandidaten.txt`,
-`komprimiert-und-zusatzwurzeln.txt`, `archive.json`, `original-pr44.json`).
+`komprimiert-und-zusatzwurzeln.txt`, `archive.json`, `original-pr44.json`,
+`attachments-metadata.json`).
 
 ## Konkrete fehlende Voraussetzung
 
@@ -138,8 +149,94 @@ Nach vollständigem Replay das Fenster relativ zum ersten Diagnoseeintrag
 markieren: Minute 2 `[60,120)` s gegen Minute 3 `[120,180)` s, zusätzlich die
 genaue letzte sichere/erste dauerhaft unsichere Zuordnung. Die Minuten des
 Programms beginnen beim ersten Diagnoseeintrag, nicht zwingend bei Aufnahmebeginn.
-Je Fenster Scananzahl, sicheren Anteil, mediane Güte, Punkte/Scan, Suchfenster
-und längste Unsicherheit mit absoluter Ereigniszeit protokollieren.
+Die folgende zusätzliche Auswertung berechnet je Fenster Scananzahl, sicheren
+Anteil, mediane Güte, Punkte/Scan, Suchfenster und längste beobachtete
+Unsicherheitsfolge mit absoluten Ereigniszeiten. Sie durchläuft ebenfalls die
+**Vollaufnahme**, speichert alle Diagnosezeilen und exportiert die Original-
+Odometrie-/IMU-Ereignisse zur getrennten Bewegungsanalyse. Die Länge einer
+Unsicherheitsfolge reicht vom ersten bis zum letzten unsicheren Diagnosepunkt
+im Fenster (Abtastung wie im Replay, keine interpolierte Messung). Der Export
+bewahrt die Rohwerte und Zeitstempel; er behauptet keinen realen Stillstand.
+
+Im selben Checkout und mit den PowerShell-Variablen/Umgebungswerten oben:
+
+```powershell
+@'
+import hashlib, json, pathlib, subprocess, sys
+import numpy as np
+sys.path.insert(0, str(pathlib.Path('kartograf').resolve()))
+import abspielen as replay
+
+datei, ziel = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+ziel.mkdir(parents=True, exist_ok=True)
+overrides = {'haupt_lidar': '/scan1', 'selbst_kalibrieren': False}
+erg = replay.abspielen(str(datei), overrides, kamera=True)
+d = np.asarray(erg['kartierer'].diagnose if erg['kartierer'] else [], dtype=float).reshape(-1, 5)
+if not len(d):
+    raise SystemExit('Keine Diagnose; kein auswertbarer Replay')
+with datei.open('rb') as f:
+    sha256 = hashlib.file_digest(f, 'sha256').hexdigest()
+meta = {'software_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+        'datei_sha256': sha256,
+        'kopf': erg['kopf'], 'overrides': overrides,
+        'diagnose_spalten': ['t', 'guete', 'sicher', 'suchfenster', 'punkte'],
+        'diagnose_t0': float(d[0, 0]), 'kamera': True}
+np.savetxt(ziel / 'diagnose.csv', d, delimiter=',',
+           header='t,guete,sicher,suchfenster,punkte', comments='')
+
+def fenster(a, b):
+    rows = d[(d[:, 0] >= d[0, 0] + a) & (d[:, 0] < d[0, 0] + b)]
+    if not len(rows):
+        return {'relativ_s': [a, b], 'n': 0}
+    folgen, start, ende = [], None, None
+    for row in rows:
+        if not row[2]:
+            start = float(row[0]) if start is None else start
+            ende = float(row[0])
+        elif start is not None:
+            folgen.append([start, ende]); start = ende = None
+    if start is not None:
+        folgen.append([start, ende])
+    lang = max(folgen, key=lambda pair: pair[1] - pair[0], default=None)
+    werte, anzahl = np.unique(rows[:, 3], return_counts=True)
+    return {'relativ_s': [a, b], 'absolut_s': [float(rows[0, 0]), float(rows[-1, 0])],
+            'n': len(rows), 'sicher_anteil': float(rows[:, 2].mean()),
+            'guete_median': float(np.median(rows[:, 1])),
+            'punkte_median': float(np.median(rows[:, 4])),
+            'suchfenster_anzahl': dict(zip(map(str, werte), map(int, anzahl))),
+            'unsichere_folgen_absolut_s': folgen,
+            'laengste_unsicherheit_s': 0.0 if lang is None else lang[1] - lang[0]}
+
+meta['fenster'] = [fenster(60, 120), fenster(120, 180)]
+meta['sicherheitswechsel_absolut_s'] = [
+    {'vorher_t': float(d[i-1, 0]), 't': float(d[i, 0]), 'sicher': bool(d[i, 2])}
+    for i in range(1, len(d)) if d[i, 2] != d[i-1, 2]]
+with (ziel / 'bewegung.jsonl').open('w', encoding='utf-8') as f:
+    for e in replay.A.lesen(str(datei)):
+        if e.get('typ') in ('odom', 'imu'):
+            f.write(json.dumps(e, ensure_ascii=False) + '\n')
+(ziel / 'vergleich.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
+(ziel / 'replay.log').write_text(replay.diagnose_text(erg), encoding='utf-8')
+replay.bilder_schreiben(erg, str(ziel))
+print(json.dumps(meta['fenster'], ensure_ascii=False, indent=2))
+'@ | & 'C:\SmartCity\entwicklung\d1-evidence\venv\Scripts\python.exe' - $aufnahme ($ausgabe + '-fenster')
+```
+
+`diagnose.csv` und `sicherheitswechsel_absolut_s` erlauben, letzte sichere und
+erste anhaltend unsichere Zuordnung nachzuvollziehen, ohne einen unbekannten
+Übergangszeitpunkt zu erfinden. Die beiden festen Minutenfenster sind ein
+Ausgangspunkt; ein anschließend enger gewähltes Fenster mit denselben
+absoluten Grenzen auf beiden Softwareständen zusätzlich dokumentieren.
+
+Die ausführbare Dokumentanleitung wurde ohne Produktänderungen mit einer
+ausdrücklich synthetischen Stillstandsaufnahme durch den echten Replay/
+Kartierer geprüft: 183 Einsekundenschritte, 180 identische Strahlen pro Scan,
+je ein Odometrie-/IMU-Ereignis. Vorab erwartete 60/60 Diagnosepunkte in den
+beiden Fenstern und 366 exportierte Bewegungsereignisse wurden bestätigt;
+absolute Fenstergrenzen waren 1060–1119 und 1120–1179 s. Eine zusätzliche
+synthetische API-Kontrolle mit Sicherheitswechsel bei 1120 s prüfte die
+Persistenz dieses Übergangs und einer 59-s-Unsicherheitsfolge. Diese Kontrollen
+prüfen ausschließlich die Dokumentanleitung, nicht den RM02-Originalfehler.
 
 Getrennt daneben aus den Originalereignissen ausweisen:
 Odometrie-Positions-/Winkeldelta und Twist, IMU-Drehratenintegral samt
