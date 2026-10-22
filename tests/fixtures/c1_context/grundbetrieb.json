@@ -1,0 +1,66 @@
+{
+  "bindings": {
+    "motion": {
+      "robot_id": "RM02",
+      "producer_id": "synthetic-a-release",
+      "producer_boot_id": "synthetic-a-start",
+      "time_basis_id": "synthetic-device-clock-0001"
+    }
+  },
+  "requests": [
+    {
+      "request_id": "beispiel-start-0001/fw-0042",
+      "valid_until_mono_s": 1209.0,
+      "v_m_s": 0.15,
+      "w_rad_s": -0.2,
+      "maneuver": null,
+      "hold_reasons": [],
+      "contract_version": "2.0",
+      "robot_id": "RM02",
+      "producer_id": "synthetic-b",
+      "producer_boot_id": "synthetic-b-start",
+      "request_seq": 2,
+      "time_basis_id": "synthetic-device-clock-0001",
+      "generated_mono_s": 1208.3
+    },
+    {
+      "request_id": "beispiel-start-0001/fw-0042",
+      "valid_until_mono_s": 1209.0,
+      "v_m_s": 0.0,
+      "w_rad_s": 0.0,
+      "maneuver": null,
+      "hold_reasons": [
+        "RED_LIGHT",
+        "FRONT_BLOCKED"
+      ],
+      "contract_version": "2.0",
+      "robot_id": "RM02",
+      "producer_id": "synthetic-b",
+      "producer_boot_id": "synthetic-b-start",
+      "request_seq": 3,
+      "time_basis_id": "synthetic-device-clock-0001",
+      "generated_mono_s": 1208.9
+    },
+    {
+      "request_id": "beispiel-start-0001/fw-0042",
+      "valid_until_mono_s": 1209.0,
+      "v_m_s": 0.15,
+      "w_rad_s": -0.2,
+      "maneuver": null,
+      "hold_reasons": [],
+      "contract_version": "2.0",
+      "robot_id": "RM02",
+      "producer_id": "synthetic-b",
+      "producer_boot_id": "synthetic-b-start",
+      "request_seq": 6,
+      "time_basis_id": "synthetic-device-clock-0001",
+      "generated_mono_s": 1200.9
+    }
+  ],
+  "current_request_ref": {
+    "robot_id": "RM02",
+    "producer_id": "synthetic-b",
+    "producer_boot_id": "synthetic-b-start",
+    "request_seq": 2
+  }
+}

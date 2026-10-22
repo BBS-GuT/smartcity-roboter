@@ -1,0 +1,9 @@
+{
+  "producer_id": "demo-b-navigation",
+  "producer_boot_id": "demo-b-history-a",
+  "time_basis_id": "demo-clock-a",
+  "status": "valid",
+  "reason": null,
+  "entries": [],
+  "dropped_entries": 0
+}

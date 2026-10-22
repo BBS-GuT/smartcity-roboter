@@ -1,0 +1,15 @@
+{
+  "contract_version": "2.0",
+  "robot_id": "RM02",
+  "producer_id": "synthetisch-b",
+  "producer_boot_id": "synthetisch-b-start-001",
+  "request_seq": 11,
+  "request_id": "opak",
+  "time_basis_id": "synthetisch-uhr-001",
+  "generated_mono_s": 100.5,
+  "valid_until_mono_s": 102.0,
+  "v_m_s": 0.1,
+  "w_rad_s": 0.0,
+  "maneuver": null,
+  "hold_reasons": []
+}
