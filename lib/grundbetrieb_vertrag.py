@@ -31,7 +31,8 @@ SIGNALE = ('red', 'yellow', 'green', 'off', 'unknown')
 BELEGUNG = ('free', 'occupied', 'unknown')
 BROKER = ('connected', 'disconnected', 'unknown', 'disabled')
 ZEITSYNC = ('synced', 'unsynced', 'unknown')
-_ZEIT_UTC = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z\Z')
+# Uhrzeitgrenzen unabhaengig davon pruefen, ob der Kalenderparser 24:00:00 normalisiert.
+_ZEIT_UTC = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z\Z')
 
 
 # ------------------------------------------------------------------ Start und Sequenz
