@@ -11,6 +11,8 @@ from pathlib import Path
 import sys
 import unittest
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from raeum_lauf import Lauf  # noqa: E402
 from entscheider import STANDARD  # noqa: E402
@@ -145,8 +147,10 @@ def zebra(person):
     lauf = Lauf(posen=ZEBRA_POSEN)
     b = None
     for _ in range(150):
-        # #70: Freigabe am Ueberweg nur mit LiDAR-Daten am Ueberweg (wie von ki/zentrale.py geliefert), hier frei
-        b = lauf.schritt(zebra={'abstand': 0.3}, objekte=person, lidar_breit=1.0)
+        # #70/#156: Freigabe am Ueberweg nur mit LiDAR-Daten, die den Ueberweg vollstaendig messen (wie von
+        # ki/zentrale.py geliefert): keine Punkte dort, jede Richtung 3 m weit frei gemessen -> frei
+        b = lauf.schritt(zebra={'abstand': 0.3}, objekte=person, lidar_breit=1.0,
+                         lidar_xy=np.zeros((0, 2)), lidar_reichweite=np.full(1440, 3.0))
     return b
 
 
