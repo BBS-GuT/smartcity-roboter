@@ -544,10 +544,14 @@
           "maximum": 9223372036.854775807
         },
         "v_m_s": {
-          "type": "number"
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
         },
         "w_rad_s": {
-          "type": "number"
+          "type": "number",
+          "minimum": -10,
+          "maximum": 10
         },
         "maneuver": {
           "type": [
@@ -1175,7 +1179,52 @@
           ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "measurements": {
+                "type": "array",
+                "minItems": 1,
+                "contains": {
+                  "type": "object",
+                  "required": [
+                    "status",
+                    "components"
+                  ],
+                  "properties": {
+                    "status": {
+                      "const": "valid"
+                    },
+                    "components": {
+                      "type": "object",
+                      "required": [
+                        "status"
+                      ],
+                      "properties": {
+                        "status": {
+                          "const": "valid"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "c1_latch": {
       "type": "object",

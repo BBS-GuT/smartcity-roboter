@@ -96,6 +96,29 @@ class Gesamtvertrag(unittest.TestCase):
                 V.lade_json(modified)
 
     @unittest.skipIf(jsonschema is None, 'jsonschema nicht installiert')
+    def test_fahrwunschgrenzen_gelten_eingebettet_und_separat(self):
+        validator = jsonschema.Draft202012Validator(self.schema)
+        for field, low, high in (('v_m_s', -1, 1), ('w_rad_s', -10, 10)):
+            for value in (low, high):
+                d = neutralisiere(read('tests/fixtures/grundbetrieb/test.json'))
+                d['motion']['request'][field] = value
+                self.assertEqual(V.pruefe(d), [])
+                self.assertEqual(list(validator.iter_errors(d)), [])
+                self.assertEqual(V.lade_json(V.als_json(d)), d)
+            for value in (Decimal(str(low)) - Decimal('.000000001'),
+                          Decimal(str(high)) + Decimal('.000000001'), -999, 999):
+                with self.subTest(field=field, value=value):
+                    d = neutralisiere(read('tests/fixtures/grundbetrieb/test.json'))
+                    d['motion']['request'][field] = value
+                    self.assertTrue(V.pruefe_fahrwunsch(d['motion']['request']))
+                    self.assertTrue(V.pruefe(d))
+                    self.assertTrue(list(validator.iter_errors(d)))
+                    with self.assertRaises(ValueError):
+                        V.als_json(d)
+                    with self.assertRaises(ValueError):
+                        V.lade_json(V._json_wert(d))
+
+    @unittest.skipIf(jsonschema is None, 'jsonschema nicht installiert')
     def test_schema_und_nanosekundenobergrenze_der_details(self):
         validator = jsonschema.Draft202012Validator(self.schema)
         for path in (ROOT / 'tests/fixtures/grundbetrieb').glob('*.json'):

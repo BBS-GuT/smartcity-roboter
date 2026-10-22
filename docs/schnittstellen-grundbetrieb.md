@@ -283,7 +283,9 @@ sind getrennt. Bekannte Herkunft bleibt erhalten, unbekannte wird nicht erzeugt.
 `motion.request` ist `null` oder exakt derselbe Datensatz wie der eigenstaendige
 Fahrwunsch: `contract_version, robot_id, producer_id, producer_boot_id, request_seq,
 request_id, time_basis_id, generated_mono_s, valid_until_mono_s, v_m_s, w_rad_s,
-maneuver, hold_reasons`. Beide Darstellungen nutzen `$defs/fahrwunsch`. Ein eingebetteter
+maneuver, hold_reasons`. Beide Darstellungen nutzen `$defs/fahrwunsch`. Strukturell gelten inklusive
+Grenzen `-1 <= v_m_s <= 1` und `-10 <= w_rad_s <= 10` (m/s bzw. rad/s);
+ein konkreter Freigabeweg kann engere konfigurierte Grenzen verlangen. Ein eingebetteter
 Wunsch muss zum aeusseren Geraet gehoeren; `request_id` ist opak und ersetzt keine Identitaet.
 
 `pruefe_fahrwunsch`, `fahrwunsch_als_json` und `lade_fahrwunsch_json` sind zustandslos.
@@ -343,7 +345,9 @@ Wunsch ist kein belegter Nullwunsch. Ohne Ausgabe bleibt deren Referenz `null` m
 Empfangsbestaetigung und `measured/load` als quellbelegte Messbloecke. `camera_pose`
 bleibt ein eigener Messblock. Komponenten tragen Raum-, Kalibrier-, Einheits- und
 Qualitaetsbezug; ohne gegebenen Komponenten-/Quellenkontext keine gueltige Stellung,
-Kraft oder Unsicherheit. Zielwerte sind keine Messwerte.
+Kraft oder Unsicherheit. Zielwerte sind keine Messwerte. Ein aeusserlich `valid` gemeldeter Messblock
+braucht mindestens einen gueltigen Messdatensatz; eine ausschliesslich
+ungueltige oder fehlende Liste darf keine gueltige Stellung oder Last behaupten.
 
 `clearing` meldet B-Vorgangsidentitaet, Phase, Ausfuehrungsstatus, Ergebnis, Abbruch-
 und Unterbrechungsgruende/-zeiten, Objektbezug, Beobachtung, Schaetzung und getrennte
