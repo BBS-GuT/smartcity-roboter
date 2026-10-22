@@ -4,8 +4,7 @@ Codex uebernimmt die Produktreviews. Seine native GitHub-Integration meldet
 Befunde oder einen erfolgreichen Review. Fuer eine formale GitHub-Freigabe
 uebertraegt der Workflow `Codex - Mergefreigabe` ein eindeutiges erfolgreiches
 Ergebnis als eigene GitHub-App in `APPROVED`. Er fuehrt keine weitere
-KI-Pruefung aus und merged keine Pull Requests. Die neue `AGENTS.md` wird
-separat in PR #54 eingerichtet und hier nicht bearbeitet.
+KI-Pruefung aus und merged keine Pull Requests.
 
 ## Voraussetzungen je Pull Request
 
@@ -13,8 +12,12 @@ separat in PR #54 eingerichtet und hier nicht bearbeitet.
 - Ein echter Codex-Summary-Kommentar: Bot-ID, App und letzter Bearbeiter
   werden geprueft. Benutzerkommentare und ein Daumen reichen nicht.
 - Code Review fuer exakt den aktuellen Commit: abgeschlossen, keine Befunde
-  und keine ungeloesten Befunde. Ein aktueller zusaetzlicher Security Review
-  muss ebenfalls sauber abgeschlossen sein.
+  und keine ungeloesten Befunde. Die Selbsteinschaetzung des implementierenden
+  Chats ersetzt diesen unabhaengigen nativen Code Review nicht.
+- Ein zusaetzlicher Security Review ist dauerhaft optional. Sein fehlender,
+  laufender, wartender, abgebrochener oder fehlgeschlagener Lauf blockiert
+  allein nicht. Bekannte Befunde fuer den aktuellen Commit blockieren weiter;
+  unbekannte oder fehlerhafte Statusformate werden weiterhin abgelehnt.
 - Alle drei vorgeschriebenen D1-Pruefungen fuer diesen Commit erfolgreich.
 - Keine offenen Review-Threads und keine noch gueltige Aenderungsanforderung.
 - Keine Aenderung an `.github/`, `AGENTS.md`, `CODEOWNERS` oder
@@ -26,6 +29,24 @@ die Branchregel. Bei nachtraeglich ungueltigem Ergebnis nimmt der Workflow
 nur seine eigenen Freigaben zurueck. Er verwirft keine fremden Reviews und
 loest keine fremden Threads auf. Bestehende native Aenderungsanforderungen
 werden nicht durch einen weiteren sauberen Bot-Kommentar aufgehoben.
+
+## Dauerhafter Arbeitsablauf (Entscheidung vom 21.10.2026)
+
+Der normale Codex-Code-Review bleibt fuer jeden pruefbereiten PR und jeden
+neuen Commit aktiv. Er prueft relevante Anforderungen, verbundene Komponenten,
+Fehlerfaelle, Schnittstellen und Tests gemaess `AGENTS.md`. Nur konkrete Fehler
+blockieren; Stilwuensche rechtfertigen keine kuerzere oder laengere Pflichtkette.
+Die drei vorhandenen D1-Pflichtpruefungen bleiben unveraendert. Kleine fertige
+PRs und gebuendelte Pushes vermeiden unnoetige Wiederholungen.
+
+In den nativen Repository-Review-Einstellungen wird der allgemeine automatische
+Security Review deaktiviert; gezielte Security Reviews bleiben bei Bedarf
+moeglich. Insbesondere Zugangsdaten, Berechtigungen, CI-Ausfuehrung und externe
+Erreichbarkeit brauchen eine gezielte Sicherheitsbetrachtung. Ein fehlgeschlagener
+optionaler Scan ist kein bestandener Sicherheitsnachweis. Fuer einen bewusst
+verpflichtenden Einzelfall unterstuetzt die Entscheidungsfunktion weiterhin
+`require_security_review=True` (ein explizit aufzurufender strenger Modus).
+Es gibt kein Ablaufdatum und keine automatische Rueckkehr zur bisherigen Regel.
 
 Der Workflow liest PR-Metadaten per API und fuehrt ausschliesslich eigene
 Skripte vom Defaultbranch aus. Bot-Kommentare und abgeschlossene D1-Laeufe
@@ -132,8 +153,9 @@ auf den aktuellen `main` erforderlich. Die folgenden Kriterien gelten auch
 bei spaeteren Aenderungen der Einrichtung:
 
 - Einen aktuellen Produkt-PR ohne Steuerungsdateien mit `main` abgleichen.
-  Fuer exakt seinen aktuellen Head muessen nativer Codex-Review, gegebenenfalls
-  aktueller Security-Review und Pflicht-CI sauber abgeschlossen sein.
+  Fuer exakt seinen aktuellen Head muessen nativer Codex-Code-Review und
+  Pflicht-CI sauber abgeschlossen sein. Ein optionaler Security Review darf
+  noch laufen; bekannte aktuelle Befunde bleiben blockierend.
 - Der App-Review fuer exakt diesen Head muss `APPROVED` sein und in GraphQL
   `authorCanPushToRepository: true` melden. Zusaetzlich muss derselbe PR
   `reviewDecision: APPROVED` melden. Ein Review-Kommentar oder das erfolgreiche
