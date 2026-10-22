@@ -41,7 +41,8 @@ class ReineAbdeckung(unittest.TestCase):
         self.assertEqual(lidar.naechster_vorne(m), float('inf'))       # alte Auswertung: "frei"
         self.assertIsNotNone(lidar.sektor_abdeckung(m))                # neu: vorne unbekannt
         self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
-        self.assertIsNone(lidar.sektor_abdeckung(m, halb_deg=10.0, front_deg=90.0))   # links gemessen
+        self.assertIsNone(lidar.sektor_abdeckung(m, halb_deg=0.9, front_deg=90.0))    # links (+-1 Grad) gemessen
+        self.assertIsNotNone(lidar.sektor_abdeckung(m, halb_deg=10.0, front_deg=90.0))  # 90-Grad-Raster: Rest nicht
 
     def test_gueltige_fernmessung_ist_abgedeckt(self):
         m = q.scan(3.0)
@@ -81,9 +82,12 @@ class ReineAbdeckung(unittest.TestCase):
         # Codex-Befund zu PR #143: nur Strahlen bei +20 und +30 Grad (gueltig) - links davon bis -30 Grad fehlt
         # jede Messung. Ein gueltiger Strahl im Sektor reicht nicht.
         m = q.scan([3.0, 3.0], angle_min=math.radians(20), angle_increment=math.radians(10))
-        self.assertIn('-29 bis +15 Grad', lidar.sektor_abdeckung(m))
+        self.assertIn('-29 bis +29 Grad', lidar.sektor_abdeckung(m))   # je Strahl nur +-1 Grad gemessen
         self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
-        self.assertIsNone(lidar.sektor_abdeckung(m, front_deg=25.0, halb_deg=9.0))   # 16..34 Grad: gemessen
+        self.assertIsNone(lidar.sektor_abdeckung(m, front_deg=20.0, halb_deg=0.9))   # direkt am Strahl: gemessen
+        dicht = q.scan([3.0] * 11, angle_min=math.radians(20), angle_increment=math.radians(1))
+        self.assertIsNone(lidar.sektor_abdeckung(dicht, front_deg=25.0, halb_deg=5.0))   # 20..30 Grad: gemessen
+        self.assertIn('-29 bis +18', lidar.sektor_abdeckung(dicht))
         # dichter Teilscan nur -90..+90 Grad: vorne gemessen, hinten unbekannt
         halb = q.scan([3.0] * 181, angle_min=-math.pi / 2, angle_increment=math.radians(1))
         self.assertIsNone(lidar.sektor_abdeckung(halb))
@@ -99,6 +103,14 @@ class ReineAbdeckung(unittest.TestCase):
         self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
         self.assertEqual(len(lidar.ungueltige_winkel(q.scan(3.0, angle_increment=1e-12))), 3600)
 
+    def test_riesiger_winkelschritt_deckt_nicht_alles_ab(self):
+        # Codex-Befund zu PR #143: angle_increment 4*pi legt alle Strahlen in dieselbe Richtung
+        for n in (1, 3, 360):
+            with self.subTest(n=n):
+                m = q.scan(3.0, n=n, angle_increment=4 * math.pi)
+                self.assertIsNotNone(lidar.sektor_abdeckung(m))
+                self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
+
     def test_rueckwaerts_zaehlende_lidars(self):
         # angle_increment negativ (Uhrzeigersinn): gleiche Abdeckung
         r = [3.0] * N
@@ -111,6 +123,9 @@ class ReineAbdeckung(unittest.TestCase):
 class Linienfolger(unittest.TestCase):
     def test_winziger_winkelschritt_haelt(self):
         self.halt(q.linienfolger(q.scan(3.0, angle_increment=1e-6)), 'LIDAR UNBEKANNT')
+
+    def test_riesiger_winkelschritt_haelt(self):
+        self.halt(q.linienfolger(q.scan(3.0, angle_increment=4 * math.pi)), 'LIDAR UNBEKANNT')
 
     def halt(self, n, text):
         lin, quer, dreh, status = n.entscheide()
@@ -156,6 +171,10 @@ class KiZentrale(unittest.TestCase):
 
     def test_winziger_winkelschritt_unbekannt(self):
         z = q.ki_zentrale(q.scan(3.0, angle_increment=1e-6))
+        self.assertEqual(z.lidar_pruefen(), (None, None, None))
+
+    def test_riesiger_winkelschritt_unbekannt(self):
+        z = q.ki_zentrale(q.scan(3.0, angle_increment=4 * math.pi))
         self.assertEqual(z.lidar_pruefen(), (None, None, None))
 
     def test_luecke_im_fahrschlauch(self):

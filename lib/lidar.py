@@ -11,6 +11,11 @@ from numbers import Integral
 
 import numpy as np
 
+# Ein Strahl gilt hoechstens fuer +-1 Grad um seine Richtung als Messung (halber Strahlabstand, aber nie mehr):
+# ein 3-cm-Hindernis am Ende des Fahrschlauchs (0,8 m) ist ca. 2 Grad breit. Groebere Scans (oder ein kaputter
+# riesiger angle_increment) decken so nur Teile ab -> der Rest ist unbekannt.
+STRAHL_RADIUS_MAX = math.radians(1.0)
+
 # Aufnahmezeit (header.stamp) eines Scans: so alt darf sie bei der Auswertung hoechstens sein (s). Gleiche Grenze
 # wie fuer den Empfang (1 s, schon vorher so) - keine eigene, am Geraet nicht gemessene Toleranz.
 AUFNAHME_MAX = 1.0
@@ -124,7 +129,7 @@ def naechster_vorne(msg, front_deg=0.0, halb_deg=30.0, min_abstand=0.08, rueckwa
 def ungueltige_winkel(msg, front_deg=0.0):
     """Richtungen (rad, relativ zu vorne, -pi..pi) OHNE gueltige Messung, rundherum in Schritten von hoechstens
     einem Strahlabstand (und 1 Grad). Gemessen ist eine Richtung nur, wenn ein Strahl hoechstens einen halben
-    Strahlabstand entfernt liegt und alle so nahen Strahlen gueltig sind. Unbekannt sind also Strahlen ohne Messung (0 unter
+    Strahlabstand (und STRAHL_RADIUS_MAX) entfernt liegt und alle so nahen Strahlen gueltig sind. Unbekannt sind also Strahlen ohne Messung (0 unter
     range_min, NaN, inf, ausserhalb range_max) und Richtungen, die der Scan gar nicht enthaelt (Teilscan). Dort
     weiss man nichts: in der ganzen Richtung kann ein Hindernis stehen. Auch +inf ist kein bestaetigtes "frei bis
     zur Reichweite" (die Treiberkodierung dafuer ist nicht belegt)."""
@@ -144,7 +149,7 @@ def ungueltige_winkel(msg, front_deg=0.0):
     j = np.searchsorted(a, w)
     kandidaten = np.stack([(j - 1) % len(a), j % len(a)], axis=1)    # Nachbarstrahlen (auch ueber +-pi hinweg)
     abstand = np.abs(np.arctan2(np.sin(w[:, None] - a[kandidaten]), np.cos(w[:, None] - a[kandidaten])))
-    nah = abstand <= inc / 2 + 1e-9
+    nah = abstand <= min(inc / 2, STRAHL_RADIUS_MAX) + 1e-9
     # gemessen: mindestens ein Strahl nah genug, und JEDER nahe Strahl gueltig (genau dazwischen: beide)
     gemessen = nah.any(axis=1) & (gut[kandidaten] | ~nah).all(axis=1)
     return w[~gemessen]
@@ -250,7 +255,7 @@ def einbau_aus_parametern(topics, frames, xy, quellen):
     return einbau, None
 
 
-def einbau_pruefen(einbau, frame_id, nur_gemessen=True):
+def einbau_pruefen(einbau, frame_id, nur_gemessen=True, front_deg=0.0):
     """Darf dieser Scan (header.frame_id) mit diesem Einbau in den Roboterbezug? None = ja, sonst Grund.
     nur_gemessen: nur am Geraet bestaetigte Posen (Werksmodell ist keine Vermessung des Roboters)."""
     if einbau is None:
@@ -263,6 +268,8 @@ def einbau_pruefen(einbau, frame_id, nur_gemessen=True):
         return 'Einbaupose unbekannt'
     if einbau.frame == BASIS_FRAME and (einbau.x, einbau.y) != (0.0, 0.0):
         return f'widerspruechlich: Scan schon in {BASIS_FRAME}, aber Verschiebung eingestellt'
+    if einbau.frame == BASIS_FRAME and front_deg != 0.0:
+        return f'widerspruechlich: Scan schon in {BASIS_FRAME}, aber scan_front_deg {front_deg} eingestellt'
     if nur_gemessen and einbau.quelle != 'gemessen':
         return f'Einbaupose nur {einbau.quelle}, nicht am Geraet vermessen'
     return None
@@ -279,7 +286,10 @@ def nach_basis(xy_vorne, einbau):
 
 def sensor_zu_basis(xy_sensor, front_deg, einbau):
     """Punkte im eigenen Sensorbezug (Winkel wie im LaserScan) in den Roboterbezug:
-    p_basis = R(-front_deg) * p_sensor + (x, y). Drehung und Verschiebung genau einmal."""
+    p_basis = R(-front_deg) * p_sensor + (x, y). Drehung und Verschiebung genau einmal. Scans schon in base_link
+    duerfen weder gedreht noch verschoben werden (front_deg muss dann 0 sein)."""
+    if einbau.frame == BASIS_FRAME and front_deg != 0.0:
+        raise ValueError(f'Scan schon in {BASIS_FRAME}: scan_front_deg muss 0 sein, nicht {front_deg}')
     w = -math.radians(front_deg)
     c, s = math.cos(w), math.sin(w)
     xy = np.asarray(xy_sensor, dtype=np.float64).reshape(-1, 2) @ np.array([[c, s], [-s, c]])
@@ -289,7 +299,7 @@ def sensor_zu_basis(xy_sensor, front_deg, einbau):
 def punkte_basis(msg, front_deg, einbau, min_abstand=0.08, nur_gemessen=True):
     """Gueltige Punkte eines Scans im Roboterbezug: (xy oder None, Grund oder None).
     Ohne passenden Frame oder bestaetigte Pose gibt es KEINE Punkte (unbekannt), keine Annahme 'Sensor = Mitte'."""
-    grund = einbau_pruefen(einbau, getattr(getattr(msg, 'header', None), 'frame_id', None), nur_gemessen)
+    grund = einbau_pruefen(einbau, getattr(getattr(msg, 'header', None), 'frame_id', None), nur_gemessen, front_deg)
     if grund:
         return None, grund
     return nach_basis(punkte_xy(msg, front_deg, min_abstand), einbau), None

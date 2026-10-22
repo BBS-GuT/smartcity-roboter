@@ -76,6 +76,16 @@ class Transformation(unittest.TestCase):
         self.assertIsNone(grund)
         self.nah(xy, [[0.3, 0.2]])
 
+    def test_roboterbezug_mit_frontwinkel_ist_widerspruechlich(self):
+        # Codex-Befund zu PR #143: base_link-Scans duerfen auch nicht nochmal gedreht werden
+        e = lidar.Einbau('base_link', 0.0, 0.0, 'gemessen')
+        xy, grund = lidar.punkte_basis(scan_mit_punkt(0.3, 0.2, 'base_link'), 90.0, e)
+        self.assertIsNone(xy)
+        self.assertIn('scan_front_deg', grund)
+        with self.assertRaises(ValueError):
+            lidar.sensor_zu_basis([[0.3, 0.2]], 90.0, e)
+        self.nah(lidar.sensor_zu_basis([[0.3, 0.2]], 0.0, e), [[0.3, 0.2]])
+
 
 class Gegenbeispiele(unittest.TestCase):
     """Die drei Faelle aus #59 mit dem Werksmodell als ausdruecklichem Rechenbezug."""
