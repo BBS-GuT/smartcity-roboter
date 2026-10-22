@@ -5,6 +5,7 @@
 # den Abstand rundherum. Ein Schuh erscheint deshalb nur als kurzer Bogen
 # (seine Vorderkante), nicht als Flaeche. Was niedriger oder hoeher als die
 # Scheibe ist, sieht er gar nicht.
+from dataclasses import dataclass
 import math
 from numbers import Integral
 
@@ -186,6 +187,94 @@ def punkte_xy(msg, front_deg=0.0, min_abstand=0.08):
     a, r = winkel_und_abstand(msg, front_deg)
     ok = r > min_abstand
     return np.stack([r[ok] * np.cos(a[ok]), r[ok] * np.sin(a[ok])], axis=1)
+
+
+# ---------------- Sensor -> Roboter (L4 #63) ----------------
+# Roboterbezug: base_link, x vorne, y links, Meter, Winkel gegen den Uhrzeigersinn positiv.
+# Genau EINE Drehkonvention: die Drehung eines LiDARs kommt allein aus scan_front_deg (Grad, unter welchem
+# Sensorwinkel er die Roboter-Vorderrichtung sieht; Panel -> LiDAR-Radar). Die Einbaupose ergaenzt nur die
+# Verschiebung (x, y) des Sensorursprungs:  p_basis = R(-scan_front_deg) * p_sensor + (x, y).
+# Noch KEIN Verbraucher benutzt das (Umstellung in #64, erst mit am Geraet bestaetigter Pose aus #66).
+BASIS_FRAME = 'base_link'
+EINBAU_QUELLEN = ('gemessen', 'werksmodell', 'unbekannt')
+
+
+@dataclass(frozen=True)
+class Einbau:
+    """Wo ein LiDAR am Roboter sitzt. frame: erwarteter header.frame_id seiner Scans; x, y: Sensorursprung im
+    Roboterbezug (m); quelle: 'gemessen' (am Geraet bestaetigt), 'werksmodell' (z. B. URDF, nur Rechenbezug) oder
+    'unbekannt'. frame == base_link heisst: der Treiber liefert schon im Roboterbezug (dann x = y = 0)."""
+    frame: str
+    x: float
+    y: float
+    quelle: str
+
+
+def einbau_aus_parametern(topics, frames, xy, quellen):
+    """Einbau je Kanal aus den Parametern scan_frames, scan_einbau_xy ([x0, y0, x1, y1 ...]) und scan_einbau_quelle.
+    Rueckgabe: ({topic: Einbau}, None) oder (None, Grund), wenn die Listen nicht zusammenpassen."""
+    topics, frames, xy, quellen = list(topics), list(frames), list(xy), list(quellen)
+    n = len(topics)
+    if not n or len(frames) != n or len(xy) != 2 * n or len(quellen) != n:
+        return None, f'Einbauangaben passen nicht zu {n} Kanaelen (frames {len(frames)}, xy {len(xy)}, ' \
+                     f'quellen {len(quellen)})'
+    einbau = {}
+    for k, t in enumerate(topics):
+        if not isinstance(frames[k], str) or not frames[k].strip():
+            return None, f'{t}: Frame fehlt'
+        if quellen[k] not in EINBAU_QUELLEN:
+            return None, f'{t}: Quelle {quellen[k]!r} unbekannt (erlaubt: {", ".join(EINBAU_QUELLEN)})'
+        try:
+            x, y = float(xy[2 * k]), float(xy[2 * k + 1])
+        except (TypeError, ValueError):
+            return None, f'{t}: Einbau x/y keine Zahlen'
+        einbau[t] = Einbau(frames[k].strip(), x, y, quellen[k])
+    return einbau, None
+
+
+def einbau_pruefen(einbau, frame_id, nur_gemessen=True):
+    """Darf dieser Scan (header.frame_id) mit diesem Einbau in den Roboterbezug? None = ja, sonst Grund.
+    nur_gemessen: nur am Geraet bestaetigte Posen (Werksmodell ist keine Vermessung des Roboters)."""
+    if einbau is None:
+        return 'Einbaupose fehlt'
+    if not isinstance(frame_id, str) or not frame_id:
+        return 'Scan ohne Frame'
+    if frame_id != einbau.frame:
+        return f'Frame passt nicht (Scan {frame_id!r}, eingestellt {einbau.frame!r})'
+    if einbau.quelle == 'unbekannt' or not (math.isfinite(einbau.x) and math.isfinite(einbau.y)):
+        return 'Einbaupose unbekannt'
+    if einbau.frame == BASIS_FRAME and (einbau.x, einbau.y) != (0.0, 0.0):
+        return f'widerspruechlich: Scan schon in {BASIS_FRAME}, aber Verschiebung eingestellt'
+    if nur_gemessen and einbau.quelle != 'gemessen':
+        return f'Einbaupose nur {einbau.quelle}, nicht am Geraet vermessen'
+    return None
+
+
+def nach_basis(xy_vorne, einbau):
+    """Punkte, die schon nach vorne gedreht sind (punkte_xy mit scan_front_deg), in den Roboterbezug: nur noch
+    um den Sensorursprung verschieben. Schon im Roboterbezug gelieferte Scans (base_link) bleiben unveraendert."""
+    xy = np.asarray(xy_vorne, dtype=np.float64).reshape(-1, 2)
+    if einbau.frame == BASIS_FRAME:
+        return xy.copy()
+    return xy + np.array([einbau.x, einbau.y])
+
+
+def sensor_zu_basis(xy_sensor, front_deg, einbau):
+    """Punkte im eigenen Sensorbezug (Winkel wie im LaserScan) in den Roboterbezug:
+    p_basis = R(-front_deg) * p_sensor + (x, y). Drehung und Verschiebung genau einmal."""
+    w = -math.radians(front_deg)
+    c, s = math.cos(w), math.sin(w)
+    xy = np.asarray(xy_sensor, dtype=np.float64).reshape(-1, 2) @ np.array([[c, s], [-s, c]])
+    return nach_basis(xy, einbau)
+
+
+def punkte_basis(msg, front_deg, einbau, min_abstand=0.08, nur_gemessen=True):
+    """Gueltige Punkte eines Scans im Roboterbezug: (xy oder None, Grund oder None).
+    Ohne passenden Frame oder bestaetigte Pose gibt es KEINE Punkte (unbekannt), keine Annahme 'Sensor = Mitte'."""
+    grund = einbau_pruefen(einbau, getattr(getattr(msg, 'header', None), 'frame_id', None), nur_gemessen)
+    if grund:
+        return None, grund
+    return nach_basis(punkte_xy(msg, front_deg, min_abstand), einbau), None
 
 
 def abstand_zum_weg(xy, weg=None, laenge=0.8):
