@@ -122,6 +122,18 @@ class Kreuzung(unittest.TestCase):
                     self.assertIsNone(s.wahl)
                 self.assertTrue(s.suche(T, 0.0)['kreuzung_neu'])
 
+    def test_wahl_bleibt_im_stand(self):
+        """Review PR #101 (GB-06): steht er nach der Wahl (Ampel, Hindernis), verfaellt sie nicht - erst nach Fahrstrecke."""
+        s = linie.LinienSucher()
+        s.suche(T, 0.0, pos=(0.0, 0.0))
+        self.assertIsNotNone(s.wahl)
+        for _ in range(40):                                     # steht: Kreuzung nicht erkannt, aber keine Bewegung
+            s.suche(GERADE, 0.0, pos=(0.0, 0.0))
+        self.assertIsNotNone(s.wahl)
+        for _ in range(20):                                     # 30 cm weiter: durchfahren
+            s.suche(GERADE, 0.0, pos=(0.30, 0.0))
+        self.assertIsNone(s.wahl)
+
     def test_kamera_weggedreht_aendert_nichts(self):
         """Arm dreht die Kamera weg (Zebrastreifen, Greifen): Wahl bleibt, auch nach vielen Bildern."""
         s = linie.LinienSucher()

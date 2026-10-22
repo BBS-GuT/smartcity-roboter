@@ -810,6 +810,15 @@ l2.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.05), weg=WEG_KURVE)
 folge2 = [l2.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.05), weg=WEG_KURVE) for _ in range(40)]
 dreht2 = [x for x in folge2 if x.get('manoever') and x['manoever']['dreh'] > 0]
 ok = ok and bool(dreht2) and all(x['manoever']['quer'] == 0.0 for x in dreht2)   # auch seitlich: auf der Stelle
+# Review PR #101: Linie faellt beim Geradedrehen kurz aus, zuletzt schraeg -> nicht naeher heranfahren
+l3 = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+for _ in range(60):                                   # bis er zum Geradedrehen ansetzt
+    b3 = l3.schritt(1, objekt=dict(WUERFEL, seite=0.0), weg=WEG_KURVE)
+    if (b3.get('manoever') or {}).get('dreh', 0.0) > 0:
+        break
+ohne_linie = [l3.schritt(1, objekt=dict(WUERFEL, seite=0.0)) for _ in range(10)]
+ok = ok and (b3.get('manoever') or {}).get('dreh', 0.0) > 0 and all(
+    (x.get('manoever') or {}).get('lin', 0.0) <= 0.0 for x in ohne_linie)
 gerade = [l.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.0), weg=[(0.05 * k, 0.0) for k in range(1, 12)])
           for _ in range(10)]
 ok = ok and l.e.ablauf is not None and l.e.ablauf.phase in ('planen', 'naeher', 'ausfuehren')

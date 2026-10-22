@@ -102,6 +102,8 @@ class LinienSucher:
         self.erwartung = None      # wo die Linie vermutlich ist (Roboter-System), vom Gedaechtnis
         self.wahl = None           # an der aktuellen Kreuzung gewaehlter Ast: Richtung (rad, wie gier) oder None
         self.ohne_kreuzung = 0     # so viele Bilder in Folge ohne Kreuzung (danach gilt sie als durchfahren)
+        self.pos = None            # eigene Position beim aktuellen Bild (x, y m, Gedaechtnis) oder None (unbekannt)
+        self.kreuzung_pos = None   # dort zuletzt die Kreuzung gesehen
         self.zufall = random.Random()
 
     def _vogel(self, w, h):
@@ -212,10 +214,16 @@ class LinienSucher:
         return None
 
     def _keine_kreuzung(self, kamera_ok):
-        if kamera_ok:
-            self.ohne_kreuzung += 1
-            if self.ohne_kreuzung > 15:
-                self.wahl = None
+        """Gueltiges Bild ohne Kreuzung (auch ganz ohne Linie). Die Wahl verfaellt erst nach ca. 15 solchen Bildern UND
+        wenn er seit der letzten Sichtung der Kreuzung mindestens 20 cm gefahren ist (GB-06: Wahl bis zur Ausfahrt
+        halten - steht er an Ampel oder Hindernis, bleibt sie). Ohne Position (pos None) nur nach Bildern."""
+        if not kamera_ok:
+            return
+        self.ohne_kreuzung += 1
+        gefahren = (self.pos is None or self.kreuzung_pos is None
+                    or math.hypot(self.pos[0] - self.kreuzung_pos[0], self.pos[1] - self.kreuzung_pos[1]) > 0.20)
+        if self.ohne_kreuzung > 15 and gefahren:
+            self.wahl = None
 
     def _abbiegen(self, teil, start, gier, erg, kamera_ok=True):
         """Kreuzung? Dann einen Ast waehlen (zufaellig beim ersten Sehen, danach derselbe) und nur Stamm + diesen Ast
@@ -234,6 +242,7 @@ class LinienSucher:
             self._keine_kreuzung(kamera_ok)
             return teil
         self.ohne_kreuzung = 0
+        self.kreuzung_pos = self.pos
         stamm, aeste, _ = teilung
         g = gier or 0.0
         if self.wahl is None:
@@ -245,9 +254,11 @@ class LinienSucher:
                            'wahl': round(math.degrees(richtung))}
         return stamm | ast
 
-    def suche(self, img, gier=None, kamera_ok=True):
+    def suche(self, img, gier=None, kamera_ok=True, pos=None):
         """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige.
-        gier: Drehung des Roboters (rad), fuer die Wahl an Kreuzungen. kamera_ok: Kamera schaut in Fahrstellung."""
+        gier: Drehung des Roboters (rad), fuer die Wahl an Kreuzungen. kamera_ok: Kamera schaut in Fahrstellung.
+        pos: eigene Position (x, y m, Gedaechtnis) - die Kreuzungswahl verfaellt erst nach Fahrstrecke."""
+        self.pos = pos
         h, w = img.shape[:2]
         c = self.c
         oben = int(h * c['zeilen_oben'])

@@ -795,6 +795,12 @@ class Wegraeumen(Ablauf):
             # Drehen um die Mitte aendert den Abstand kaum, die Kamera behaelt ihn im Blick. Auch nicht seitlich
             # schieben: wirklich auf der Stelle (sonst verlaesst die Fahrzeughuelle die Spur)
             lin = quer = 0.0
+        gemerkt = getattr(self, 'schraeg_zuletzt', None)
+        if not dreh and schraeg is None and gemerkt is not None and abs(gemerkt) >= c['greif_winkel']:
+            # Linie gerade weg, zuletzt stand er aber schraeg: nicht naeher heran (dort verloere er es wieder), warten,
+            # bis die Linie wieder da ist und er weiter gerade drehen kann
+            lin = min(lin, 0.0)
+            quer = 0.0
         if lin < 0 and (hinten is None or hinten < c['hinten_frei']):
             lin = 0.0                                          # rueckwaerts nur, wenn hinten frei
         text = f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm"
