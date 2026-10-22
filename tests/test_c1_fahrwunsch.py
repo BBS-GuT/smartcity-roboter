@@ -1,39 +1,10 @@
 #!/usr/bin/env python3
-"""C1k / BBS #152: VORBEREITUNG, noch keine Produktimplementierung.
+"""C1k #152: eigenstaendiger Fahrwunsch und explizite Datenannahme.
 
-Geplanter oeffentlicher API-Vertrag (Namen vor Umsetzung mit O abgleichen):
-* pruefe_fahrwunsch(dict) -> Fehlerliste; dieselbe Definition wird unter
-  motion.request benutzt. contract_version=SCHEMA_VERSION='2.0', exakt 13 Felder.
-* fahrwunsch_als_json(dict) / lade_fahrwunsch_json(text) -> strikter separater
-  JSON-Rundlauf; ValueError bei Fehlern. Exakten #149-Pfad wiederverwenden.
-* FahrwunschAnnahme(**bindung): robot_id, producer_id, producer_boot_id,
-  time_basis_id, bind_mono_s, max_duration_s explizit; None bleibt unbestaetigt.
-  Kein Standardbudget, keine Bindung aus Nachrichten oder C-Zustandskopf.
-* annehmen(dict, *, jetzt_mono_s), annehmen_json(text, *, jetzt_mono_s)
-  -> neues Diagnose-dict mit status, reason, verwendbar, neu, kontext,
-     angenommen, hoechststand. Die letzten beiden sind abgetrennte vollstaendige
-     Requestkopien oder None, nicht bloss Sequenzen. status beschreibt den Eingang
-     (accepted/duplicate/expired/replay/invalid/unknown). verwendbar und neu sind
-     nur bei frischer neuer Annahme true; kein Freigabe-/Motorfeld.
-  aktueller_wunsch(*, jetzt_mono_s) -> isolierte aktuelle Requestkopie oder None;
-  prueft Frist und Ueberholung erneut, unabhaengig vom letzten Eingangsergebnis.
-* binde(**vollstaendige_bindung): ausdruecklicher bestaetigter A-/B-Kontextwechsel,
-  Vergleichspaare neu initialisieren; alte Eingangsstarts koennen nicht umschalten.
-  C-boot_id ist absichtlich kein Parameter. Keine C-Neustart-Resetfunktion.
-
-Umsetzung NACH zweiter Freigabe und Uebernahme #149/#150: Requestdefinition in
-bestehendem Modul/Schema $defs/fahrwunsch teilen, keine Parallelvalidierung.
-Zuerst Struktur/Bindung/exakte Zeiten und Budget/Regression pruefen, dann nur
-ansonsten gueltige neue Sequenz im HWM speichern; Ablauf entscheidet danach
-ueber Annahmepaar und Verwendbarkeit. HWM-Inhalt und Annahmepaar deep-copyen;
-Objektfeldreihenfolge ist irrelevant. Ungueltige hohe Werte vergiften nichts.
-Nur motion.request der sieben aktiven Fixtures und notwendige bisherige
-Request-Testaufbauten anpassen; keine fremden Assertions/Adapter/Motorlogik.
-
-Vorbereitung: FixtureSelbstkontrolle laeuft ohne neue API. Die uebrigen Klassen
-scheitern am fehlenden API-/Schema-Einstieg explizit, keine erwarteten Fehler
-oder Skips. Spaeter alle Klassen, bisherige C1-Suite, Vertragssuite und D1
-ausfuehren. Schema nutzt vorhandenes requirements-test.txt, kein neues Paket.
+Die Modul-/Annahmepruefungen benutzen c1_fahrwunsch direkt. SchemaUndEinbettung
+prueft die gemeinsame Fassade und die wiederverwendete Schema-Definition am
+Gesamtstand; diese gemeinsamen Dateien liegen beim Integrator. Alle Fixtures
+sind synthetisch. Die Datenannahme ist keine Motorfreigabe.
 """
 import copy
 from decimal import Decimal, Inexact, Rounded, localcontext
@@ -45,6 +16,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
+import c1_fahrwunsch as R  # noqa: E402
 
 FIXTURES = ROOT / 'tests' / 'fixtures' / 'c1_requests'
 FIELDS = set(('contract_version robot_id producer_id producer_boot_id request_seq '
@@ -71,7 +43,7 @@ def request(**changes):
 def required_api():
     names = ('pruefe_fahrwunsch', 'fahrwunsch_als_json', 'lade_fahrwunsch_json',
              'FahrwunschAnnahme', 'zeit_ns', 'sekunden_aus_ns')
-    missing = [name for name in names if not hasattr(V, name)]
+    missing = [name for name in names if not hasattr(R, name)]
     if missing:
         raise AssertionError('Vorbereitung: Produkt-API noch ausstehend: ' + ', '.join(missing))
 
@@ -103,14 +75,14 @@ class RequestStruktur(unittest.TestCase):
     def test_alle_fixtures_strukturell_gueltig(self):
         for path in FIXTURES.glob('*.json'):
             with self.subTest(path=path.name):
-                self.assertEqual(V.pruefe_fahrwunsch(fixture(path.stem)), [])
+                self.assertEqual(R.pruefe_fahrwunsch(fixture(path.stem)), [])
 
     def test_jedes_der_13_felder_verpflichtend(self):
         for field in FIELDS:
             with self.subTest(field=field):
                 d = request()
                 del d[field]
-                self.assertTrue(V.pruefe_fahrwunsch(d))
+                self.assertTrue(R.pruefe_fahrwunsch(d))
 
     def test_kein_motorfeld_oder_paralleles_versionsregime(self):
         for changes in ({'motor_enabled': True}, {'contract_version': '1.0'},
@@ -118,7 +90,7 @@ class RequestStruktur(unittest.TestCase):
                         {'request_seq': -1}, {'request_seq': Decimal('8.5')},
                         {'hold_reasons': ['RED_LIGHT', 'RED_LIGHT']}):
             with self.subTest(changes=changes):
-                self.assertTrue(V.pruefe_fahrwunsch(request(**changes)))
+                self.assertTrue(R.pruefe_fahrwunsch(request(**changes)))
 
     def test_zeitfehler_auch_nichtendliche_decimal_ohne_absturz(self):
         values = (Decimal('NaN'), Decimal('sNaN'), Decimal('Infinity'),
@@ -127,25 +99,25 @@ class RequestStruktur(unittest.TestCase):
         for field in ('generated_mono_s', 'valid_until_mono_s'):
             for value in values:
                 with self.subTest(field=field, value=repr(value)):
-                    self.assertTrue(V.pruefe_fahrwunsch(request(**{field: value})))
+                    self.assertTrue(R.pruefe_fahrwunsch(request(**{field: value})))
                     with self.assertRaises(ValueError):
-                        V.fahrwunsch_als_json(request(**{field: value}))
+                        R.fahrwunsch_als_json(request(**{field: value}))
 
     def test_separater_oeffentlicher_json_rundlauf(self):
         for path in FIXTURES.glob('*.json'):
-            d = V.lade_fahrwunsch_json(path.read_text(encoding='utf-8'))
+            d = R.lade_fahrwunsch_json(path.read_text(encoding='utf-8'))
             self.assertEqual(d, fixture(path.stem))
-            text = V.fahrwunsch_als_json(d)
-            self.assertEqual(V.lade_fahrwunsch_json(text), d)
-            self.assertIsInstance(V.lade_fahrwunsch_json(text)['generated_mono_s'], Decimal)
+            text = R.fahrwunsch_als_json(d)
+            self.assertEqual(R.lade_fahrwunsch_json(text), d)
+            self.assertIsInstance(R.lade_fahrwunsch_json(text)['generated_mono_s'], Decimal)
 
     def test_json_exponent_und_raster_ohne_floatvorstufe(self):
         text = (FIXTURES / 'frist120.json').read_text(encoding='utf-8')
-        d = V.lade_fahrwunsch_json(text.replace('120.20', '1.202e2'))
+        d = R.lade_fahrwunsch_json(text.replace('120.20', '1.202e2'))
         self.assertEqual(V.zeit_ns(d['valid_until_mono_s']), 120200000000)
         for token in ('120.2000000001', 'NaN', 'Infinity', '-Infinity', 'true', '"120.20"'):
             with self.subTest(token=token), self.assertRaises(ValueError):
-                V.lade_fahrwunsch_json(text.replace('120.20', token))
+                R.lade_fahrwunsch_json(text.replace('120.20', token))
 
 
 class Annahme(unittest.TestCase):
@@ -154,7 +126,7 @@ class Annahme(unittest.TestCase):
         required_api()
 
     def setUp(self):
-        self.ctx = V.FahrwunschAnnahme(**BINDUNG)
+        self.ctx = R.FahrwunschAnnahme(**BINDUNG)
 
     def take(self, d=None, now=101):
         return self.ctx.annehmen(request() if d is None else d, jetzt_mono_s=now)
@@ -181,7 +153,7 @@ class Annahme(unittest.TestCase):
         for field in BINDUNG:
             with self.subTest(field=field):
                 binding = dict(BINDUNG, **{field: None})
-                ctx = V.FahrwunschAnnahme(**binding)
+                ctx = R.FahrwunschAnnahme(**binding)
                 r = ctx.annehmen(request(), jetzt_mono_s=101)
                 self.assertEqual(r['status'], 'unknown')
                 self.assertFalse(r['verwendbar'])
@@ -242,7 +214,7 @@ class Annahme(unittest.TestCase):
                     {'generated_mono_s': Decimal('NaN')})
         for changes in variants:
             with self.subTest(changes=changes):
-                self.ctx = V.FahrwunschAnnahme(**BINDUNG)
+                self.ctx = R.FahrwunschAnnahme(**BINDUNG)
                 before = self.take()
                 bad = self.take(request(request_seq=999, **changes))
                 self.assert_result(bad, 'invalid')
@@ -257,7 +229,7 @@ class Annahme(unittest.TestCase):
         self.assert_result(self.take(bad), 'invalid')
         for generated in ('100.4', '100.5'):
             with self.subTest(generated=generated):
-                self.ctx = V.FahrwunschAnnahme(**BINDUNG)
+                self.ctx = R.FahrwunschAnnahme(**BINDUNG)
                 self.take()
                 self.take(fixture('abgelaufen10'))
                 self.assert_result(self.take(request(request_seq=11,
@@ -269,10 +241,10 @@ class Annahme(unittest.TestCase):
         for now, status in (('120.199999999', 'accepted'), ('120.20', 'expired'),
                             ('120.200000001', 'expired')):
             with self.subTest(now=now):
-                ctx = V.FahrwunschAnnahme(**binding)
+                ctx = R.FahrwunschAnnahme(**binding)
                 self.assertEqual(ctx.annehmen(d, jetzt_mono_s=Decimal(now))['status'], status)
         d['valid_until_mono_s'] = Decimal('120.200000001')
-        ctx = V.FahrwunschAnnahme(**binding)
+        ctx = R.FahrwunschAnnahme(**binding)
         r = ctx.annehmen(d, jetzt_mono_s=Decimal('120.05'))
         self.assertEqual(r['status'], 'invalid')
         self.assertIsNone(r['hoechststand'])
@@ -283,9 +255,9 @@ class Annahme(unittest.TestCase):
         with localcontext() as dc:
             dc.prec = 3
             dc.traps[Inexact] = dc.traps[Rounded] = True
-            direct = V.FahrwunschAnnahme(**binding).annehmen(
+            direct = R.FahrwunschAnnahme(**binding).annehmen(
                 fixture('frist120'), jetzt_mono_s=Decimal('120.199999999'))
-            wire = V.FahrwunschAnnahme(**binding).annehmen_json(
+            wire = R.FahrwunschAnnahme(**binding).annehmen_json(
                 text, jetzt_mono_s=Decimal('120.199999999'))
         self.assertEqual(direct, wire)
         self.assertEqual(wire['status'], 'accepted')
@@ -296,13 +268,13 @@ class Annahme(unittest.TestCase):
                      Decimal('101.0000000001'), Decimal('9223372036.854775808'))
         for value in bad_times:
             with self.subTest(now=repr(value)):
-                r = V.FahrwunschAnnahme(**BINDUNG).annehmen(request(), jetzt_mono_s=value)
+                r = R.FahrwunschAnnahme(**BINDUNG).annehmen(request(), jetzt_mono_s=value)
                 self.assertIn(r['status'], ('invalid', 'unknown'))
                 self.assertFalse(r['verwendbar'])
                 self.assertIsNone(r['hoechststand'])
         for value in (0, -1, True, 2.0, Decimal('NaN'), Decimal('sNaN')):
             with self.subTest(budget=repr(value)):
-                ctx = V.FahrwunschAnnahme(**dict(BINDUNG, max_duration_s=value))
+                ctx = R.FahrwunschAnnahme(**dict(BINDUNG, max_duration_s=value))
                 r = ctx.annehmen(request(), jetzt_mono_s=101)
                 self.assertEqual(r['status'], 'invalid')
                 self.assertIsNone(r['hoechststand'])
@@ -344,6 +316,32 @@ class Annahme(unittest.TestCase):
         current['hold_reasons'].clear()
         self.assertEqual(self.ctx.aktueller_wunsch(jetzt_mono_s=101), saved)
         self.assert_result(self.take(saved), 'duplicate')
+
+    def test_statische_json_pruefung_schreibt_keinen_annahmestand(self):
+        self.take()
+        self.take(fixture('abgelaufen10'))
+        d = fixture('frisch11')
+        self.assertEqual(R.pruefe_fahrwunsch(d), [])
+        self.assertEqual(R.lade_fahrwunsch_json(R.fahrwunsch_als_json(d)), d)
+        self.assertIsNone(self.ctx.aktueller_wunsch(jetzt_mono_s=101))
+        # Der statische Rundlauf hat 11 weder angenommen noch beobachtet.
+        r = self.take(fixture('frisch9'))
+        self.assert_result(r, 'replay')
+        self.assertEqual(r['hoechststand']['request_seq'], 10)
+        self.assert_result(self.take(d), 'accepted')
+
+    def test_fehlerhaftes_json_vergiftet_keinen_annahmestand(self):
+        before = self.take()
+        duplicate = R.fahrwunsch_als_json(request()).replace(
+            '"request_seq":8', '"request_seq":8,"request_seq":999')
+        for text in ('{', '[]', 'null', duplicate):
+            with self.subTest(text=text):
+                with self.assertRaises(ValueError):
+                    R.lade_fahrwunsch_json(text)
+                r = self.ctx.annehmen_json(text, jetzt_mono_s=101)
+                self.assert_result(r, 'invalid')
+                self.assertEqual(r['angenommen'], before['angenommen'])
+                self.assertEqual(r['hoechststand'], before['hoechststand'])
 
 
 class SchemaUndEinbettung(unittest.TestCase):
