@@ -34,7 +34,7 @@ Tipp: Das Panel im Laptop-Browser ist besser als die Bildschirmfreigabe des Robo
 
 | Seite | Inhalt |
 |---|---|
-| Dashboard | alles auf einen Blick: Entscheidung der KI, Karte, Kamera, LiDAR, Knöpfe, Ereignisse. Passt auch auf den 7-Zoll-Bildschirm (1024×600) und aufs Handy |
+| Dashboard | alles auf einen Blick: Entscheidung der KI, Karte, Kamera, LiDAR, Knöpfe, Abblendlicht-Schalter und Blinker-Anzeige ([Lichter](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/lichter.md)), Ereignisse. Passt auch auf den 7-Zoll-Bildschirm (1024×600) und aufs Handy |
 | Karte | 2D/3D, verschieben, zoomen, herunterladen, Messfahrt aufzeichnen, neue Karte |
 | Kamera / LiDAR | groß, LiDAR-Richtung „vorne“ einstellen |
 | Arm | Servos einzeln bewegen, Posen speichern, Greifer einmessen, Greif-Lernen |
