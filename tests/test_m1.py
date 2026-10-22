@@ -20,6 +20,11 @@ START = 'a' * 32
 
 
 class ProtocolTest(unittest.TestCase):
+    def test_schema_file_is_versioned(self):
+        schema = json.loads((ROOT / 'schemas/m1-v1.schema.json').read_text(encoding='utf-8'))
+        self.assertEqual(schema['properties']['schema_version']['const'], 'm1/1')
+        self.assertEqual(len(schema['allOf']), 3)
+
     def message(self, seq=1, start=START):
         return envelope('RM01', start, seq, 'intention', 'city', 1,
                         {'current_section': 'A', 'next_section': 'B'}, now=T)
@@ -103,6 +108,8 @@ class MapTest(unittest.TestCase):
         self.assertEqual(verify_package(pointer, manifest, files)['version'], data['version'])
         with self.assertRaises(ValueError):
             verify_package(pointer, manifest, dict(files, **{'occupancy.png': b'bad'}))
+        with self.assertRaises(ValueError):
+            verify_package(pointer, manifest, files, now=pointer['published_at_unix_s'] + 301)
 
 
 class RouteTest(unittest.TestCase):
@@ -114,6 +121,9 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(choose(*args, map_id='city', map_version=1, now=T+4), 'B')
         self.assertEqual(choose(*args, map_id='other', map_version=1, now=T), 'B')
         self.assertIn(choose(*args, map_id='city', map_version=1, now=T), ['B', 'C'])
+        visited = dict(peer, current_section='X', next_section='Y', recent_sections=['B'])
+        self.assertEqual(choose(['B', 'C'], 'RM02', 'A', [visited], 'B',
+                                map_id='city', map_version=1, now=T), 'C')
 
 
 if __name__ == '__main__':

@@ -54,7 +54,9 @@ des Kartografen nachgewiesen werden.
 Auflösung, Ursprung, Version, Quellen und Qualität. Dateien werden in Pakete
 von höchstens 32 KiB geteilt. Erst nachdem alle Daten und das Manifest per QoS 1
 bestätigt sind, wird `current` retained aktualisiert. Ein separater Empfänger
-muss Hashes und Versionsbezug vor der Anzeige prüfen. Nur die neueste wartende
+muss Hashes, Versionsbezug und Alter vor der Anzeige prüfen. Nach fünf Minuten
+gilt ein retained Zeiger ohne frische Veröffentlichung nicht mehr als aktuell.
+Nur die neueste wartende
 Karte bleibt im Speicher; Fehler sind als `last_error` sichtbar. Die älteren
 unveränderlichen Versionen benötigen auf dem Projektbroker eine abgestimmte
 Aufbewahrungsregel.
@@ -80,7 +82,8 @@ Filterung fehlt.
 
 `lib/m1_routes.py` wählt ausschließlich aus lokal bereits erlaubten Ausfahrten.
 Bei fehlenden, alten oder unpassenden MQTT-Daten gilt die ursprüngliche lokale
-Wahl. Bei Konflikt erhält die kleinere Roboterkennung Vorrang. Ein Anschluss
+Wahl. Frisch belegte oder kürzlich besuchte Abschnitte werden nachrangig gewählt.
+Bei Konflikt erhält die kleinere Roboterkennung Vorrang. Ein Anschluss
 an die echte N1-Navigation ist noch nicht möglich, weil deren freigegebene
 Ausfahrten und Abschnitts-IDs nicht als Schnittstelle vorliegen. Die Funktion
 sendet selbst keine Fahr- oder Stoppsignale.
@@ -96,5 +99,6 @@ Fahrstack geprüft werden, bevor Streckenhinweise dort angeschlossen werden.
 
 Lokal geprüft mit `py -m unittest tests.test_m1` und
 `python3 mqtt/m1_integration_test.py` in der MQTT-Testumgebung. Der zweite
-Test startet einen lokalen Broker und zwei unabhängige MQTT-Clients. Er
+Test startet einen lokalen Broker und zwei unabhängige MQTT-Clients, lädt
+alle Kartenteile über MQTT und prüft Manifest und Hashes. Er
 ersetzt keinen Test mit getrennten echten ROS-Domänen.

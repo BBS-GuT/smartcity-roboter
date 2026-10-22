@@ -9,7 +9,7 @@ import uuid
 from amqtt.broker import Broker
 import paho.mqtt.client as mqtt
 
-from m1_map_transport import publish
+from m1_map_transport import publish, verify_package
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
@@ -42,7 +42,7 @@ async def main():
             client.loop_start()
             clients.append(client)
         clients[1].subscribe('smartcity/m1/robots/RM01/intention', qos=1)
-        clients[1].subscribe('smartcity/map/shared/current', qos=1)
+        clients[1].subscribe('smartcity/map/shared/#', qos=1)
         await asyncio.sleep(.2)
         now = time.time()
         intention = envelope('RM01', uuid.uuid4().hex, 1, 'intention', 'city', 1,
@@ -53,7 +53,8 @@ async def main():
             if received: break
             await asyncio.sleep(.05)
         inbox = Inbox()
-        item = inbox.accept(received[0][1], topic_robot='RM01', now=time.time())
+        item = inbox.accept(received[0][1], topic_robot='RM01',
+                            authenticated_robot='RM01', now=time.time())
         peer = {'robot': 'RM01', 'current_section': item['data']['current_section'],
                 'next_section': item['data']['next_section'], 'map_id': 'city',
                 'map_version': 1, 'observed_at': time.time()}
@@ -70,7 +71,16 @@ async def main():
             await asyncio.sleep(.05)
         actual = json.loads(next(payload for topic, payload in received if topic.endswith('/current')))
         assert actual == pointer
-        print('PASS two MQTT clients: intention, conflict, stale fallback, complete map pointer')
+        prefix = f"smartcity/map/shared/{pointer['map_id']}/{pointer['version']}"
+        def artifact(name):
+            topic = f'{prefix}/{name}'
+            count = int(next(payload for path, payload in received if path == topic + '/chunks'))
+            return b''.join(next(payload for path, payload in received if path == f'{topic}/{i}')
+                            for i in range(count))
+        manifest = artifact('manifest.json')
+        files = {name: artifact(name) for name in ('occupancy.png', 'map.json')}
+        assert verify_package(actual, manifest, files)['version'] == merged['version']
+        print('PASS two MQTT clients: intention, conflict, stale fallback, verified complete map')
     finally:
         for client in clients:
             client.disconnect()
