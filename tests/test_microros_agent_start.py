@@ -69,6 +69,28 @@ class MicroRosAgentStartTests(unittest.TestCase):
             self.assertIn('ROS_DOMAIN_ID=30', output)
             self.assertIn('ROS_LOCALHOST_ONLY=0', output)
 
+    def test_domain_file_matches_panel_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            device = root / 'serial-device'
+            device.touch()
+            (root / 'ros_domain_id').write_text('31\n', encoding='utf-8')
+            capture = root / 'capture.txt'
+            fake_ros2 = root / 'ros2'
+            fake_ros2.write_text('#!/bin/bash\nprintf "%s" "$ROS_DOMAIN_ID" > "$MICROROS_TEST_CAPTURE"\n', encoding='utf-8')
+            fake_ros2.chmod(0o755)
+            environment = os.environ.copy()
+            environment.pop('ROS_DOMAIN_ID', None)
+            environment.pop('ROS_DOMAIN_ID_OVERRIDE', None)
+            environment.update({'MICROROS_WORKSPACE_HOME': str(root),
+                                'MICROROS_SERIAL_DEVICE': str(device),
+                                'MICROROS_ROS2': str(fake_ros2),
+                                'MICROROS_TEST_CAPTURE': str(capture)})
+            result = subprocess.run(['bash', str(SCRIPT)], env=environment,
+                                    capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(capture.read_text(), '31')
+
     def test_missing_device_fails_after_bounded_wait(self):
         with tempfile.TemporaryDirectory() as temporary:
             environment = os.environ.copy()

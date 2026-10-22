@@ -142,6 +142,11 @@ def verify_agent(repo):
     if wrapper not in out: raise RuntimeError("Agent-Neustart abgelehnt: ExecStart verwendet nicht "+wrapper)
     subprocess.run(["sudo","-v"],check=True)
 
+
+def agent_is_active():
+    return subprocess.run(["systemctl", "is-active", "--quiet", "m3pro-microros.service"],
+                          capture_output=True).returncode == 0
+
 def battery_text(state):
     if isinstance(state,dict):
         value=state.get('akku')
@@ -165,9 +170,13 @@ def main(argv=None):
     args=parser.parse_args(argv); repo=Path.home()/"smartcity-roboter"
     if not (repo/"panel/panel.py").is_file(): raise RuntimeError("Roboter-Repository ~/smartcity-roboter fehlt")
     preflight(process_rows()); downloaded=download_all()
-    if args.restart_agent: verify_agent(repo)
+    start_agent = args.restart_agent and not agent_is_active()
+    if start_agent: verify_agent(repo)
     backup=install(repo,downloaded)
-    if args.restart_agent: subprocess.run(["sudo","systemctl","restart","m3pro-microros.service"],check=True)
+    if start_agent:
+        subprocess.run(["sudo","systemctl","start","m3pro-microros.service"],check=True)
+    elif args.restart_agent:
+        print("Agent bereits aktiv: Neustart zum Schutz der Board-ROS-Entities ausgelassen.")
     state=activate(repo) if args.activate else status()
     if args.activate: state=fresh_battery()
     print("Installation erfolgreich. Sicherung:",backup)
