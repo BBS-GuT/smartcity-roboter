@@ -130,9 +130,12 @@ class LinienSucher:
         sicht[int(oben):] = 1
         sicht = cv2.warpPerspective(sicht, self.H, (bw, bh), flags=cv2.INTER_NEAREST)
         klein = cv2.resize(sicht, (bw // 4, bh // 4), interpolation=cv2.INTER_AREA) > 0
-        # 2 Pixel (32 mm) breit: am fernen Bildrand wird die Linie unscharf und endet oft knapp davor
-        self.sicht_rand = klein & ~(cv2.erode(klein.astype(np.uint8), np.ones((5, 5), np.uint8),
-                                              borderValue=0) > 0)
+        # Am fernen Bildrand wird die Linie unscharf und endet oft knapp davor: dort 2 Pixel (32 mm) breit. Nur in
+        # Fahrtrichtung verbreitert - an den (steilen) Seitenraendern bleibt er ca. 1 Pixel, sonst gaelte eine lange
+        # Haltelinie, die kurz vor dem seitlichen Bildrand endet, als Ausfahrt (Review PR #126)
+        innen = cv2.erode(klein.astype(np.uint8), np.ones((3, 3), np.uint8), borderValue=0)
+        innen = cv2.erode(innen, np.ones((3, 1), np.uint8), borderValue=0)
+        self.sicht_rand = klein & ~(innen > 0)
 
     def _zu_raster(self, x, y):
         return ((self.SEITE - y) / self.RASTER, (self.VORNE[1] - x) / self.RASTER)

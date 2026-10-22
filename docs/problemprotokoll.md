@@ -59,8 +59,10 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 - **Ursache (Simulation):** Abzweige wurden nicht erkannt: Äste mussten 10 cm lang zu sehen sein (die Kamera sieht nur
   ca. 20 cm Boden), die Suche begann an der erwarteten Linie hinter dem Abzweigpunkt, ein Ast zum Roboter zurück
   beendete die Suche, und eine Linie, die 1 Pixel vor dem fernen Bildrand endete, galt nicht als Ausfahrt.
-- **Lösung:** `ast_min` 5 cm, Suche ab dem Roboter, weiter außen weitersuchen, Bildrand 2 Pixel (32 mm) breit.
-- **Grenze:** Ein Querbalken bis ca. 3 cm an den Bildrand (lange Haltelinie) kann als Ausfahrt gelten.
+- **Lösung:** `ast_min` 5 cm, Suche ab dem Roboter, weiter außen weitersuchen, ferner Bildrand 2 Pixel (32 mm)
+  breit (seitlich 1 Pixel).
+- **Grenze:** Eine Haltelinie, die bis an den seitlichen Bildrand reicht (ab ca. 18–20 cm je Seite), kann als
+  Ausfahrt gelten (war vorher auch so, in der Simulation etwas seltener). Maße der realen Haltelinien offen (E1).
 - **Status:** nur Test (`tests/test_kreuzung.py`). Am Roboter prüfen: Log „Kreuzung: Aeste … zufaellig gewaehlt“ an jeder
   Kreuzung. Kamerahöhe/-neigung nachmessen (docs/linie.md).
 

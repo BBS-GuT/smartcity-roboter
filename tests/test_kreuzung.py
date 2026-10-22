@@ -40,9 +40,9 @@ U = bild([((0.0, 0.0), (0.30, 0.0)), ((0.30, 0.12), (0.0, 0.12))]
              (0.30 + 0.06 * math.sin(math.pi * (k + 1) / 40), 0.06 - 0.06 * math.cos(math.pi * (k + 1) / 40)))
             for k in range(40)])
 
-# Haltelinie: Querbalken (je 10 cm zur Seite, laenger als ast_min), endet im Bild -> keine Abzweigung.
-# Grenze: ein Balken, der fast bis an den Bildrand reicht (ca. 18 cm), sieht wie eine Ausfahrt aus (docs/linie.md).
-HALTELINIE = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.10), (0.36, 0.10))])
+# Haltelinie: Querbalken (je 18 cm zur Seite, laenger als ast_min), endet im Bild -> keine Abzweigung.
+# Grenze: ein Balken, der bis an den seitlichen Bildrand reicht (ab ca. 20 cm), sieht wie eine Ausfahrt aus.
+HALTELINIE = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.18), (0.36, 0.18))])
 # Zebrastreifen quer ueber die Strasse: Balken in Fahrtrichtung, Begrenzungen quer und laenger als das Bild breit
 ZEBRA = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.5), (0.36, 0.5)), ((0.44, -0.5), (0.44, 0.5))]
              + [((0.36, y), (0.44, y)) for y in (-0.21, -0.14, -0.07, 0.07, 0.14, 0.21)])
