@@ -242,9 +242,11 @@ class Kartograf(Node):
                 lok = self.kr.lok
                 if lok.pose is not None or not lok.puffer:
                     return
-                odom_scan, punkte = lok.puffer[-1]
-                alle = [punkte] + [K.in_karte(K.relativ(odom_scan, o), p) for o, p in lok.puffer[-8:-1]]
-            pose, guete, eindeutig = self.karte.belegung.global_suchen(np.concatenate(alle))
+                gestartet, verarbeitungszeit = time.monotonic(), lok._scan_jetzt
+                odom_scan, punkte, scanzeit = lok.puffer[-1]
+                alle = [punkte] + [K.in_karte(K.relativ(odom_scan, o), p) for o, p, _ in lok.puffer[-8:-1]]
+                karte = self.karte
+            pose, guete, eindeutig = karte.belegung.global_suchen(np.concatenate(alle))
             with self.lock:
                 if lok is not self.kr.lok:
                     return          # inzwischen neue Karte angefangen
@@ -258,9 +260,10 @@ class Kartograf(Node):
                     return
                 self.fehlversuche = 0
                 lok.pose = K.verknuepfen(pose, K.relativ(odom_scan, lok.odom))
+                lok._globaler_anker(scanzeit, odom_scan, gestartet, verarbeitungszeit)
                 lok.status = f'Position in der Karte gefunden ({guete:.0%})'
                 self.karte.fahrten += 1
-                for o, p in lok.puffer:
+                for o, p, _ in lok.puffer:
                     self.karte.belegung.eintragen(K.verknuepfen(pose, K.relativ(odom_scan, o)), p)
                 lok.puffer = []
             self.get_logger().info(lok.status)
