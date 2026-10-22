@@ -3,6 +3,7 @@
 Prueft die Beispiele in tests/fixtures/grundbetrieb/ mit lib/grundbetrieb_vertrag.py und - falls installiert -
 zusaetzlich mit dem JSON-Schema (jsonschema). Aufruf: python3 tests/test_zustandsvertrag.py"""
 import copy
+from decimal import Decimal
 import glob
 import json
 import os
@@ -14,7 +15,7 @@ sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
 
 BEISPIELE = os.path.join(HIER, 'fixtures', 'grundbetrieb')
-SCHEMA = os.path.join(HIER, '..', 'schemas', 'grundbetrieb-v1.schema.json')
+SCHEMA = os.path.join(HIER, '..', 'schemas', 'grundbetrieb-v2.schema.json')
 try:
     import jsonschema
 except ImportError:          # auf dem Roboter evtl. nicht installiert: dann nur die eigene Pruefung
@@ -23,7 +24,7 @@ except ImportError:          # auf dem Roboter evtl. nicht installiert: dann nur
 
 def beispiel(name):
     with open(os.path.join(BEISPIELE, name + '.json')) as f:
-        return json.load(f)
+        return V.lade_json(f.read())
 
 
 def schema_fehler(d):
@@ -37,7 +38,7 @@ class Beispiele(unittest.TestCase):
         self.assertGreaterEqual(len(dateien), 7)
         for datei in dateien:
             with open(datei) as f:
-                d = json.load(f)
+                d = V.lade_json(f.read())
             with self.subTest(datei=os.path.basename(datei)):
                 self.assertEqual(V.pruefe(d), [])
                 if jsonschema:
@@ -99,10 +100,10 @@ class Regeln(unittest.TestCase):
         self.ungueltig(self.d)
         with self.assertRaises(ValueError):
             V.als_json(self.d)
-        text = json.dumps(beispiel('fahrt')).replace('"offset_m": 0.004', '"offset_m": NaN')
+        text = V.als_json(beispiel('fahrt')).replace('"offset_m":0.004', '"offset_m": NaN')
         with self.assertRaises(ValueError):
             V.lade_json(text)
-        text = json.dumps(beispiel('fahrt')).replace('"offset_m": 0.004', '"offset_m": Infinity')
+        text = V.als_json(beispiel('fahrt')).replace('"offset_m":0.004', '"offset_m": Infinity')
         with self.assertRaises(ValueError):
             V.lade_json(text)
 
@@ -173,7 +174,7 @@ class Regeln(unittest.TestCase):
             'Status unbekannt': lambda d: d['lane'].update(status='ok'),
             'Quelle unvollstaendig': lambda d: d['sensors']['camera'].pop('frame_id'),
             'keine Sensoren': lambda d: d.update(sensors={}),
-            'falsche Schemaversion': lambda d: d.update(schema_version='2.0'),
+            'falsche Schemaversion': lambda d: d.update(schema_version='9.0'),
         }
         for name, aendern in aenderungen.items():
             d = copy.deepcopy(self.d)
@@ -211,7 +212,7 @@ class StartUndSequenz(unittest.TestCase):
 
     def test_alter_nach_monotoner_uhr(self):
         d = beispiel('fahrt')
-        self.assertAlmostEqual(V.alter_s(d, d['generated_mono_s'] + 0.25), 0.25)
+        self.assertEqual(V.alter_s(d, d['generated_mono_s'] + Decimal('0.25')), Decimal('0.25'))
         with self.assertRaises(ValueError):
             V.alter_s(d, d['generated_mono_s'] - 5)
 

@@ -5,6 +5,7 @@ Aufruf: python tests/test_c1_quellen.py (ohne ROS, Broker oder Zusatzpakete).
 Die Gegenproben veraendern jeweils nur eine Referenz einer gueltigen Kontrolle.
 """
 import copy
+from decimal import Decimal
 import json
 from pathlib import Path
 import sys
@@ -17,12 +18,12 @@ import grundbetrieb_vertrag as V  # noqa: E402
 FIXTURES = ROOT / 'tests' / 'fixtures' / 'grundbetrieb'
 # Explizite fachliche Pfade, unabhaengig von der Implementierung des Pruefers.
 MESSWERTE = (
-    ('motion', 'measured_v_m_s', 'odometry', 0.12),
-    ('motion', 'measured_w_rad_s', 'imu', -0.2),
-    ('motion', 'odometry_distance_m', 'odometry', 1.5),
-    ('motion', 'heading_rad', 'imu', 0.4),
-    ('obstacles', 'front_clearance_m', 'lidar_0', 1.8),
-    ('diagnostics', 'battery_v', 'board', 12.1),
+    ('motion', 'measured_v_m_s', 'odometry', Decimal('0.12')),
+    ('motion', 'measured_w_rad_s', 'imu', Decimal('-0.2')),
+    ('motion', 'odometry_distance_m', 'odometry', Decimal('1.5')),
+    ('motion', 'heading_rad', 'imu', Decimal('0.4')),
+    ('obstacles', 'front_clearance_m', 'lidar_0', Decimal('1.8')),
+    ('diagnostics', 'battery_v', 'board', Decimal('12.1')),
 )
 
 
@@ -33,7 +34,7 @@ def kontrolle():
     insbesondere spaeter received_mono_s aus C1c. Keine gemessene Bewegung
     wird aus request/output gewonnen.
     """
-    d = json.loads((FIXTURES / 'fahrt.json').read_text(encoding='utf-8'))
+    d = V.lade_json((FIXTURES / 'fahrt.json').read_text(encoding='utf-8'))
     board = copy.deepcopy(d['sensors']['imu'])
     board.update(source_id='synthetic/board/voltage', frame_id=None, coord_frame=None)
     d['sensors']['board'] = board
@@ -55,7 +56,7 @@ class Messwertquellen(unittest.TestCase):
         with self.assertRaises(ValueError):
             V.als_json(d)
         with self.assertRaises(ValueError):
-            V.lade_json(json.dumps(d, allow_nan=False))
+            V.lade_json(V._json_wert(d))
 
     def test_registrierte_schluessel_und_json_rundlauf(self):
         self.assertEqual(V.lade_json(V.als_json(self.d)), self.d)
@@ -158,7 +159,7 @@ class Messwertquellen(unittest.TestCase):
 
     def test_alle_fixtures_verwenden_registrierte_messwertquellen(self):
         for datei in sorted(FIXTURES.glob('*.json')):
-            d = json.loads(datei.read_text(encoding='utf-8'))
+            d = V.lade_json(datei.read_text(encoding='utf-8'))
             for bereich, feld, _, _ in MESSWERTE:
                 m = d[bereich][feld]
                 if m['status'] == 'valid':

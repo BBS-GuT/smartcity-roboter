@@ -6,6 +6,7 @@ Die Zeiten sind synthetisch auf einer gemeinsamen lokalen monotonen Uhr.
 Keine Ableitung aus UTC oder aus dem Aufnahmealter.
 """
 import json
+from decimal import Decimal
 from pathlib import Path
 import sys
 import unittest
@@ -25,11 +26,11 @@ PATH = '$.sensors.camera.' + FIELD
 
 def beispiel():
     with (ROOT / 'tests/fixtures/grundbetrieb/fahrt.json').open(encoding='utf-8') as f:
-        d = json.load(f)
+        d = V.lade_json(f.read())
     # Eigene Testeingabe, unabhaengig von der spaeteren Fixture-Ergaenzung.
     # Ein Empfang 0.125 s vor Erzeugung ist hier ausdruecklich synthetisch gesetzt.
     for q in d['sensors'].values():
-        q[FIELD] = None if q['status'] == 'missing' else d['generated_mono_s'] - 0.125
+        q[FIELD] = None if q['status'] == 'missing' else d['generated_mono_s'] - Decimal('0.005')
     return d
 
 
@@ -44,15 +45,16 @@ class Empfangszeit(unittest.TestCase):
         with self.assertRaises(ValueError):
             V.als_json(d)
         with self.assertRaises(ValueError):
-            V.lade_json(json.dumps(d))
+            V.lade_json(V._json_wert(d))
 
     def test_positive_kontrolle_und_json_roundtrip(self):
         self.assert_gueltig(beispiel())
 
     def test_empfang_nullpunkt_ganzzahl_und_erzeugungsgrenze(self):
-        for t in (0, 0.0, 1, 1.25, beispiel()['generated_mono_s']):
+        for t in (0, Decimal('0.0'), 1, Decimal('1.25'), beispiel()['generated_mono_s']):
             with self.subTest(zeit=t):
                 d = beispiel()
+                d['sensors']['camera'].update(captured_mono_s=0, age_s=d['generated_mono_s'])
                 d['sensors']['camera'][FIELD] = t
                 self.assert_gueltig(d)
 
@@ -69,17 +71,18 @@ class Empfangszeit(unittest.TestCase):
     def test_missing_hat_null(self):
         d = beispiel()
         d['sensors']['camera'].update(status='missing', reason='synthetisch nie empfangen',
-                                     captured_at_s=None, age_s=None, received_mono_s=None)
+                                     captured_at_s=None, captured_mono_s=None, age_s=None, received_mono_s=None)
         self.assert_gueltig(d)
         d['sensors']['camera'][FIELD] = 0
         self.assert_empfangsfehler(d)
 
     def test_nicht_valid_darf_frueheren_empfang_behalten_oder_null_fuehren(self):
         for status in ('stale', 'invalid', 'unknown'):
-            for t in (None, 0, 1.25):
+            for t in (None, 0, Decimal('1.25')):
                 with self.subTest(status=status, zeit=t):
                     d = beispiel()
                     d['sensors']['camera'].update(status=status, reason='synthetische Kontrolle')
+                    d['sensors']['camera'].update(captured_mono_s=0, age_s=d['generated_mono_s'])
                     d['sensors']['camera'][FIELD] = t
                     self.assert_gueltig(d)
 
@@ -104,13 +107,13 @@ class Empfangszeit(unittest.TestCase):
                 q.update(status=status, reason=None if status == 'valid' else 'synthetisch')
                 if status == 'missing':
                     q.update(captured_at_s=None, age_s=None)
-                q[FIELD] = d['generated_mono_s'] + 0.125
+                q[FIELD] = d['generated_mono_s'] + Decimal('0.125')
                 self.assert_empfangsfehler(d)
 
     def test_empfang_ist_unabhaengig_von_utc_und_aufnahmealter(self):
         d = beispiel()
         d.update(generated_at='2026-10-22T00:00:00Z')
-        d['sensors']['camera'].update(captured_at_s=1.0, age_s=99.0, received_mono_s=7.5)
+        d['sensors']['camera'].update(captured_at_s=1, captured_mono_s=d['generated_mono_s'] - 99, age_s=99, received_mono_s=d['generated_mono_s'] - 1)
         self.assert_gueltig(d)
 
     def test_ungueltige_erzeugung_liefert_fehler_statt_absturz(self):
@@ -126,14 +129,14 @@ class Empfangszeit(unittest.TestCase):
         for file in files:
             with self.subTest(datei=file.name):
                 with file.open(encoding='utf-8') as f:
-                    d = json.load(f)
+                    d = V.lade_json(f.read())
                 for q in d['sensors'].values():
                     self.assertIn(FIELD, q)
                 self.assert_gueltig(d)
 
     @unittest.skipIf(jsonschema is None, 'jsonschema nicht installiert')
     def test_schema_struktur_positive_und_negative_kontrollen(self):
-        with (ROOT / 'schemas/grundbetrieb-v1.schema.json').open(encoding='utf-8') as f:
+        with (ROOT / 'schemas/grundbetrieb-v2.schema.json').open(encoding='utf-8') as f:
             schema = json.load(f)
         jsonschema.Draft202012Validator.check_schema(schema)
         validator = jsonschema.Draft202012Validator(schema)
@@ -148,7 +151,7 @@ class Empfangszeit(unittest.TestCase):
                 self.assertTrue(list(validator.iter_errors(d)))
         d = beispiel()
         d['sensors']['camera'].update(status='missing', reason='synthetisch',
-                                     captured_at_s=None, age_s=None, received_mono_s=None)
+                                     captured_at_s=None, captured_mono_s=None, age_s=None, received_mono_s=None)
         self.assertEqual(list(validator.iter_errors(d)), [])
         # Endlichkeit, Statusbezug und Vergleich mit generated_mono_s prueft Python;
         # das JSON-Schema beschreibt die Struktur fuer externe Leser.
