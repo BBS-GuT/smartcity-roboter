@@ -1,10 +1,11 @@
 """Reine B2-Wegwahl; keine Erkennung, Regelautoritaet oder Motorfreigabe.
 
-Vertrag: docs/entwicklung/B2-verzweigungsfreigabe.md (203a910).
+Vertrag: docs/entwicklung/B2-verzweigungsfreigabe.md (b1ef110).
 Alle Bestaetigungen muessen von einem belegten lokalen Produzenten kommen.
 Ein solcher realer E1/B2-Produzent fehlt derzeit im normalen Fahrablauf.
 """
 from dataclasses import dataclass
+from fractions import Fraction
 import math
 import random
 
@@ -14,7 +15,12 @@ def _kennung(wert):
 
 
 def _zahl(wert):
-    return type(wert) in (int, float) and math.isfinite(wert)
+    if type(wert) not in (int, float):
+        return False
+    try:
+        return math.isfinite(wert)
+    except OverflowError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -178,12 +184,12 @@ class Auswahl:
             if len(kandidaten) == 1:
                 wahl = kandidaten[0]
             else:
-                gewichte = [1 / (1 + self._historie.get((b.knoten, b.zufahrt, a), 0))
+                gewichte = [Fraction(1, 1 + self._historie.get((b.knoten, b.zufahrt, a), 0))
                             for a in kandidaten]
                 zug = self._zufall.random()
                 if not _zahl(zug) or not 0 <= zug < 1:
                     return self._halt('zufall_ungueltig')
-                rest = zug * sum(gewichte)
+                rest = Fraction(zug) * sum(gewichte)
                 wahl = kandidaten[-1]
                 for a, gewicht in zip(kandidaten, gewichte):
                     rest -= gewicht

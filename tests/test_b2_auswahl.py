@@ -233,6 +233,43 @@ class Wegwahl(unittest.TestCase):
                          'duplikat_widerspruechlich')
         self.assertEqual(a.schritt(bild(2), 2).lage, 'gewaehlt')
 
+    def test_grosse_historienzaehler_unterlaufen_nicht_zu_null(self):
+        h = {(B.knoten, B.zufahrt, a): 10 ** 1000 for a in ('A', 'C')}
+        a = Auswahl(B.geraet, B.start, B.quelle, historie=h, zufall=Zufall(.25))
+        self.assertEqual(a.schritt(bild(), 1).ausgang, 'A')
+        self.assertEqual(automat().schritt(bild(aufnahme=10 ** 1000), 1).grund,
+                         'zeit_ungueltig')
+
+    def test_schutzstopp_vor_wahl_und_beim_abschluss(self):
+        rng = Zufall()
+        a = automat(zufall=rng)
+        self.assertIsNone(a.schritt(bild(), 1, haltgruende=('STOPP',)).ausgang)
+        self.assertEqual(rng.zuege, 0)
+        a.schritt(bild(2), 2)
+        a.schritt(bild(3, art='einfahrt', ausgang='A', bestaetigt=True), 3)
+        aus = bild(4, art='abschluss', ausgang='A', bestaetigt=True)
+        self.assertEqual(a.schritt(aus, 4, haltgruende=('Hindernis',)).grund, 'schutzstopp')
+        self.assertEqual(a.historie, {})
+        self.assertEqual(a.schritt(aus, 4.1).lage, 'abgeschlossen')
+        self.assertEqual(sum(a.historie.values()), 1)
+
+    def test_bezug_falscher_quelle_vergiftet_keine_lokale_sequenz(self):
+        a = automat(zufall=Zufall())
+        a.schritt(bild(), 1)
+        fremd = bild(1000, aufnahme=2, bezug=replace(B, quelle='fremd'))
+        self.assertEqual(a.schritt(fremd, 2).grund, 'quelle_unpassend')
+        self.assertEqual(a.schritt(bild(3), 3).ausgang, 'A')
+
+    def test_datenobjekte_unveraenderlich_und_keine_motorfreigabe(self):
+        from dataclasses import FrozenInstanceError
+        e = bild()
+        with self.assertRaises(FrozenInstanceError):
+            e.sequenz = 2
+        r = automat().schritt(e, 1)
+        with self.assertRaises(FrozenInstanceError):
+            r.ausgang = 'verboten'
+        self.assertEqual(set(vars(r)), {'lage', 'ausgang', 'grund'})
+
 
 if __name__ == '__main__':
     unittest.main()
