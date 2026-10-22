@@ -1,9 +1,9 @@
-"""C1l #153: vorbereitete Vertragstests, noch keine Laufzeitimplementierung.
+"""C1l #153: ROS-unabhaengige Tests des eigenstaendigen Historienmoduls.
 
-Geplanter API-Einstieg: pruefe_historie(history, *, robot_id, map_version,
+API-Einstieg: pruefe_historie(history, *, robot_id, map_version,
 time_basis_id, generated_mono_s, kontext=None, vorher=None) -> Fehlerliste.
 Details des expliziten synthetischen Kontextes: fixtures/c1_history/README.md.
-Kein Skip/ExpectedFailure fuer die auf der Vorbereitungsbasis fehlende API.
+Fassaden-/Schemaeinbau bleibt bis gesonderter Managerfreigabe offen.
 """
 import copy
 from decimal import Decimal
@@ -14,7 +14,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
-import grundbetrieb_vertrag as V  # noqa: E402
+import c1_fahrhistorie as V  # noqa: E402
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'c1_history'
 
@@ -53,6 +53,32 @@ class FixtureVorbereitung(unittest.TestCase):
         self.assertEqual([e['entry_seq'] for e in after['entries']], list(range(1, 17)))
         self.assertEqual(after['dropped_entries'], 1)
         self.assertEqual(before['entries'][1:], after['entries'][:-1])
+
+
+class HistorienSchema(unittest.TestCase):
+    def test_schema_defs_und_positive_strukturfaelle(self):
+        from jsonschema import Draft202012Validator
+        schema = {'$defs': V.SCHEMA_DEFS, '$ref': '#/$defs/c1History'}
+        Draft202012Validator.check_schema(schema)
+        validator = Draft202012Validator(schema)
+        for name in ('empty', 'two', 'full16', 'after17'):
+            with self.subTest(name=name):
+                self.assertEqual(list(validator.iter_errors(fixture(name))), [])
+        missing = fixture('empty')
+        missing.update(status='missing', reason='not_initialized', entries=None,
+                       dropped_entries=None)
+        self.assertEqual(list(validator.iter_errors(missing)), [])
+
+    def test_schema_negativfaelle_ohne_semantischen_kontextanspruch(self):
+        from jsonschema import Draft202012Validator
+        validator = Draft202012Validator({'$defs': V.SCHEMA_DEFS, '$ref': '#/$defs/c1History'})
+        for changes in (dict(entries=None), dict(dropped_entries=True),
+                        dict(dropped_entries=1), dict(producer_boot_id=None),
+                        dict(status='missing'), dict(reason='capture_gap')):
+            history = fixture('two')
+            history.update(changes)
+            with self.subTest(changes=changes):
+                self.assertTrue(list(validator.iter_errors(history)))
 
 
 class HistorienVertrag(unittest.TestCase):
@@ -224,6 +250,75 @@ class HistorienVertrag(unittest.TestCase):
         self.good(vorher=snapshot(fixture('two')))
         self.history['producer_boot_id'] = None
         self.bad(vorher=snapshot(fixture('two')))
+
+    def test_c_neustart_stopp_test_und_reconnect_sind_keine_b_resets(self):
+        for metadata in (dict(boot_id='demo-c-start-b', seq=0),
+                         dict(runtime_state='GESTOPPT'), dict(runtime_state='TEST'),
+                         dict(reconnects=1)):
+            with self.subTest(metadata=metadata):
+                previous = snapshot(fixture('two'))
+                previous.update(metadata)
+                self.good(vorher=previous)
+                self.bad(fixture('empty'), vorher=previous)
+
+    def test_bestaetigte_eintraege_duerfen_nicht_veraendert_werden(self):
+        previous = snapshot(fixture('two'))
+        self.history['entries'][0]['confirmed_mono_s'] = Decimal('0.5')
+        self.bad(vorher=previous)
+
+    def test_neue_bestaetigung_nicht_vor_letztem_bekannten_abschluss(self):
+        previous = snapshot(fixture('two'))
+        self.history = fixture('full16')
+        self.history['entries'] = self.history['entries'][2:3]
+        self.history['entries'][0]['entry_seq'] = 0
+        # Eindeutig anderer Inhalt unter derselben ID wird ebenfalls abgelehnt.
+        self.bad(vorher=previous)
+        self.history = fixture('after17')
+        previous = snapshot(fixture('full16'))
+        self.history['entries'][-1]['confirmed_mono_s'] = 15
+        self.bad(vorher=previous)
+
+    def test_capture_gap_aus_explizitem_bindungskontext(self):
+        self.context['binding']['capture_gap'] = True
+        self.bad(fixture('empty'))
+        history = fixture('empty')
+        history.update(status='invalid', reason='capture_gap', entries=None,
+                       dropped_entries=None)
+        self.good(history)
+        history.update(status='missing', reason='not_available')
+        self.bad(history)
+
+    def test_fehlender_oder_fehlerhafter_kontext_erzeugt_keine_freigabe(self):
+        for context in ({}, {'binding': []}, dict(self.context, map=None),
+                        dict(self.context, confirmed_new_history_start='true')):
+            with self.subTest(context=context):
+                self.assertTrue(V.pruefe_historie(self.history, kontext=context,
+                                                 **self.outer))
+
+    def test_fehlerhafter_vorheriger_snapshot_wird_abgelehnt(self):
+        for previous in ({}, snapshot(fixture('two'))):
+            if 'history' in previous:
+                previous['generated_mono_s'] = 0
+            self.bad(vorher=previous)
+
+    def test_exakte_technische_zeitgrenze_und_decimal_kontext(self):
+        from decimal import Inexact, Rounded, localcontext
+        from grundbetrieb_vertrag import MAX_ZEIT_NS, sekunden_aus_ns
+        limit = sekunden_aus_ns(MAX_ZEIT_NS)
+        self.history['entries'][1]['confirmed_mono_s'] = limit
+        with localcontext() as ctx:
+            ctx.prec = 2
+            ctx.traps[Inexact] = True
+            ctx.traps[Rounded] = True
+            self.good(generated_mono_s=limit)
+
+    def test_unbekannte_herkunft_ohne_bindung_ehrlich_null(self):
+        history = fixture('empty')
+        history.update(producer_id=None, producer_boot_id=None, time_basis_id=None,
+                       status='missing', reason='not_initialized', entries=None,
+                       dropped_entries=None)
+        self.good(history, context=False)
+        self.bad(history)
 
 
 if __name__ == '__main__':
