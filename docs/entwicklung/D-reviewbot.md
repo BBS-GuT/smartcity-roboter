@@ -8,7 +8,7 @@ Fachliche Orientierung ist die [Zieldefinition](../zieldefinition-grundbetrieb.m
 
 ## Review verwenden
 
-Im BBS-Repository laufen Code Review und Security Review automatisch auf jedem Push. In den [Codex-Review-Einstellungen](https://chatgpt.com/settings/code-review) sind Automatik, persönliche Einstellungen und `Review trigger` sichtbar. Die Einrichtung ist abgeschlossen; dieser Auftrag ändert keine Einstellungen.
+Im BBS-Repository laeuft der unabhaengige Codex-Code-Review automatisch auf jedem Push. Seit der dauerhaften Entscheidung vom 21.10.2026 ist der allgemeine automatische Security Review deaktiviert und keine allgemeine Merge-Pflicht mehr. Code Review fuer den aktuellen Commit und die drei D1-Pruefungen bleiben Pflicht; bekannte Befunde bleiben blockierend. Details stehen in [Codex-Mergefreigabe](codex-mergefreigabe.md). In den [Codex-Review-Einstellungen](https://chatgpt.com/settings/code-review) sind Automatik, persoenliche Einstellungen und `Review trigger` sichtbar. Die nachstehenden Einrichtungsnachweise dokumentieren den damaligen Zustand vor dieser Anpassung.
 
 Ein Review lässt sich im PR mit `@codex review` anfordern. Die Bot-Zusammenfassung nennt Status, geprüften Commit und Auslöser. Sie wird bei weiteren Reviews fortgeschrieben; das Ergebnis muss deshalb zur gewünschten Commit-SHA passen. Eine manuelle Anforderung belegt keinen automatischen Start.
 
