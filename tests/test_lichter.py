@@ -215,6 +215,37 @@ class PanelLichter(unittest.TestCase):
         self.assertEqual(self.node.rgb_pub.n, n)
         self.node.leiste_gesperrt = False
 
+    def test_leiste_aus_wartet_auf_laufenden_takt(self):
+        # Codex #155: ein laufender Takt darf nach dem Ausschaltbefehl keine Farben mehr senden
+        node = self.node
+        node._set('lf', None)
+        node.lichter.abblend = True
+        node.led_gesendet, node.led_voll = None, 0.0
+        gesendet, im_takt, weiter = [], threading.Event(), threading.Event()
+
+        class Langsam:
+            def publish(self, m):
+                gesendet.append(m.a)
+                if len(gesendet) == 1:      # Takt sendet gerade die erste Farbe
+                    im_takt.set()
+                    weiter.wait(2)
+        alt, node.rgb_pub = node.rgb_pub, Langsam()
+        node.lichter.c['links_zuerst'] = False
+        try:
+            t = threading.Thread(target=node.leiste_senden, args=([lichter.WEISS] * 7 + [lichter.GELB],))
+            t.start()
+            self.assertTrue(im_takt.wait(2))
+            aus = threading.Thread(target=node.leiste_aus)
+            aus.start()
+            weiter.set()
+            t.join(2)
+            aus.join(2)
+        finally:
+            node.rgb_pub, node.leiste_gesperrt = alt, False
+            node.lichter.abblend = False
+        self.assertEqual(len(gesendet), 9)          # 8 LEDs einzeln, dann aus
+        self.assertEqual(gesendet[-1], 0.0)         # Ausschalten kommt zuletzt
+
     def test_blinker_im_status_und_ereignis(self):
         self.node.lichter.c.update(SOFORT)
         self.node._set('lf', lf(ECKE_LINKS))

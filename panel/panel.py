@@ -192,6 +192,7 @@ class PanelNode(Node):
         self.rgb_pub = self.create_publisher(ColorRGBA, self.rgb_topic, 10) if self.rgb_topic else None
         self.led_gesendet, self.led_voll = None, 0.0
         self.leiste_gesperrt = False    # nach leiste_aus() (Panel endet) nichts mehr an die Leiste
+        self.leiste_lock = threading.Lock()   # Licht-Takt (ROS), Panel-Knopf (HTTP) und Beenden senden parallel
         sub = self.create_subscription
         sub(String, '/line_follower/status', lambda m: self._json('lf', m), 10)
         sub(String, '/ki/befehl', lambda m: self._json('ki', m), 10)
@@ -307,22 +308,25 @@ class PanelNode(Node):
 
     def leiste_senden(self, leds):
         """Nur geaenderte LEDs ans Board, alle 2 s die ganze Leiste (falls das Board neu gestartet ist)."""
-        if self.rgb_pub is None or self.leiste_gesperrt:
-            return
-        jetzt = time.time()
-        alt = self.led_gesendet if jetzt - self.led_voll < 2.0 else None
-        if alt is None:
-            self.led_voll = jetzt
-        for a, (r, g, b) in lichterlib.rgb_befehle(alt, leds, self.lichter.c['links_zuerst']):
-            self.rgb_pub.publish(ColorRGBA(r=float(r), g=float(g), b=float(b), a=float(a)))
-        self.led_gesendet = list(leds)
+        with self.leiste_lock:
+            if self.rgb_pub is None or self.leiste_gesperrt:
+                return
+            jetzt = time.time()
+            alt = self.led_gesendet if jetzt - self.led_voll < 2.0 else None
+            if alt is None:
+                self.led_voll = jetzt
+            for a, (r, g, b) in lichterlib.rgb_befehle(alt, leds, self.lichter.c['links_zuerst']):
+                self.rgb_pub.publish(ColorRGBA(r=float(r), g=float(g), b=float(b), a=float(a)))
+            self.led_gesendet = list(leds)
 
     def leiste_aus(self):
         """LEDs aus und gesperrt lassen: der Licht-Takt laeuft beim Beenden noch weiter (Programme stoppen dauert
-        einige Sekunden) und wuerde das Abblendlicht sonst wieder einschalten (Codex #155)."""
-        self.leiste_gesperrt = True
-        if self.rgb_pub is not None:
-            self.rgb_pub.publish(ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.0))
+        einige Sekunden) und wuerde das Abblendlicht sonst wieder einschalten (Codex #155). Unter leiste_lock: ein
+        gerade laufender Takt sendet erst zu Ende, danach kommt sicher der Ausschaltbefehl als letzter."""
+        with self.leiste_lock:
+            self.leiste_gesperrt = True
+            if self.rgb_pub is not None:
+                self.rgb_pub.publish(ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.0))
 
     def abblend_setzen(self, an):
         with self.lock:
