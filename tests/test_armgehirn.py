@@ -371,6 +371,18 @@ class Umschauen(unittest.TestCase):
             self.assertGreater(erste[3], 0)                            # zuerst nach links schauen (bewaehrt)
             self.assertGreater(g.blick_lernen.zaehler[erste[0]][0], 0)
 
+    def test_mittig_immer_aus_geradem_blick(self):
+        """RM02 22.10.: mittiger Wuerfel wurde zufaellig im gedrehten Blick vermessen -> seitlich daneben gegriffen.
+        Geradeaus kommt jetzt immer zuerst, egal was das Umschauen gelernt hat."""
+        with tempfile.TemporaryDirectory() as tmp:
+            g = gehirn(Welt(), tmp)
+            for schluessel, *_ in g._blicke():          # gedrehte Blicke als "bewaehrt" vorbelasten
+                if not schluessel.endswith('@+0'):
+                    g.blick_lernen.zaehler[schluessel] = [50, 50]
+            for _ in range(20):
+                _, blick, _, _ = g._umschauen()
+                self.assertEqual(blick[3], 0, blick[0])
+
     def test_ins_roboter_system_und_zurueck(self):
         o = dict(WUERFEL, seite=0.03)
         for grad in (25, -50):

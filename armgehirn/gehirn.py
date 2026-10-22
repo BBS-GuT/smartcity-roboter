@@ -39,7 +39,7 @@ import sicherheit          # noqa: E402
 STANDARD = {
     'ablage': [0.10, -0.18],   # feste Ablagestelle (Mitte, m vor der Robotermitte / links), rechts neben dem Roboter
     'bilder': 6,               # so viele Kamerabilder je Blick
-    'blick_max': 6,            # so viele Blickstellungen hoechstens beim Umschauen
+    'blick_max': 8,            # so viele Blickstellungen hoechstens beim Umschauen (2 gerade + jede Drehung)
     'ruhe_s': 0.4,             # nach einer Armbewegung so lange warten, bis die Kamera ruhig ist
     'tempo_ms': 1500,          # Dauer einer Blick-Bewegung
     'erkunden': True,          # beim Greifen ausprobieren (Lernen); False: immer die beste Korrektur (Pruefen)
@@ -175,7 +175,19 @@ class ArmGehirn:
     def _umschauen(self):
         """Blickstellungen der Reihe nach (bewaehrte zuerst), bis etwas zu sehen ist. -> (Bilder, Blick, KI-Funde
         aus den anderen Blicken, Anzahl Blicke)"""
-        blicke = self.blick_lernen.reihenfolge(self._blicke(), self.rng)[:self.c['blick_max']]
+        # Zuerst geradeaus (Servo 1 wie in der Fahrstellung), gedrehte Blicke nur, wenn geradeaus nichts zu sehen ist:
+        # Lage aus einem gedrehten Blick haengt an Drehrichtung und Drehachse von Servo 1 (RM02 22.10.: mittiger
+        # Wuerfel im gedrehten Blick gefunden -> mehrere cm seitlich daneben gegriffen). Innerhalb beider Gruppen:
+        # bewaehrte zuerst (gelernt).
+        alle = self._blicke()
+        gerade = self.blick_lernen.reihenfolge([b for b in alle if b[3] == 0], self.rng)
+        gedreht = self.blick_lernen.reihenfolge([b for b in alle if b[3] != 0], self.rng)
+        # jede Drehung (links/rechts, wenig/viel) zuerst einmal, damit keine Seite ungesehen bleibt
+        erste = {}
+        for b in gedreht:
+            erste.setdefault(b[3], b)
+        gedreht = list(erste.values()) + [b for b in gedreht if b not in erste.values()]
+        blicke = (gerade[:2] + gedreht)[:self.c['blick_max']]
         umgebung, teilweise = [], None
         for i, (schluessel, pose, kamera, grad) in enumerate(blicke):
             self.phase = f'umschauen ({i + 1}): {schluessel}'
