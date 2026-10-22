@@ -80,6 +80,23 @@ class Positionieren(unittest.TestCase):
         w = Welt(GREIF, 0.0, luecke=0, ausreisser={n: {'seite': 0.05} for n in range(0, 300, 3)})
         self.assertIn(w.bis_planen(), ('planen', 'ausfuehren'), w.aktionen[-6:])
 
+    def test_stehendes_tiefenbild_zaehlt_einmal(self):
+        """Review PR #126: Farbbilder laufen weiter, das Tiefenbild steht (gleiche tiefe_nr) -> dieselbe Messung darf
+        nicht mehrfach zaehlen und die Armplanung ausloesen."""
+        w = Welt(GREIF, 0.0, luecke=0)
+        for _ in range(200):
+            w.schritt()
+            if w.lauf.phase() == 'abstand':
+                break
+        self.assertEqual(w.lauf.phase(), 'abstand')
+        obj = {'vor': GREIF, 'seite': 0.0, 'breite': 0.03, 'hoehe': 0.05, 'quelle': 'tiefe'}
+        for _ in range(20):                              # 2 s nur neue Farbbilder, Tiefenbild Nr. 7 steht
+            w.lauf.schritt(objekt=dict(obj), tiefe_hindernis=True, tiefe_nr=7)
+        self.assertEqual(w.lauf.phase(), 'abstand')
+        for n in range(8, 14):                           # neue Tiefenbilder -> jetzt plant er
+            w.lauf.schritt(objekt=dict(obj), tiefe_hindernis=True, tiefe_nr=n)
+        self.assertIn(w.lauf.phase(), ('planen', 'ausfuehren'))
+
     def test_lange_luecke_haelt_an(self):
         """Laenger als greif_luecke kein Treffer: nicht blind weiterdrehen/-schieben."""
         w = Welt(GREIF + 0.005, 0.03, luecke=0)

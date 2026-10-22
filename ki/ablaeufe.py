@@ -749,11 +749,12 @@ class Wegraeumen(Ablauf):
             self.objekt, self.zuletzt_gesehen = dict(obj), jetzt
             self.objekt_strecke, self.objekt_abschnitt = strecke, abschnitt
             self.leer_bilder = 0          # frische Bilder seit dieser Sichtung, in denen es fehlt
-            self.messungen.append(obj)
-            self.messungen = self.messungen[-5:]
+            if neu:                       # nur neue Tiefenbilder sind neue Messungen (Farbbilder laufen evtl. allein)
+                self.messungen.append(obj)
+                self.messungen = self.messungen[-5:]
             # Ruhig/ausgerichtet nach dem Median der letzten 3 Messungen: ein verrauschtes Tiefenbild setzt nicht
             # alles zurueck (RM02 22.10.: bei 33 cm 15 s lang nie 3x hintereinander in Toleranz)
-            m3 = self.messungen[-3:]
+            m3 = self.messungen[-3:] or [obj]  # noch keine neue Messung seit dem Start: diese (zaehlt nicht)
             fehler_vor = float(np.median([x['vor'] for x in m3])) - c['greif_vor']
             self.seite_median = float(np.median([x['seite'] for x in m3]))
             seitlich = abs(self.seite_median) > c['greif_seite']
@@ -767,8 +768,9 @@ class Wegraeumen(Ablauf):
             bekannt = float(np.median(werte)) if werte else getattr(self, 'schraeg_zuletzt', None)
             # Winkel nie bekannt: Greifen mit Sicht wie bisher erlaubt (sonst ohne Linie nie), blind aber nicht
             gerade = bekannt is None or abs(bekannt) < c['greif_winkel']
-            self.ruhig = (self.ruhig + 1 if len(m3) >= 3 and abs(fehler_vor) < c['greif_toleranz'] and not seitlich
-                          and gerade else 0)
+            if neu:
+                self.ruhig = (self.ruhig + 1 if len(self.messungen) >= 3 and abs(fehler_vor) < c['greif_toleranz']
+                              and not seitlich and gerade else 0)
             self.ausgerichtet = not seitlich and bekannt is not None and abs(bekannt) < c['greif_winkel']
         else:
             s0 = getattr(self, 'objekt_strecke', None)
