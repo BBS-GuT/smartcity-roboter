@@ -9,6 +9,10 @@ import tempfile
 BASE_URL = "http://10.0.12.100:8765/"
 FILES = {"panel.py":"panel/panel.py", "panel_index.html":"panel/index.html",
          "mqtt_data.py":"panel/mqtt_data.py", "telemetry_detail.py":"panel/telemetry_detail.py",
+         "panel_bridge.py":"mqtt/panel_bridge.py",
+         "auto_bridge.py":"mqtt/auto_bridge.py", "local_broker.py":"mqtt/local_broker.py",
+         "mqtt_bridge.sh":"scripts/mqtt_bridge.sh", "panel.sh":"scripts/panel.sh",
+         "mqtt_requirements.txt":"mqtt/requirements.txt",
          "robot_live_test.py":"mqtt/robot_live_test.py",
          "microros_agent_stable.sh":"scripts/microros_agent_stable.sh"}
 MAX_SIZE = 2_000_000
@@ -20,7 +24,9 @@ def validate_file(relative, body):
     except UnicodeDecodeError as exc: raise RuntimeError("Keine UTF-8-Datei: " + relative) from exc
     if relative.endswith(".py"): ast.parse(text, filename=relative)
     elif relative.endswith(".html") and 'id="s-mqtt"' not in text: raise RuntimeError("MQTT-Ansicht fehlt")
-    elif relative.endswith(".sh") and (not text.startswith("#!/") or "micro_ros_agent" not in text):
+    elif relative.endswith(".sh") and not text.startswith("#!/"):
+        raise RuntimeError("Ungueltiges Shellskript")
+    if relative == 'scripts/microros_agent_stable.sh' and 'micro_ros_agent' not in text:
         raise RuntimeError("Ungueltiger micro-ROS-Agent-Wrapper")
     if relative.endswith('.sh'):
         with tempfile.TemporaryDirectory() as directory:
@@ -117,7 +123,7 @@ def status(timeout=1):
 
 def activate(repo):
     stop_owned(repo,process_rows()); logs=repo/"logs"; logs.mkdir(exist_ok=True)
-    env=os.environ.copy(); env.update(SMARTCITY_MQTT="1",MQTT_HOST="127.0.0.1",MQTT_PORT="1883")
+    env=os.environ.copy(); env.update(SMARTCITY_MQTT="1")
     py=shutil.which("python3") or sys.executable
     with (logs/"panel-mqtt-activated.log").open("ab") as out:
         subprocess.Popen(['bash', '-c', 'source "$1" && exec "$2" "$3" --kein-netz --port 8080',
@@ -173,6 +179,10 @@ def main(argv=None):
     start_agent = args.restart_agent and not agent_is_active()
     if start_agent: verify_agent(repo)
     backup=install(repo,downloaded)
+    if args.activate:
+        check=subprocess.run([sys.executable,'-c','import paho.mqtt.client, amqtt.broker'],capture_output=True)
+        if check.returncode:
+            subprocess.run([sys.executable,'-m','pip','install','--user','-r',str(repo/'mqtt/requirements.txt')],check=True)
     if start_agent:
         subprocess.run(["sudo","systemctl","start","m3pro-microros.service"],check=True)
     elif args.restart_agent:
