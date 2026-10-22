@@ -454,6 +454,7 @@ class _Check:
             self.fail(p + '.package_use', 'Auswertungsbezug passt nicht')
         lfields = ('producer_id', 'producer_boot_id', 'seq', 'evaluation_ref', 'time_basis_id', 'evaluated_mono_s', 'entries', 'stop_latched', 'fault_latched', 'status', 'reason')
         effective = []
+        unproven_relevant_block = False
         if self.obj(locks, p + '.blocks', lfields):
             lv = self.q(locks, p + '.blocks')
             self.seq(locks.get('seq'), p + '.blocks.seq', null=not lv)
@@ -485,9 +486,12 @@ class _Check:
                     self.text(entry.get('effect'), q + '.effect', choices=('motion', 'arm', 'both'))
                     self.frame(entry.get('frame_ref'), q + '.frame_ref')
                     self.clock_time(entry, 'reported_mono_s', q)
-                    if ev and entry.get('effect') in (domain, 'both'):
-                        effective.append(entry.get('code'))
-            if release.get('decision') == 'allowed' and (not lv or effective or any(not isinstance(locks.get(k), dict) or locks[k].get('status') != 'valid' for k in ('stop_latched', 'fault_latched'))):
+                    if entry.get('effect') in (domain, 'both'):
+                        if not ev:
+                            unproven_relevant_block = True
+                        elif isinstance(entry.get('code'), str) and entry['code']:
+                            effective.append(entry['code'])
+            if release.get('decision') == 'allowed' and (not lv or effective or unproven_relevant_block or any(not isinstance(locks.get(k), dict) or locks[k].get('status') != 'valid' for k in ('stop_latched', 'fault_latched'))):
                 self.fail(p + '.release', 'allowed mit wirksamer/unbekannter Sperre')
         if out is None:
             if release.get('output_ref') is not None:
@@ -588,7 +592,10 @@ class _Check:
                             latch = locks.get(k)
                             if isinstance(latch, dict) and rt.get(k) != latch.get('value'):
                                 self.fail('$.runtime.' + k, 'Projektion widerspricht aktuellem Sperrbild')
-                        if set(rt.get('hold_reasons') or ()) != set(effective):
+                        reasons = rt.get('hold_reasons')
+                        if not isinstance(reasons, list) or not all(isinstance(x, str) and x for x in reasons):
+                            self.fail('$.runtime.hold_reasons', 'muss eine Liste nichtleerer Texte sein')
+                        elif set(reasons) != set(effective):
                             self.fail('$.runtime.hold_reasons', 'Projektion muss aktuelles Sperrbild genau wiedergeben')
                 else:
                     if rt.get('evaluation_ref') is not None:

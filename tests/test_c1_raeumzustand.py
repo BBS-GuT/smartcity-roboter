@@ -229,6 +229,27 @@ class Raeumdaten(unittest.TestCase):
         s['motion']['blocks']['stop_latched']['value'] = True
         self.assertTrue(self.check(s, **kw))
 
+    def test_allowed_rejects_unproven_relevant_blocks_in_both_domains(self):
+        for domain in ('motion', 'arm'):
+            for status in ('invalid', 'unknown', 'missing', 'stale'):
+                for effect in (domain, 'both'):
+                    with self.subTest(domain=domain, status=status, effect=effect):
+                        s, kw = self.allowed(domain)
+                        entry = {'block_ref': ref('block_id', 'front', 'sensor-check'),
+                                 'code': 'FRONT_BLOCKED', 'effect': effect, 'frame_ref': None,
+                                 'time_basis_id': 'clock', 'reported_mono_s': 100,
+                                 'status': status, 'reason': 'REPORT_UNPROVEN'}
+                        s[domain]['blocks']['entries'] = [entry]
+                        self.assertTrue(any('allowed mit' in e for e in self.check(s, **kw)))
+                        s[domain]['blocks']['entries'] = []
+                        self.assertEqual(self.check(s, **kw), [])
+
+    def test_malformed_hold_reasons_returns_errors_without_typeerror(self):
+        for malformed in (True, [{}], [[]]):
+            s, kw = self.allowed()
+            s['runtime']['hold_reasons'] = malformed
+            self.assertTrue(any('hold_reasons' in e for e in self.check(s, **kw)))
+
     def test_same_evaluation_changed_content_rejected(self):
         s = state(); b = package(s)
         known = {k: copy.deepcopy(s['motion'][k]) for k in ('release', 'blocks', 'output')}
