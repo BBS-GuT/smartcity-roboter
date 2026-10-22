@@ -43,6 +43,20 @@ class Blinker(unittest.TestCase):
         self.assertIsNone(lichter.knick([]))
         self.assertIsNone(lichter.knick([(0.05, 0.0), (0.1, 0.0)]))
 
+    def test_spaeter_seitenwechsel_wartet_auch_nach_nachlauf(self):
+        # Codex #155: blinkt links schon laenger als 'mindest', dann dauerhaft rechts -> links geht nach 1 s Nachlauf
+        # aus, rechts darf trotzdem erst nach 1,5 s (wechsel) kommen, nicht schon nach 0,5 s (bestaetigen)
+        li = lichter.Lichter()
+        fahre(li, 0.0, 3.0, ECKE_LINKS)
+        b = fahre(li, 3.0, 5.0, ECKE_RECHTS)
+        self.assertNotIn('rechts', b[:15])
+        self.assertEqual(b[15:], ['rechts'] * 5)
+        # Gegenkontrolle: neue Ecke lange nach dem Abbiegen gilt wieder nach 0,5 s
+        fahre(li, 5.0, 10.0, GERADE)
+        b = fahre(li, 10.0, 11.0, ECKE_LINKS)
+        self.assertIsNone(b[4])
+        self.assertEqual(b[5], 'links')
+
     def test_nach_linksabbiegen_kein_rechtsblinker(self):
         # RM02 22.10.: nach dem Linksabbiegen blinkte er auf der Geraden rechts. Am Roboter liegen noch Reste der
         # Ecke (Linie kommt von links), der Roboter steht etwas schraeg (20 Grad zu weit links gedreht).

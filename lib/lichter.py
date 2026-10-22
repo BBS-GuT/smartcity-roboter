@@ -76,6 +76,7 @@ class Lichter:
         self.zuletzt = 0.0       # Grund zuletzt gesehen
         self.jetzt = 0.0
         self.kandidat, self.kandidat_seit = None, 0.0   # Richtung der Linie, noch nicht bestaetigt
+        self.kandidat_wechsel = False   # Kandidat kam, waehrend die andere Seite blinkte -> 'wechsel' abwarten
 
     def ausloeser(self, lf, ki):
         """(Richtung, Grund) oder (None, '') aus Linienfolger-Status und KI-Befehl (je dict oder None).
@@ -93,9 +94,11 @@ class Lichter:
                 richtung, grund = ('links' if k > 0 else 'rechts'), f'Linie knickt {abs(math.degrees(k)):.0f} Grad ab'
         if richtung != self.kandidat:
             self.kandidat, self.kandidat_seit = richtung, self.jetzt
+            self.kandidat_wechsel = self.blinker is not None and richtung != self.blinker
         if richtung is None or richtung == self.blinker:
             return richtung, grund
-        noetig = self.c['wechsel'] if self.blinker else self.c['bestaetigen']
+        # Auch wenn die alte Seite inzwischen (Nachlauf) ausgegangen ist: ein Seitenwechsel bleibt ein Wechsel
+        noetig = self.c['wechsel'] if self.blinker or self.kandidat_wechsel else self.c['bestaetigen']
         return (richtung, grund) if self.jetzt - self.kandidat_seit >= noetig else (None, '')
 
     def schritt(self, jetzt, lf, ki):
