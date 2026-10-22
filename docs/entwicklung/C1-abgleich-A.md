@@ -287,8 +287,15 @@ positiven Darstellungsfälle gelten zusätzlich unter diesen Korrekturbedingunge
   nicht als ungeprüfte physische STOPP-/Haltepolitik auf den Arm übertragen.
 - Aktuelles `allowed` und eine fahrende Ausgabe benötigen einen belegten,
   noch verwendbaren Wunsch sowohl zur Auswertung als auch zur Zustandserzeugung:
-  `generated_request <= evaluated <= issued <= generated_state < valid_until`
+  `generated_request <= evaluated <= generated_state < valid_until`
   bei gemeinsamer bestätigter Uhr, zusätzlich zu V2s Kontext-/Anti-Replay-Regeln.
+  Nur bei tatsächlich vorhandener Ausgabe gilt zusätzlich
+  `evaluated <= issued <= generated_state`. Ohne Ausgabe bleiben
+  `motion.output=null`, `output_ref=null` und `output_reason` erhalten;
+  es gibt keine zu vergleichende Ausgabezeit. Ein frisches geliefertes
+  `allowed` darf so aktuell dargestellt werden, ohne ausgegebene Bewegung
+  oder eine erfundene `issued_mono_s` zu behaupten. Dasselbe gilt für Arm:
+  dessen Ausgabezeitkette wird nur bei vorhandener `arm.output` geprüft.
   Gleichheit mit Ablauf ist bereits abgelaufen. Alte Pakete dürfen als
   historische Diagnose bestehen, aber weder als aktuelle Freigabe noch als
   aktuelle fahrende Ausgabe erscheinen; Empfang oder neue Zustandssequenz
@@ -405,3 +412,14 @@ Die kontrollierte Nullregel und vier obige Dokumentfälle schließen diesen
 Widerspruch; die atomare Bindung bleibt erhalten. Dokumentkontrolle mit
 synthetischen Null-/Referenz-/Grundvarianten und lokale Link-/Diffprüfung
 erfolgreich; keine implementierte Validatorprüfung oder Runtimeänderung.
+
+Nativer P2 auf `d86762cdc937d7ca8815a8180db1eb4b12030468`
+([Ausgabezeit bei fehlender Ausgabe](https://github.com/BBS-GuT/smartcity-roboter/pull/145#discussion_r4347060871))
+vollständig gelesen und eng korrigiert: Frische von Auswertung und Zustand
+bleibt Pflicht; die Ausgabezeitkette gilt ausschließlich bei tatsächlicher
+Ausgabe, für Motion und Arm gleichermaßen. Dokumentfälle: `allowed`, Erzeugung
+99 s, Auswertung 100 s, Zustand 100,5 s, Ablauf 101 s ist bei fehlender Ausgabe
+mit `output_ref=null` und Grund ohne `issued_mono_s` darstellbar. Bei vorhandener
+Ausgabe ist 100,25 s konsistent, 100,75 s nach Zustandserzeugung widersprüchlich.
+Dies sind synthetische Datenbeispiele, keine Motor-/Armprüfung. Lokale Links,
+Diffchecks und die Zeit-/Nullvarianten dokumentarisch geprüft; nur eigene Datei.
