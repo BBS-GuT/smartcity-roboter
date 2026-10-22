@@ -263,7 +263,7 @@ def punkte_xy(msg, front_deg=0.0, min_abstand=0.08):
 # Genau EINE Drehkonvention: die Drehung eines LiDARs kommt allein aus scan_front_deg (Grad, unter welchem
 # Sensorwinkel er die Roboter-Vorderrichtung sieht; Panel -> LiDAR-Radar). Die Einbaupose ergaenzt nur die
 # Verschiebung (x, y) des Sensorursprungs:  p_basis = R(-scan_front_deg) * p_sensor + (x, y).
-# Noch KEIN Verbraucher benutzt das (Umstellung in #64, erst mit am Geraet bestaetigter Pose aus #66).
+# KI/Notbremse nutzen bestaetigte Posen ueber lidar_fusion (#64/#169); Vermessung siehe #66.
 BASIS_FRAME = 'base_link'
 EINBAU_QUELLEN = ('gemessen', 'werksmodell', 'unbekannt')
 
