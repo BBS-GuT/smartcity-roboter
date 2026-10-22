@@ -13,6 +13,7 @@ from m1_protocol import Inbox, envelope
 from m1_map import align_markers, fuse
 from m1_local_map import from_npz
 from m1_routes import advise, choose
+from m1_start_slots import transform as start_transform, validate as validate_slots
 from m1_map_transport import package, publish, verify_package
 
 T = 1792656000
@@ -143,6 +144,26 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(advise(['B', 'D'], 'RM04', 'A', peers, 'B',
                                 map_id='city', map_version=1, now=T+4)['reason'],
                          'no_fresh_peer_data')
+
+
+class StartSlotTest(unittest.TestCase):
+    def test_four_slots_give_only_approximate_common_positions(self):
+        slots = {'RM0' + str(index): {'x_m': float(index), 'y_m': 0.0,
+                                      'yaw_rad': 1.5707963267948966,
+                                      'position_uncertainty_m': .05,
+                                      'heading_uncertainty_deg': 5}
+                 for index in range(1, 5)}
+        config = {'map_id': 'future-field', 'frame_id': 'site-plan/meters', 'slots': slots}
+        validate_slots(config)
+        result = start_transform(config, 'RM04',
+                                 {'x_m': 2, 'y_m': 3, 'yaw_rad': 0},
+                                 {'x_m': 3, 'y_m': 3, 'yaw_rad': 0})
+        self.assertAlmostEqual(result['x_m'], 4)
+        self.assertAlmostEqual(result['y_m'], 1)
+        self.assertEqual(result['quality'], 'approximate')
+        self.assertGreater(result['position_uncertainty_m'], .05)
+        with self.assertRaises(ValueError):
+            validate_slots(dict(config, slots=dict(slots, RM04=slots['RM03'])))
 
 
 if __name__ == '__main__':
