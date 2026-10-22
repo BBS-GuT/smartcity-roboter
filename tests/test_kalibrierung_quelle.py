@@ -118,6 +118,10 @@ class Kalibrierungsquelle(unittest.TestCase):
         k.kr.kal.spiegeln = True
         k._speichern()
         self.assertTrue(self.node().kr.kal.spiegeln)
+        fremd = self.node('/scan1')
+        self.assertFalse(fremd.kr.kal.spiegeln)
+        fremd._speichern()
+        self.assertTrue(self.node().kr.kal.spiegeln)
 
     def test_neue_spiegelung_entfernt_alten_herkunftshinweis(self):
         self.gelernt()
@@ -125,10 +129,6 @@ class Kalibrierungsquelle(unittest.TestCase):
         self.assertTrue(any('passt nicht zu Hauptquelle' in w for w in k.kr.warnungen()))
         k.kr.kal.spiegeln = True
         self.assertFalse(any('passt nicht zu Hauptquelle' in w for w in k.kr.warnungen()))
-        fremd = self.node('/scan1')
-        self.assertFalse(fremd.kr.kal.spiegeln)
-        fremd._speichern()
-        self.assertTrue(self.node().kr.kal.spiegeln)
 
 
 if __name__ == '__main__':
