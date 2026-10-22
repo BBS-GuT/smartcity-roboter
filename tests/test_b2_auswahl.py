@@ -327,6 +327,35 @@ class Wegwahl(unittest.TestCase):
                          'geometrie_unvollstaendig')
         self.assertEqual(a.schritt(bild(2, erlaubt=frozenset({'A'})), 2).ausgang, 'A')
 
+    def test_abschluss_ohne_spurnachweis_loest_bindung_nicht(self):
+        a = automat(zufall=Zufall())
+        a.schritt(bild(), 1)
+        a.schritt(bild(2, art='einfahrt', ausgang='A', bestaetigt=True), 2)
+        for seq, spur in ((3, False), (4, None)):
+            r = a.schritt(bild(seq, art='abschluss', ausgang='A', bestaetigt=True,
+                              spur_bestaetigt=spur), seq)
+            self.assertEqual((r.lage, r.ausgang, r.grund), ('halt', 'A', 'spur_unbestaetigt'))
+            self.assertEqual(a.historie, {})
+        self.assertEqual(a.schritt(bild(5, bezug=replace(B, anfahrt='andere')), 5).grund,
+                         'anfahrt_konflikt')
+        self.assertEqual(a.schritt(bild(6, art='abschluss', ausgang='A', bestaetigt=True), 6).lage,
+                         'abgeschlossen')
+        self.assertEqual(sum(a.historie.values()), 1)
+
+    def test_ungueltiger_zufallszug_sperrt_genau_diese_anfahrt(self):
+        rng = Zufall(float('nan'))
+        a = automat(zufall=rng)
+        self.assertEqual(a.schritt(bild(), 1).grund, 'zufall_ungueltig')
+        rng.wert = .75
+        for seq in (2, 3):
+            r = a.schritt(bild(seq), seq)
+            self.assertEqual((r.lage, r.ausgang, r.grund), ('halt', None, 'zufall_ungueltig'))
+        self.assertEqual(rng.zuege, 1)
+        self.assertEqual(a.historie, {})
+        neue = replace(B, anfahrt='neue-bestaetigte-anfahrt')
+        self.assertEqual(a.schritt(bild(4, bezug=neue), 4).ausgang, 'C')
+        self.assertEqual(rng.zuege, 2)
+
 
 if __name__ == '__main__':
     unittest.main()

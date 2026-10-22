@@ -81,6 +81,7 @@ class Auswahl:
         self._ausgang = None
         self._phase = 'bereit'
         self._abgeschlossen = set()
+        self._zufallsfehler = set()
         self._letzte = None
         self._jetzt = None
         self.ergebnis = Ergebnis('bereit', None, None)
@@ -143,8 +144,12 @@ class Auswahl:
         # Anfahrtkennung ist einmalig innerhalb dieses Starts/Quellenbezugs.
         if b.anfahrt in self._abgeschlossen:
             return self._halt('anfahrt_abgeschlossen')
+        if b.anfahrt in self._zufallsfehler:
+            return self._halt('zufall_ungueltig')
         if self._bezug is not None and b != self._bezug:
             return self._halt('anfahrt_konflikt')
+        if self._phase == 'raeumen' and e.spur_bestaetigt is not True:
+            return self._halt('spur_unbestaetigt')
         if e.art == 'abschluss':
             if (self._phase != 'raeumen' or e.bestaetigt is not True
                     or e.ausgang != self._ausgang):
@@ -157,8 +162,6 @@ class Auswahl:
             self._bezug = None
             self._ausgang = None
             return self.ergebnis
-        if self._phase == 'raeumen' and e.spur_bestaetigt is not True:
-            return self._halt('spur_unbestaetigt')
         if self._phase != 'raeumen' and (e.erkannt is not True or e.ueberweg is not False):
             return self._halt('erkennung_fehlt' if not e.erkannt else 'ueberweg')
         if (not isinstance(e.geometrie, frozenset)
@@ -194,6 +197,7 @@ class Auswahl:
                             for a in kandidaten]
                 zug = self._zufall.random()
                 if not _zahl(zug) or not 0 <= zug < 1:
+                    self._zufallsfehler.add(b.anfahrt)
                     return self._halt('zufall_ungueltig')
                 rest = Fraction(zug) * sum(gewichte)
                 wahl = kandidaten[-1]
