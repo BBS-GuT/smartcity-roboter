@@ -211,6 +211,12 @@ class LinienSucher:
             return stamm, aeste, bx
         return None
 
+    def _keine_kreuzung(self, kamera_ok):
+        if kamera_ok:
+            self.ohne_kreuzung += 1
+            if self.ohne_kreuzung > 15:
+                self.wahl = None
+
     def _abbiegen(self, teil, start, gier, erg, kamera_ok=True):
         """Kreuzung? Dann einen Ast waehlen (zufaellig beim ersten Sehen, danach derselbe) und nur Stamm + diesen Ast
         zurueckgeben. gier: Drehung des Roboters (rad, Gedaechtnis) - damit bleibt die Wahl beim Abbiegen dieselbe,
@@ -225,9 +231,7 @@ class LinienSucher:
             # Abzweigung (Zieldefinition 4.3). Ein Zebrastreifen woanders im Bild hebt eine echte Kreuzung nicht auf.
             teilung = None
         if teilung is None:
-            self.ohne_kreuzung += 1
-            if self.ohne_kreuzung > 15:        # ca. 1-1,5 s keine Kreuzung mehr: durchfahren, naechste neu waehlen
-                self.wahl = None
+            self._keine_kreuzung(kamera_ok)
             return teil
         self.ohne_kreuzung = 0
         stamm, aeste, _ = teilung
@@ -251,6 +255,7 @@ class LinienSucher:
         erg = {'gefunden': False, 'boden': [], 'punkte': [], 'fehler': None, 'zeilen': (oben, h - 1), 'vogel': vogel}
         n, etiketten, stat, _ = cv2.connectedComponentsWithStats(vogel)
         if n <= 1:
+            self._keine_kreuzung(kamera_ok)
             return erg
         abstand = cv2.distanceTransform(vogel, cv2.DIST_L2, 3)
         ziel = self.erwartung if self.erwartung is not None else (0.3, 0.0)
@@ -275,6 +280,7 @@ class LinienSucher:
             if beste_d is None or d < beste_d:
                 beste, beste_d = i, d
         if beste is None:
+            self._keine_kreuzung(kamera_ok)
             return erg
         teil = self._abbiegen(etiketten == beste, (zx, zy), gier, erg, kamera_ok)
         a = abstand * teil

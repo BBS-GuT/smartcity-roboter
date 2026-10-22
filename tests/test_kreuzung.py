@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -101,6 +102,25 @@ class Kreuzung(unittest.TestCase):
         gedreht = bild([((0.0, 0.0), (0.9, 0.0)), ((0.32, 0.0), (0.32, -0.5))])   # Ast geradeaus + rechts
         erg = s.suche(gedreht, math.radians(90))
         self.assertLess(abs(erg['kreuzung']['wahl']), 30, erg['kreuzung'])
+
+    def test_wahl_verfaellt_auch_ohne_verwertbare_linie(self):
+        for fuellung in (0, 255):  # keine Komponente oder nur eine zu breite Flaeche
+            with self.subTest(fuellung=fuellung):
+                s = linie.LinienSucher()
+                s.suche(T, 0.0)
+                maske = np.full(s.vogel(T).shape, fuellung, np.uint8)
+                maske[[0, -1], :] = 0
+                maske[:, [0, -1]] = 0
+                with patch.object(s, 'vogel', return_value=maske):
+                    for _ in range(20):
+                        self.assertFalse(s.suche(T, 0.0, kamera_ok=False)['gefunden'])
+                    self.assertIsNotNone(s.wahl)  # weggedrehte Kamera zaehlt nie
+                    for _ in range(15):
+                        self.assertFalse(s.suche(T, 0.0)['gefunden'])
+                    self.assertIsNotNone(s.wahl)
+                    self.assertFalse(s.suche(T, 0.0)['gefunden'])
+                    self.assertIsNone(s.wahl)
+                self.assertTrue(s.suche(T, 0.0)['kreuzung_neu'])
 
     def test_kamera_weggedreht_aendert_nichts(self):
         """Arm dreht die Kamera weg (Zebrastreifen, Greifen): Wahl bleibt, auch nach vielen Bildern."""
