@@ -100,6 +100,10 @@ Ein ausgegebener Befehl ist kein Nachweis einer Bewegung. `output` und `measured
 
 Objekt *Name → Quelle*, z. B. `camera`, `depth`, `lidar_0`, `lidar_1`, `imu`, `odometry`. Jede Quelle: `source_id`, `status`, `reason`, `captured_at_s` (Aufnahmezeit, Unix-s), `age_s`, `rate_hz`, `frame_id` (Frame-/Messungskennung), `coord_frame` (Koordinatenbezug).
 
+Zusätzlich ist `received_mono_s` ein **Pflichtschlüssel**: endliche, nicht negative Zahl in Sekunden oder `null`. Der Produzent erfasst ihn beim lokalen Empfang mit derselben Geräte-`time.monotonic()`-Basis wie `generated_mono_s`. Es ist kein pro Prozess auf null gesetzter Zähler und keine Rückrechnung aus UTC, `captured_at_s` oder `age_s`. Vergleiche gelten nur bei derselben bestätigten lokalen Zeitbasis.
+
+Bei `valid` ist eine Empfangszeit erforderlich, die kleiner oder gleich `generated_mono_s` ist. Bei `missing` (nie empfangen) steht `null`. `stale`, `invalid` und `unknown` dürfen den realen früheren Empfang behalten oder bei nicht verfügbarem Empfangszeitpunkt `null` führen. Für **jeden** Status sind zukünftige Empfangszeiten, negative Zahlen, boolesche Werte, `NaN` und Unendlich unzulässig. Das Schema prüft die Feldstruktur; Endlichkeit, Statusbezug und Vergleich mit der Erzeugungszeit prüft Python. Alle Fixturezeiten sind synthetisch und belegen keine Gerätezeitbasis.
+
 ### `diagnostics`
 
 `battery_v` (Messwert), `board_status`, `warnings[]`, `events[]` (`event_id`, `mono_s`, `kind`: `info`/`stop`/`drive`/`warning`/`fault`, `text`).

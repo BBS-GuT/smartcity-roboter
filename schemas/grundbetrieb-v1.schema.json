@@ -48,6 +48,7 @@
         "status",
         "reason",
         "captured_at_s",
+        "received_mono_s",
         "age_s",
         "rate_hz",
         "frame_id",
@@ -69,6 +70,13 @@
           "minLength": 1
         },
         "captured_at_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "received_mono_s": {
           "type": [
             "number",
             "null"

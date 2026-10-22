@@ -326,7 +326,7 @@ def pruefe(d):
         p.f('$.sensors', 'muss ein nicht leeres Objekt sein (Name -> Quelle)')
     else:
         for name, q in se.items():
-            _quelle(p, q, f'$.sensors.{name}')
+            _quelle(p, q, f'$.sensors.{name}', d.get('generated_mono_s'))
 
     di = d.get('diagnostics')
     if p.obj(di, '$.diagnostics', ('battery_v', 'board_status', 'warnings', 'events')):
@@ -387,20 +387,30 @@ def _wert_passt_zu_status(p, d, pfad, felder):
             p.f(f'{pfad}.{k}', f'status {st} darf keinen Wert tragen (R2)')
 
 
-def _quelle(p, q, pfad):
-    """Sensorquelle (R7): valid braucht Aufnahmezeit und Alter, missing hat beides nicht."""
-    if not p.obj(q, pfad, ('source_id', 'status', 'reason', 'captured_at_s', 'age_s', 'rate_hz', 'frame_id',
+def _quelle(p, q, pfad, generated_mono_s):
+    """Sensorquelle (R7): lokale Empfangszeit nicht nach Zustandserzeugung; missing hat keine Zeit."""
+    if not p.obj(q, pfad, ('source_id', 'status', 'reason', 'captured_at_s', 'received_mono_s', 'age_s', 'rate_hz', 'frame_id',
                            'coord_frame')):
         return
     p.text(q, pfad, 'source_id')
     p.text(q, pfad, 'status', auswahl=STATUS)
     p.text(q, pfad, 'reason', null=True)
     p.zahl(q, pfad, 'captured_at_s', null=True, mini=0)
+    # Nur vergleichbare Zahlen verwenden; die Kopfpruefung meldet ungueltige Erzeugungszeiten.
+    grenze = generated_mono_s
+    if (isinstance(grenze, bool) or not isinstance(grenze, (int, float))
+            or (isinstance(grenze, float) and not math.isfinite(grenze)) or grenze < 0):
+        grenze = None
+    p.zahl(q, pfad, 'received_mono_s', null=True, mini=0, maxi=grenze)
     p.zahl(q, pfad, 'age_s', null=True, mini=0)
     p.zahl(q, pfad, 'rate_hz', null=True, mini=0)
     p.text(q, pfad, 'frame_id', null=True)
     p.text(q, pfad, 'coord_frame', null=True)
     st = q.get('status')
+    if st == 'valid' and q.get('received_mono_s') is None:
+        p.f(f'{pfad}.received_mono_s', 'status valid braucht eine Empfangszeit (R7)')
+    if st == 'missing' and q.get('received_mono_s') is not None:
+        p.f(f'{pfad}.received_mono_s', 'status missing: nie empfangen, also null (R7)')
     if st == 'valid' and (q.get('captured_at_s') is None or q.get('age_s') is None):
         p.f(pfad, 'status valid braucht captured_at_s und age_s (R7)')
     if st == 'missing' and (q.get('captured_at_s') is not None or q.get('age_s') is not None):
