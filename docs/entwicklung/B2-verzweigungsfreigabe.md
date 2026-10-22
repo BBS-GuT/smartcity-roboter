@@ -44,7 +44,7 @@ keine erfundene Freigabe). Der gespeicherte verbotene Ausgang wird niemals
 zur Erfüllung von R9 in `allowed_exits` aufgenommen. Die interne Bindung bleibt
 für Wiederaufnahme/Konfliktdiagnose erhalten. Bestehendes C1 bietet
 `diagnostics.warnings` und Ereignisse in `diagnostics.events` mit `kind`,
-`message`, `event_seq` und `generated_mono_s`; eine spätere Darstellung darf
+`text`, `event_id` und `mono_s`; eine spätere Darstellung darf
 nur den dann gültigen C1-Vertrag benutzen. Der genaue Adapter samt gültiger
 Projektion und Quellenstatus bleibt offen; diese Lieferung ändert weder
 C1-Schema noch öffentliche Nachrichten und behauptet keine Laufzeitabbildung.
