@@ -74,6 +74,24 @@ class Zebrazone(unittest.TestCase):
         folge = zebra(200, lidar_luecken=lidar.ungueltige_winkel(scan_mit_luecke(-45)))
         self.assertIn('Ueberweg rechts nicht gemessen', folge[-1]['grund'])
 
+    def test_einzelner_fehlender_strahl_hochaufloesend(self):
+        # Codex-Befund zu PR #159: ein einzelner ungueltiger Strahl um 47 Grad aus einem hochaufloesenden Scan
+        # (0,25 Grad) schneidet die Zone bei x = 0,20-0,26 m; ein Raster mit Winkelluecken uebersah ihn
+        n = 1440
+        for grad in (46.5, 47.0, 47.25, 48.0, 52.0, -47.0):
+            with self.subTest(grad=grad):
+                r = [3.0] * n
+                r[int(round((grad + 180) / 360 * n))] = 0.0
+                winkel = lidar.ungueltige_winkel(q.scan(r, n=n))
+                self.assertIsNone(lidar.fahrschlauch_luecke(winkel))       # Fahrschlauch gemessen
+                folge = zebra(80, lidar_luecken=winkel)
+                self.assertTrue(all(b['aktion'] == 'stopp' for b in folge), grad)
+                self.assertIn('nicht gemessen', folge[-1]['grund'])
+        # knapp ausserhalb der Zone (Ecke bei ca. 54,5 Grad): frei
+        r = [3.0] * n
+        r[int(round((57 + 180) / 360 * n))] = 0.0
+        self.assertEqual(zebra(80, lidar_luecken=lidar.ungueltige_winkel(q.scan(r, n=n)))[-1]['aktion'], 'fahren')
+
     def test_luecke_hinter_dem_fahrschlauchende_haelt(self):
         # Zebrastreifen in 0,7 m: Zone bis 0,95 m, hinter dem Fahrschlauchende (0,8 m). Richtung geradeaus
         # ohne Messwert. (Im Gesamtsystem meldet die Zentrale das schon ueber den Fahrschlauch, #79; der Ablauf

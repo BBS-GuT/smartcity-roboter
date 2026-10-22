@@ -122,49 +122,54 @@ class Zebrastreifen(Ablauf):
         elif w.get('lidar_breit') is not None and w['lidar_breit'] < self.c['zebra_lidar']:
             self.jemand = f"etwas {w['lidar_breit'] * 100:.0f} cm vor mir (LiDAR)"
 
-    def _zone(self, xy):
-        """(Maske: Punkt liegt AUF oder direkt NEBEN dem Zebrastreifen, Abstand entlang/nach vorne) je Punkt."""
+    def _zone(self, xy, rand=0.0):
+        """(Maske: Punkt liegt AUF oder direkt NEBEN dem Zebrastreifen, Abstand entlang/nach vorne) je Punkt.
+        rand: Zone ringsum so viel groesser (m), fuer die Grobstufe in _zone_ungemessen."""
         if self.weg:
             # entlang der Linie messen: steht der Roboter (noch) schraeg, zaehlt trotzdem nur der Bereich
             # am Zebrastreifen, nicht Waende/Haeuser daneben
-            quer, entlang = abstand_zum_weg(xy, self.weg, self.abstand + self.c['zebra_tiefe'] + 0.2)
+            quer, entlang = abstand_zum_weg(xy, self.weg, self.abstand + self.c['zebra_tiefe'] + 0.2 + rand)
         else:
             quer, entlang = np.abs(xy[:, 1]), xy[:, 0]
-        zone = ((entlang > self.abstand - 0.10) & (entlang < self.abstand + self.c['zebra_tiefe'])
-                & (quer < self.c['zebra_seite']))
+        zone = ((entlang > self.abstand - 0.10 - rand) & (entlang < self.abstand + self.c['zebra_tiefe'] + rand)
+                & (quer < self.c['zebra_seite'] + rand))
         return zone, entlang
 
     def _zone_ungemessen(self, w):
         """None = die ganze Ueberwegzone ist gemessen, sonst Grund (Text). Fehlen Punkte in der Zone, weil Strahlen
         dort keinen gueltigen Messwert haben (0, NaN, inf ...), ist sie nicht frei, sondern unbekannt (#156).
 
-        Jeder Zonenpunkt liegt auf dem LiDAR-Strahl in seiner Richtung: eine Richtung ohne Messung trifft die Zone
-        genau dann, wenn Zonenpunkte in dieser Richtung liegen. Die Zone wird dafuer einmal auf einem 3-cm-Raster
-        ausgewertet (Richtungen je Grad, 1 Grad Rand) - gleiche Rechenzeit, egal wie viele Strahlen fehlen."""
+        Jede Richtung ohne Messung wird direkt entlang ihres Strahls gegen die Zone geprueft - ein einzelner
+        fehlender Strahl reicht. Rechenzeit: Richtungen auf 0,25 Grad zusammengefasst (am Zonenende hoechstens ca.
+        2 mm seitlich); Grobstufe alle 6 cm gegen die um 6 cm groessere Zone (jeder Zonenpunkt eines Strahls hat
+        einen Grobpunkt hoechstens 3 cm daneben), fein alle 2 cm nur fuer Strahlen, die dabei in die Naehe kommen."""
         if w.get('lidar_xy') is None or w.get('lidar_luecken') is None:
             return 'Abdeckung des Ueberwegs unbekannt (keine LiDAR-Punkte/Luecken)'
         winkel = np.asarray(w['lidar_luecken'], dtype=float).reshape(-1)
         if not len(winkel):
             return None
+        winkel = np.unique(np.round(np.arctan2(np.sin(winkel), np.cos(winkel)) / math.radians(0.25)))
+        winkel = winkel * math.radians(0.25)
         reichweite = self.abstand + self.c['zebra_tiefe'] + self.c['zebra_seite'] + 0.2
-        g = np.arange(-reichweite, reichweite + 0.015, 0.03)
-        raster = np.stack(np.meshgrid(g, g), axis=-1).reshape(-1, 2)
-        # Zone liegt hoechstens 'reichweite' entfernt und nicht weiter als zebra_seite hinter dem Roboter
-        raster = raster[(np.hypot(raster[:, 0], raster[:, 1]) <= reichweite) & (raster[:, 0] > -self.c['zebra_seite'])]
-        raster = raster[self._zone(raster)[0]]
-        if not len(raster):
-            return None
-        grad = np.round(np.degrees(np.arctan2(raster[:, 1], raster[:, 0]))).astype(int) % 360
-        unbekannt = np.zeros(360, dtype=bool)
-        lw = np.round(np.degrees(winkel)).astype(int) % 360
-        for d in (-1, 0, 1):
-            unbekannt[(lw + d) % 360] = True
-        treffer = unbekannt[grad]
-        if not treffer.any():
-            return None
-        p = raster[treffer][np.argmin(np.hypot(raster[treffer, 0], raster[treffer, 1]))]
-        seite = 'links' if p[1] > 0 else 'rechts'
-        return f'Ueberweg {seite} nicht gemessen (LiDAR-Strahlen ohne Messwert)'
+
+        def strahlen(w_, schritt):
+            s = np.arange(schritt, reichweite + schritt / 2, schritt)
+            xy = np.stack([np.cos(w_)[:, None] * s, np.sin(w_)[:, None] * s], axis=-1)   # (Strahl, Punkt, 2)
+            return xy, xy[..., 0] > -self.c['zebra_seite'] - 0.06    # Zone liegt vor dem Roboter (entlang Linie)
+
+        xy, vorn = strahlen(winkel, 0.06)
+        nah = np.zeros(vorn.shape, dtype=bool)
+        if vorn.any():
+            nah[vorn] = self._zone(xy[vorn], rand=0.06)[0]
+        winkel = winkel[nah.any(axis=1)]
+        for k in range(0, len(winkel), 16):         # fein, in kleinen Gruppen: der erste Treffer genuegt
+            xy, vorn = strahlen(winkel[k:k + 16], 0.02)
+            xy = xy[vorn]
+            zone = self._zone(xy)[0]
+            if zone.any():
+                seite = 'links' if xy[zone][0, 1] > 0 else 'rechts'
+                return f'Ueberweg {seite} nicht gemessen (LiDAR-Strahlen ohne Messwert)'
+        return None
 
     def schritt(self, jetzt, w):
         c, d = self.c, self.dauer(jetzt)
