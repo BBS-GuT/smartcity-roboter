@@ -80,15 +80,22 @@ class Lichter:
 
     def ausloeser(self, lf, ki):
         """(Richtung, Grund) oder (None, '') aus Linienfolger-Status und KI-Befehl (je dict oder None).
-        KI-Vorgabe und Manoever gelten sofort, die Linie erst, wenn sie lange genug gleich abknickt."""
+        KI-Vorgabe und Manoever gelten sofort, die Linie erst, wenn sie lange genug gleich abknickt.
+        Die Bestaetigungszeit der Linie zaehlt nur, solange die Linie auch wirklich ausgewertet wird: ohne
+        Linienfolger und waehrend die KI Vorrang hat, wird der Linienkandidat verworfen (Codex #155)."""
+        if not lf:
+            self.kandidat = None
+            return None, ''
         if ki:
             if ki.get('blinker') in ('links', 'rechts'):
+                self.kandidat = None
                 return ki['blinker'], 'KI biegt ab'
             m = ki.get('manoever') if ki.get('aktion') == 'manoever' else None
             if m and abs(float(m.get('dreh', 0.0))) > self.c['manoever_dreh']:
+                self.kandidat = None
                 return ('links' if float(m['dreh']) > 0 else 'rechts'), 'Manoever: ' + str(m.get('text', 'drehen'))
         richtung, grund = None, ''
-        if lf and self.c['kurve_grad'] > 0:
+        if self.c['kurve_grad'] > 0:
             k = knick(lf.get('weg'))
             if k is not None and abs(math.degrees(k)) >= self.c['kurve_grad']:
                 richtung, grund = ('links' if k > 0 else 'rechts'), f'Linie knickt {abs(math.degrees(k)):.0f} Grad ab'
@@ -104,9 +111,7 @@ class Lichter:
     def schritt(self, jetzt, lf, ki):
         """lf/ki: neueste Meldung (dict) oder None, wenn das Programm nicht laeuft/zu alt."""
         self.jetzt = jetzt
-        richtung, grund = self.ausloeser(lf, ki) if lf else (None, '')   # ohne Linienfolger faehrt nichts
-        if not lf:
-            self.kandidat = None    # nach einem Ausfall wieder volle 'bestaetigen' s mit frischen Meldungen abwarten
+        richtung, grund = self.ausloeser(lf, ki)   # ohne Linienfolger faehrt nichts -> (None, '')
         if richtung:
             if richtung != self.blinker:
                 self.blinker, self.seit = richtung, jetzt

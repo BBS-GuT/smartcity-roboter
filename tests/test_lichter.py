@@ -111,6 +111,17 @@ class Blinker(unittest.TestCase):
         zurueck = {'aktion': 'manoever', 'manoever': {'lin': -0.05, 'dreh': 0.0, 'text': 'zurueck'}}
         self.assertIsNone(lichter.Lichter().schritt(0.0, lf(GERADE), zurueck)['blinker'])
 
+    def test_ki_vorrang_verwirft_linienkandidat(self):
+        # Codex #155: kurz Linie rechts, dann 4 s KI-Manoever links -> danach darf rechts nicht sofort kommen
+        li = lichter.Lichter()
+        wenden = {'aktion': 'manoever', 'manoever': {'dreh': 0.8, 'text': 'wenden'}}
+        li.schritt(0.0, lf(ECKE_RECHTS), None)
+        for i in range(1, 40):
+            self.assertEqual(li.schritt(i / 10, lf(ECKE_RECHTS), wenden)['blinker'], 'links')
+        b = fahre(li, 4.0, 6.0, ECKE_RECHTS)
+        self.assertNotIn('rechts', b[:15])            # Seitenwechsel: volle 1,5 s frische Linie
+        self.assertEqual(b[15:], ['rechts'] * 5)
+
     def test_nach_ausfall_neu_bestaetigen(self):
         # Codex #155: fehlt der Linienfolger-Status zwischendurch, darf die alte Bestaetigungszeit nicht weitergelten
         li = lichter.Lichter()
@@ -197,6 +208,12 @@ class PanelLichter(unittest.TestCase):
         self.assertEqual(self.node.rgb_pub.n, n)                                       # unveraendert: nichts senden
         self.node.leiste_aus()
         self.assertEqual((self.node.rgb_pub.letzte.a, self.node.rgb_pub.letzte.r), (0.0, 0.0))
+        # Codex #155: Licht-Takt laeuft beim Beenden weiter -> darf die Leiste nicht wieder einschalten
+        n = self.node.rgb_pub.n
+        self.node.led_gesendet, self.node.led_voll = None, 0.0      # wie nach 2 s: ganze Leiste faellig
+        self.node.lichter_takt()
+        self.assertEqual(self.node.rgb_pub.n, n)
+        self.node.leiste_gesperrt = False
 
     def test_blinker_im_status_und_ereignis(self):
         self.node.lichter.c.update(SOFORT)

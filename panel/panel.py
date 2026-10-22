@@ -191,6 +191,7 @@ class PanelNode(Node):
         self.rgb_topic = str(werte.get('rgb_topic', '/rgb'))
         self.rgb_pub = self.create_publisher(ColorRGBA, self.rgb_topic, 10) if self.rgb_topic else None
         self.led_gesendet, self.led_voll = None, 0.0
+        self.leiste_gesperrt = False    # nach leiste_aus() (Panel endet) nichts mehr an die Leiste
         sub = self.create_subscription
         sub(String, '/line_follower/status', lambda m: self._json('lf', m), 10)
         sub(String, '/ki/befehl', lambda m: self._json('ki', m), 10)
@@ -306,7 +307,7 @@ class PanelNode(Node):
 
     def leiste_senden(self, leds):
         """Nur geaenderte LEDs ans Board, alle 2 s die ganze Leiste (falls das Board neu gestartet ist)."""
-        if self.rgb_pub is None:
+        if self.rgb_pub is None or self.leiste_gesperrt:
             return
         jetzt = time.time()
         alt = self.led_gesendet if jetzt - self.led_voll < 2.0 else None
@@ -317,6 +318,9 @@ class PanelNode(Node):
         self.led_gesendet = list(leds)
 
     def leiste_aus(self):
+        """LEDs aus und gesperrt lassen: der Licht-Takt laeuft beim Beenden noch weiter (Programme stoppen dauert
+        einige Sekunden) und wuerde das Abblendlicht sonst wieder einschalten (Codex #155)."""
+        self.leiste_gesperrt = True
         if self.rgb_pub is not None:
             self.rgb_pub.publish(ColorRGBA(r=0.0, g=0.0, b=0.0, a=0.0))
 
