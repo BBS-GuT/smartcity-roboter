@@ -16,7 +16,7 @@ B = Bezug('test-geraet', 'test-start', 'test-regel-v1', 'test-X', 'test-S',
 def bild(seq=1, **werte):
     basis = Eingabe(B, seq, float(seq), 1.0, geometrie=frozenset({'A', 'B', 'C'}),
                     erlaubt=frozenset({'A', 'C'}), einfahrtsfreigabe=True,
-                    spur_bestaetigt=True)
+                    spur_bestaetigt=True, geometrie_vollstaendig=True)
     return replace(basis, **werte)
 
 
@@ -37,7 +37,7 @@ class Wegwahl(unittest.TestCase):
     def test_einzelausgang_ohne_zufall_und_verbotener_sichtbarer_arm(self):
         rng = Zufall()
         a = automat(zufall=rng)
-        e = bild(erlaubt=frozenset({'C', 'D'}))
+        e = bild(erlaubt=frozenset({'C'}))
         self.assertEqual(a.schritt(e, 1).ausgang, 'C')
         self.assertEqual(rng.zuege, 0)
 
@@ -300,6 +300,32 @@ class Wegwahl(unittest.TestCase):
         self.assertEqual(a.schritt(e, 6, haltgruende=('Hindernis',)).grund, 'schutzstopp')
         self.assertEqual(a.schritt(replace(e, sequenz=7, aufnahme=7), 7).lage, 'raeumen')
         self.assertEqual(a.historie, {})
+
+    def test_teilmenge_vor_wahl_verbraucht_keinen_zufallszug(self):
+        rng = Zufall(.75)
+        a = automat(zufall=rng)
+        teil = bild(geometrie=frozenset({'A'}), geometrie_vollstaendig=False)
+        r = a.schritt(teil, 1)
+        self.assertEqual((r.lage, r.ausgang, r.grund),
+                         ('halt', None, 'geometrie_unvollstaendig'))
+        self.assertEqual(a.schritt(teil, 1.2), r)
+        self.assertEqual(a.schritt(bild(2, geometrie=frozenset({'A'})), 2).grund,
+                         'geometrie_unvollstaendig')  # Widerspruch trotz True
+        self.assertEqual(a.schritt(bild(3, geometrie_vollstaendig=False), 3).grund,
+                         'geometrie_unvollstaendig')
+        self.assertEqual(rng.zuege, 0)
+        self.assertEqual(a.historie, {})
+        self.assertEqual(a.schritt(bild(4), 4).ausgang, 'C')
+        self.assertEqual(rng.zuege, 1)
+        self.assertEqual(a.schritt(bild(5, geometrie_vollstaendig=False), 5).ausgang, 'C')
+        self.assertEqual(rng.zuege, 1)  # nach Bindung keine neue Vollstaendigkeitswahl
+
+    def test_ein_erlaubter_arm_braucht_ebenfalls_vollstaendigkeitsbeleg(self):
+        a = automat()
+        self.assertEqual(a.schritt(bild(erlaubt=frozenset({'A'}),
+                                       geometrie_vollstaendig=False), 1).grund,
+                         'geometrie_unvollstaendig')
+        self.assertEqual(a.schritt(bild(2, erlaubt=frozenset({'A'})), 2).ausgang, 'A')
 
 
 if __name__ == '__main__':

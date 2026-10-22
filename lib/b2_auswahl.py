@@ -45,6 +45,7 @@ class Eingabe:
     erlaubt: frozenset | None = None
     erkannt: bool = True
     ueberweg: bool = False
+    geometrie_vollstaendig: bool = False
     spur_bestaetigt: bool = False  # aktuelle eigene Spur UND Manoeverfortschritt
     einfahrtsfreigabe: bool | None = None
     ausgang: str | None = None
@@ -176,6 +177,8 @@ class Auswahl:
                 return self._halt('ausgang_nicht_sichtbar')
         elif not kandidaten:
             return self._halt('keine_erlaubte_ausfahrt')
+        elif e.geometrie_vollstaendig is not True or not e.erlaubt <= e.geometrie:
+            return self._halt('geometrie_unvollstaendig')
         if self._phase != 'raeumen' and e.einfahrtsfreigabe is not True:
             return self._halt('einfahrt_gesperrt')
         if e.art == 'einfahrt':
