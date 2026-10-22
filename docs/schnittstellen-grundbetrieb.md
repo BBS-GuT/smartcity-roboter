@@ -86,6 +86,11 @@ Ein ausgegebener Befehl ist kein Nachweis einer Bewegung. `output` und `measured
 | `traffic.signs[]` | `{type, status, confidence}` |
 | `traffic.crossings[]` | Überwege `{id, occupancy: free\|occupied\|unknown, status}` |
 
+#### `route.history`
+
+* **Beschreibung:** Begrenzte bestätigte Fahrhistorie im Zustandsvertrag (maximal 16 Einträge, lückenlose Sequenzen).
+* **Status:** Aktiv gemäß C1I (Issue #153).
+
 ### `obstacles` – Hindernisse (Produzent: A/B)
 
 | Feld | Bedeutung |

@@ -466,9 +466,15 @@ class Entscheider:
                 z = {'abstand': max(0.05, rest)}
         if z and not self.zebra_gesperrt and z['abstand'] <= c['zebra_halt']:
             self.zebra_merk = None
+<<<<<<< HEAD
             self._ereignis(jetzt, f"Zebrastreifen {z['abstand'] * 100:.0f} cm voraus -> anhalten, beobachten", 'stopp')
             # #70/#8: vorhandene Posen oder die Armfreigabe fuers Wegraeumen erlauben keinen Kameraschwenk am Ueberweg
             return self._ablauf_start(jetzt, Zebrastreifen(jetzt, c, z['abstand']))
+=======
+            self._ereignis(jetzt, f"Zebrastreifen {z['abstand'] * 100:.0f} cm voraus -> anhalten, umschauen", 'stopp')
+            return self._ablauf_start(jetzt, Zebrastreifen(jetzt, c, self.posen, z['abstand'],
+                                                           arm_freigabe=self.arm_erlaubt))
+>>>>>>> 61c7031 (B1d)
         # Umschauen (Wunsch von Kartograf/Panel): nur wenn sonst nichts los ist, Wunsch gilt 20 s
         if self.umschauen_wunsch is not None:
             if jetzt - self.umschauen_wunsch < 20.0 and not self.ampel_halt and jetzt >= self.schild_bis:
