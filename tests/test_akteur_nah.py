@@ -11,7 +11,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
-from raeum_lauf import AKTEURE, Lauf, bewegt  # noqa: E402
+from raeum_lauf import AKTEURE, Lauf  # noqa: E402
 from tiefe import abstand_im_kasten, tiefe_passt  # noqa: E402
 from entscheider import STANDARD  # noqa: E402
 from ablaeufe import akteur_einordnen  # noqa: E402

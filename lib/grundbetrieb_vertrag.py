@@ -67,6 +67,26 @@ def alter_s(d, jetzt_mono_s):
     return max(0.0, jetzt_mono_s - d['generated_mono_s'])
 
 
+def prfe_fahrhistorie(history_daten):
+    """Prueft den begrenzten Fahrhistorien-Puffer auf hoechstens 16 lueckenlose Sequenzeintraege (C1I, #153)."""
+    if not isinstance(history_daten, dict) or 'entries' not in history_daten:
+        return False
+    entries = history_daten['entries']
+    if not isinstance(entries, list) or len(entries) > 16:
+        return False
+    letzte_seq = None
+    for eintrag in entries:
+        if not isinstance(eintrag, dict):
+            return False
+        seq = eintrag.get('seq')
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
+            return False
+        if letzte_seq is not None and seq != letzte_seq + 1:
+            return False
+        letzte_seq = seq
+    return True
+
+
 # ------------------------------------------------------------------ JSON
 def _kein_nan(wert):
     raise ValueError(f'nicht erlaubter JSON-Wert {wert}')
