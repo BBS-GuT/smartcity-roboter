@@ -76,7 +76,7 @@ class Fahrablauf(unittest.TestCase):
         self.assertIsNotNone(self.n.sucher.wahl)
         cmd = self.schritt((0.30, 0.02, math.pi / 6))
         self.assertGreater(cmd[0], 0)
-        self.assertGreater(abs(cmd[2]), 0.01)
+        self.assertGreater(cmd[2] * self.n.sucher.wahl, 0.01)
         return self.n.sucher.wahl
 
     def ausfahrt(self):
