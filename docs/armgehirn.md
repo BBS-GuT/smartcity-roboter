@@ -113,6 +113,7 @@ Grenzwerte in `config/lokal/arm.yaml` anpassen (an echten Würfeln und Figuren p
 armgehirn:
   ablage: [0.10, -0.18]          # Ablagestelle (Mitte, m vor der Robotermitte / links)
   markierungen: [[0.15, 0.0], [0.18, 0.0], [0.15, 0.05], [0.15, -0.05], [0.18, 0.05], [0.18, -0.05]]
+  korrektur_start: [0.03, 0.0, 0.0]   # optional: von Hand gemessen "greift ca. 3 cm zu kurz" (vorne/links/hoch, m)
   sicherheit:
     form_max: 2.6
     hoehe_max: 0.065

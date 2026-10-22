@@ -209,6 +209,12 @@ class Ablauf(unittest.TestCase):
             self.assertEqual(st['ergebnis']['ergebnis'], e['ergebnis'])
             self.assertIn('gesperrt', st['antrieb'])
 
+    def test_startkorrektur_verschiebt_vorwissen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ohne = gehirn(Welt(), tmp).politik.vorschlag(WUERFEL, erkunden=False)[0]
+            mit = gehirn(Welt(), tmp, korrektur_start=[0.03, 0.0, 0.0]).politik.vorschlag(WUERFEL, erkunden=False)[0]
+            self.assertTrue(np.allclose(mit - ohne, [0.03, 0.0, 0.0]))
+
     def test_unerreichbar_faehrt_nicht(self):
         """Arm reicht nicht hin: er faehrt NICHT naeher heran (Antrieb gesperrt), sondern meldet es."""
         with tempfile.TemporaryDirectory() as tmp:

@@ -68,6 +68,12 @@ class ArmGehirn:
         zustand = prot.lade_zustand(zustand_datei) if zustand_datei else {}
         self.blick_lernen = blicklib.BlickLernen(zustand.get('blick'))
         self.lage_kalibrierung = zustand.get('lage_kalibrierung')
+        # Startkorrektur (m, vorne/links/hoch) von Hand gemessen: "greift ca. 3 cm zu kurz" -> [0.03, 0, 0].
+        # Verschiebt das Vorwissen, das Lernen sucht ab dort weiter. Gilt nur im Arm-Gehirn.
+        start = self.c.get('korrektur_start')
+        if start:
+            self.politik.W0[:, 0] += np.array(start, dtype=float)
+            self.politik._rechnen()
         self.links = -1 if self.kin.g.get('servo1_links', 1) < 0 else 1
         self.stellungen = blicklib.blickstellungen(self.kamera_fahr, self.fahr, self.kin.g)
         eigene = self.c.get('greifblick')       # eingelernte Pose (optional): zuerst probieren

@@ -152,6 +152,9 @@ def main():
         if a.kalibrieren:
             kalibrieren(g, frage or input)
             return
+        if g.c.get('korrektur_start'):
+            print(f"Startkorrektur (config/lokal/arm.yaml): {[round(v * 100, 1) for v in g.c['korrektur_start']]} cm "
+                  '(vorne/links/hoch)')
         st = g.politik.lernstand()
         print(f"Greif-Lernen: {st['herkunft']}, {st['versuche']} Versuche bisher; Speicher: {g.politik.lokal}")
         print('  ' + protokoll.text())
