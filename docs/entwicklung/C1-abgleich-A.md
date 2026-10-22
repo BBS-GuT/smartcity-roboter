@@ -117,13 +117,31 @@ für denselben Vertrag 2.0, keine bereits eingeführte Schnittstelle:
 | Bereich | A-Vorgabe zur darstellbaren Bedeutung |
 |---|---|
 | `motion.request` | B-Wunsch mit vollständigem Requestschlüssel und eigener Frist; weder Ausgabe noch Messung. |
-| `motion.output` | Von A tatsächlich ausgegebene SI-Bewegung mit A-`producer_id`/`producer_boot_id`, `output_seq`, `time_basis_id`, `issued_mono_s`, Status/Grund und `request_ref`. `request_ref` ist der vollständige Requestschlüssel oder `null` bei eigenständigem Sicherheitshalt mit Grund. Keine Ausgabe aus Wunsch rekonstruieren. Fehlende Ausgabe bleibt unbekannt/null; bestätigter Nullbefehl beweist keinen Stillstand. |
+| `motion.output` | Von A tatsächlich ausgegebene SI-Bewegung mit A-`producer_id`/`producer_boot_id`, `output_seq`, `time_basis_id`, `issued_mono_s`, Status/Grund, `request_ref` und verpflichtender `evaluation_ref` gemäß Regel unten. `request_ref` ist der vollständige Requestschlüssel oder `null` bei eigenständigem Sicherheitshalt mit Grund. Keine Ausgabe aus Wunsch rekonstruieren. Fehlende Ausgabe bleibt unbekannt/null; bestätigter Nullbefehl beweist keinen Stillstand. |
 | `motion.measured` | Wirkliche Messung mit Quellen-/Frame-/Aufnahme-/Empfangsbezug, m/s und rad/s, Qualität/Grund; nicht vom ausgegebenen Sollwert befüllen. |
-| `motion.release` / `arm.release` | Jeweils geliefertes abschließendes Ergebnis `decision=allowed/blocked/unknown`, Qualität/Grund, eigener Besitzerstart und `decision_seq`, Prüfzeit/Uhr, vollständige `request_ref` bzw. `command_ref`, optional Ausgabe-Referenz. Grundsätzliche Motorbereitschaft getrennt halten. Fehlender Besitzer/Nachweis bedeutet `unknown`, nie `allowed`. Historische Ergebnisse bleiben als solche referenzierbar; ein Resultat zu anderem Request darf nicht als aktuelles angezeigt werden. |
-| Sperren / Betriebszustand | Geliefertes vollständiges Sperrbild mit `status`, `reason`, Besitzerstart, `seq`, `time_basis_id`, `evaluated_mono_s`; `blocks[]` mit stabiler `block_id`, `code`, Quelle/Produzent, Zeit/Qualität und `effect=motion/arm/both`. Leere Liste bedeutet nur bei ausdrücklich gültigem vollständigem Bild keine gemeldete Sperre. Unvollständiges/fehlendes Bild bleibt unbekannt, nicht leere Freigabe. |
+| `motion.release` / `arm.release` | Jeweils geliefertes abschließendes Ergebnis `decision=allowed/blocked/unknown`, Qualität/Grund, eigener Besitzerstart und `decision_seq`, Prüfzeit/Uhr, vollständige `request_ref` bzw. `command_ref` und verpflichtende `evaluation_ref`. `output_ref` bezeichnet genau die zugehörige Ausgabe mit Gerät/Besitzerstart/Ausgabesequenz, bei fehlender Ausgabe ausdrücklich null mit Grund. Grundsätzliche Motorbereitschaft getrennt halten. Fehlender Besitzer/Nachweis bedeutet `unknown`, nie `allowed`. Historische Ergebnisse bleiben als solche referenzierbar; ein Resultat zu anderem Request darf nicht als aktuelles angezeigt werden. |
+| Sperren / Betriebszustand | Geliefertes vollständiges Sperrbild je Auswertung mit verpflichtender `evaluation_ref`, `status`, `reason`, Besitzerstart, `seq`, `time_basis_id`, `evaluated_mono_s`; `blocks[]` mit stabiler `block_id`, `code`, Quelle/Produzent, Zeit/Qualität und `effect=motion/arm/both`. Leere Liste bedeutet nur bei ausdrücklich gültigem vollständigem Bild keine gemeldete Sperre. Unvollständiges/fehlendes Bild bleibt unbekannt, nicht leere Freigabe. |
 | STOPP / Fehler | `stop_latched` und `fault_latched` als gelieferte bool/null-Angaben mit Qualität und Grund; aktive Ursachen bleiben zusätzlich in `blocks`. Bestätigter Reset mit Besitzer-/Zeitbezug ist von Wiederkehr frischer Daten getrennt. Ein Zustandswechsel, Grün, Timer oder Reconnect löscht keine Verriegelung. |
 | `protection` / Sensorpflicht | Politik-ID/-Version, Pflichtmatrixreferenz und Nachweisreferenz jeweils mit Status/Grund; unbekannte Referenzen dürfen null sein. Fehlender Politiknachweis ist darstellbar. Kein `allowed` aus bloß vorhandener Referenz, Phase, Klasse oder `ki_darf_arm_bewegen` ableiten. |
 | Arm/Kamera/Objekt | C1h-Vokabular für Phase/Ausführung/Ergebnis, eigene Vorgangs-/Objektidentitäten; Wunsch, Ausgabe, Empfangsbestätigung, echte Stellung/Last und Kamerapose getrennt. Letzte Beobachtung behält Frame/Zeit; Odometrieschätzung führt eigene Herkunft/Unsicherheit und erneuert diese Aufnahme nicht. Fehlende Messung bleibt null mit Qualität, keine angenommene Fahr-/Nullstellung. |
+
+**Atomare Auswertung:** `evaluation_ref` ist das vollständige Tupel
+`(robot_id, producer_id, producer_boot_id, domain, evaluation_seq)` des
+Freigabebesitzers; `domain` ist `motion` oder `arm`, Sequenz steigt pro
+Besitzerstart und Bereich ohne Wiederverwendung. Jede neue Auswertung bindet
+genau ein Ergebnis, das dabei verwendete vollständige Sperrbild einschließlich
+STOPP-/Fehlerstatus und die zugehörige Ausgabe (oder explizit fehlende Ausgabe).
+Alle führen dieselbe Auswertungsreferenz; die Ergebnis-`output_ref` muss auf
+genau diese Ausgabe zeigen. Änderung der Ausgabe oder der bewerteten Sperren
+verlangt eine neue vollständige Auswertung, auch bei unverändertem Request.
+Identische Auswertungskennung mit geändertem Inhalt ist ein Widerspruch.
+C übernimmt das Paket atomar und kombiniert keine separat neuesten Teilwerte.
+Fehlt ein Teil/Bezug, bleibt das aktuelle Ergebnis unbekannt; ältere vollständige
+Pakete dürfen nur als historische Diagnose erscheinen. Ohne bekannten
+Armbesitzer bleibt das Armpaket unbekannt/null statt einer erfundenen Kennung.
+Fahrt- und Armpakete besitzen eigene Auswertungen; ein vom jeweiligen Besitzer
+bewerteter gemeinsamer Sperrgrund bleibt in beiden mit seinem Quellenbezug
+sichtbar. Ein zusammenfassendes Sperrdisplay ersetzt diese beiden Pakete nicht.
 
 Referenzen müssen zum Gerät, Besitzerstart und jeweiligen Schlüssel passen;
 Ausgabe- und Prüfzeit sind keine Sensoraufnahmezeiten. Vergleiche zwischen
@@ -149,7 +167,7 @@ erfolgt mit exklusiver Dateireservierung streng nacheinander.
 | 2 Details | Historischen Registerkontext und getrenntes Aufnahme-/Transportalter annehmen. Älteren gültigen Frame erhalten; fremde Quelle/Uhr und fehlenden historischen Beleg erkennen. Parameter explizit, kein Broker erforderlich. |
 | 3 Fahrwunsch | V2 einschließlich separatem Höchststand annehmen. Fall 8 → abgelaufene 10 → frische 9 muss 9 sperren; zulässige 11 darf folgen. 1 ns vor Ablauf verwendbar, Gleichheit abgelaufen; direkte und JSON-Wege gleich. Datenannahme löst keinen Halt-/Motoradapter aus. |
 | 4 Historie | Aus A-Sicht Datenabgrenzung annehmen; B/O entscheidet Karten-/Abschlusssemantik und 16er-Puffer. Gültig leer versus missing, 16/17, Lücken, B-Reset und C-Neustart zeigen; keine Fahrt aus Wünschen erfinden. |
-| 5 Räumen/Arm | Nur nach gemeinsamer Feld-/Codeannahme der obigen Ergänzungen. Vier C1h-Fälle, gleichzeitige Sperren, getrennte Fahrt-/Armresultate, unbekannter Besitzer/Politik, fehlende Messung und Pause/Abbruch darstellen. Keine physische Sensorpflichtmatrix implementieren. |
+| 5 Räumen/Arm | Nur nach gemeinsamer Feld-/Codeannahme der obigen Ergänzungen. Vier C1h-Fälle, gleichzeitige Sperren, getrennte Fahrt-/Armresultate, unbekannter Besitzer/Politik, fehlende Messung und Pause/Abbruch darstellen. Positiv vollständiges neues Auswertungspaket bei gleicher Requestkennung; negativ neue Ausgabe plus altes Ergebnis oder fremdes Sperrbild trotz gleicher Requestkennung. Keine physische Sensorpflichtmatrix implementieren. |
 | 6 Gesamtannahme | Vollständige aktive Fixtures, separater Request-Einstieg, Schema und Python-Beziehungen samt JSON-Rundlauf und funktionalen Positiv-/Negativnachweisen vorlegen. Danach bewertet A separat den konkreten Gesamt-Liefercommit; dieser Abgleich nimmt ihn nicht vorweg. |
 
 ## Präzise Rückgabe an den Manager
@@ -184,3 +202,9 @@ Dies ist kein bestandener Validator. `git diff --check` und
 Keine künstlichen Softwaretests, Pakete, ROS-, Geräte-/Brokerprüfung oder
 Roboteraktion. Nativer Review und aktueller CI-Status gehören separat zur
 PR-Übergabe; keine formale manuelle Review oder eigene Mergeaktion.
+
+Nativer P2-Befund auf Vorgänger `bb17895563e86bff28832906b1eb5b6c435b438c`
+([Auswertungsbindung](https://github.com/BBS-GuT/smartcity-roboter/pull/145#discussion_r4346477654)):
+Ausgabe, Freigabe und Sperrbild waren nicht atomar verknüpft. Obige gemeinsame
+Auswertungsreferenz und die konkreten Positiv-/Negativfälle ergänzen genau diese
+Datenregel. Dies ist eine Dokumentkorrektur, keine implementierte Funktion.
