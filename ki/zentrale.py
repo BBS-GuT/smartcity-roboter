@@ -171,6 +171,8 @@ class Zentrale(Node):
         self.linie_status = {}
         self.lidar_d, self.lidar_xy = None, None
         self.lidar_luecken = np.zeros(0)  # Winkel der Strahlen ohne Messung (alle Pflicht-LiDARs, fuer hinten)
+        self.scan_reichweite = {}         # Kanal -> frei gemessene Reichweite je Richtung (lidar.freie_reichweite)
+        self.lidar_reichweite = None      # davon das Minimum ueber alle Pflicht-LiDARs (Zebrastreifen #156)
 
         self.bridge = CvBridge()
         self.lock = threading.Lock()
@@ -319,13 +321,15 @@ class Zentrale(Node):
         if grund is None:
             self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
         grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt, nie "frei"
-        xy = breit = luecken = None
+        xy = breit = luecken = reichweite = None
         if grund is None:
             xy = lidar.punkte_xy(msg, front, self.p('obstacle_min_range'))
             breit = lidar.naechster_vorne(msg, front, 60.0, self.p('obstacle_min_range'))   # fuer Zebrastreifen
             luecken = lidar.ungueltige_winkel(msg, front)   # Strahlen ohne Messung: dort ist nichts bekannt
+            reichweite = lidar.freie_reichweite(msg, front)  # je Richtung frei gemessen bis (dahinter verdeckt)
         with self.lock:
             self.scans[topic] = (time.monotonic(), xy, breit, grund, aufnahme, luecken)   # Empfang monoton
+            self.scan_reichweite[topic] = reichweite
 
     def _imu(self, msg):
         # Drehung um die Hochachse aufsummieren (fuer das Wenden)
@@ -431,6 +435,10 @@ class Zentrale(Node):
         frisch = [(xy, b) for _, xy, b, _, _, _ in frisch]
         self.lidar_xy = np.vstack([xy for xy, _ in frisch])   # alle Punkte (fuer den Zebrastreifen)
         self.lidar_luecken = np.concatenate([e[5] for _, e in topics_frisch])
+        with self.lock:
+            reichweiten = [self.scan_reichweite.get(t) for t, _ in topics_frisch]
+        self.lidar_reichweite = (np.minimum.reduce(reichweiten) if all(r is not None for r in reichweiten)
+                                 else None)
         weg = self.weg_voraus()
         schlauch = dict(halbe_breite=self.p('fahrschlauch_breite') / 2, laenge=self.p('fahrschlauch_laenge'),
                         nah_halb_deg=self.p('obstacle_half_deg'))
@@ -637,9 +645,10 @@ class Zentrale(Node):
         w['lidar'], lid_obj, w['lidar_breit'] = self.lidar_pruefen()
         self.lidar_d = w['lidar']
         w['lidar_xy'] = self.lidar_xy if w['lidar'] is not None else None
-        # Richtungen ohne gueltige Messung (alle Pflicht-LiDARs): Ablaeufe pruefen damit selbst, ob IHRE Zone
-        # gemessen ist (Zebrastreifen #156) - fehlende Punkte dort heissen sonst faelschlich "frei"
-        w['lidar_luecken'] = self.lidar_luecken if w['lidar'] is not None else None
+        # Je Richtung, wie weit frei GEMESSEN wurde (Minimum aller Pflicht-LiDARs; ohne Messung 0, hinter einem
+        # Treffer verdeckt): Ablaeufe pruefen damit selbst, ob IHRE Zone ganz gemessen ist (Zebrastreifen #156) -
+        # fehlende Punkte heissen sonst faelschlich "frei"
+        w['lidar_reichweite'] = self.lidar_reichweite if w['lidar'] is not None else None
         w['lidar_hinten'] = self.lidar_hinten()
         w['weg'] = self.weg_voraus()
         w['gier'] = self.gier

@@ -136,41 +136,64 @@ class Zebrastreifen(Ablauf):
         return zone, entlang
 
     def _zone_ungemessen(self, w):
-        """None = die ganze Ueberwegzone ist gemessen, sonst Grund (Text). Fehlen Punkte in der Zone, weil Strahlen
-        dort keinen gueltigen Messwert haben (0, NaN, inf ...), ist sie nicht frei, sondern unbekannt (#156).
+        """None = die ganze Ueberwegzone ist gemessen, sonst Grund (Text) (#156).
 
-        Jede Richtung ohne Messung wird direkt entlang ihres Strahls gegen die Zone geprueft - ein einzelner
-        fehlender Strahl reicht. Rechenzeit: Richtungen auf 0,25 Grad zusammengefasst (am Zonenende hoechstens ca.
-        2 mm seitlich); Grobstufe alle 6 cm gegen die um 6 cm groessere Zone (jeder Zonenpunkt eines Strahls hat
-        einen Grobpunkt hoechstens 3 cm daneben), fein alle 2 cm gegen die um 1 cm groessere Zone (halber Schritt:
-        auch ein Strahl, der nur eine Ecke anschneidet, hat dort einen Punkt) - nur fuer Strahlen in deren Naehe."""
-        if w.get('lidar_xy') is None or w.get('lidar_luecken') is None:
-            return 'Abdeckung des Ueberwegs unbekannt (keine LiDAR-Punkte/Luecken)'
-        winkel = np.asarray(w['lidar_luecken'], dtype=float).reshape(-1)
-        if not len(winkel):
+        w['lidar_reichweite'] (Zentrale): je Richtung, wie weit frei gemessen wurde (0 = keine gueltige Messung,
+        hinter einem Treffer verdeckt). Jede Richtung, deren Strahl durch die Zone geht, muss mindestens bis zum
+        Zonenende frei gemessen sein. Endet sie vorher, ist der Rest der Zone in dieser Richtung unbekannt
+        (fehlender Strahl, Teilscan oder etwas davor verdeckt die Sicht) - oder dort steht etwas (das meldet
+        _lidar_belegung als Belegung). Beides ist nicht frei."""
+        frei = w.get('lidar_reichweite')
+        if w.get('lidar_xy') is None or frei is None:
+            return 'Abdeckung des Ueberwegs unbekannt (keine LiDAR-Punkte/Reichweiten)'
+        frei = np.asarray(frei, dtype=float).reshape(-1)
+        ende = self._zonenende(len(frei))
+        zu_kurz = np.flatnonzero(frei < ende)       # ende = -inf: Richtung geht nicht durch die Zone
+        if not len(zu_kurz):
             return None
-        winkel = np.unique(np.round(np.arctan2(np.sin(winkel), np.cos(winkel)) / math.radians(0.25)))
-        winkel = winkel * math.radians(0.25)
-        reichweite = self.abstand + self.c['zebra_tiefe'] + self.c['zebra_seite'] + 0.2
+        k = zu_kurz[np.argmin(ende[zu_kurz])]
+        seite = 'links' if math.sin(-math.pi + (k + 0.5) * 2 * math.pi / len(frei)) > 0 else 'rechts'
+        return f'Ueberweg {seite} nicht gemessen (LiDAR-Sicht fehlt oder verdeckt)'
 
-        def strahlen(w_, schritt):
-            s = np.arange(schritt, reichweite + schritt / 2, schritt)
-            xy = np.stack([np.cos(w_)[:, None] * s, np.sin(w_)[:, None] * s], axis=-1)   # (Strahl, Punkt, 2)
-            return xy, xy[..., 0] > -self.c['zebra_seite'] - 0.06    # Zone liegt vor dem Roboter (entlang Linie)
-
-        xy, vorn = strahlen(winkel, 0.06)
-        nah = np.zeros(vorn.shape, dtype=bool)
-        if vorn.any():
-            nah[vorn] = self._zone(xy[vorn], rand=0.06)[0]
-        winkel = winkel[nah.any(axis=1)]
-        for k in range(0, len(winkel), 16):         # fein, in kleinen Gruppen: der erste Treffer genuegt
-            xy, vorn = strahlen(winkel[k:k + 16], 0.02)
-            xy = xy[vorn]
-            zone = self._zone(xy, rand=0.01)[0]     # 1 cm = halber Abtastschritt: auch knappe Eckschnitte
-            if zone.any():
-                seite = 'links' if xy[zone][0, 1] > 0 else 'rechts'
-                return f'Ueberweg {seite} nicht gemessen (LiDAR-Strahlen ohne Messwert)'
-        return None
+    def _zonenende(self, n):
+        """Je Richtung -pi + (k + 0,5) * 2pi/n: Abstand vom LiDAR, bis zu dem ihr Strahl die Zone verlaesst (m),
+        -inf = geht nicht durch die Zone. Die Zone wird entlang der Linie (wie lidar.abstand_zum_weg: ab dem Roboter,
+        gerade verlaengert) alle 1 cm laengs und quer abgetastet; jeder Punkt gilt fuer alle Richtungen, die sein
+        1-cm-Umfeld trifft, mit 1 cm Zuschlag. Zwischengespeichert je Linie/Abstand."""
+        schluessel = (n, self.abstand, None if not self.weg else tuple(map(tuple, self.weg)))
+        if getattr(self, '_ende_schluessel', None) == schluessel:
+            return self._ende
+        h, c = 0.01, self.c
+        laenge = self.abstand + c['zebra_tiefe'] + 0.2
+        pfad = [(0.0, 0.0)] + [tuple(p) for p in (self.weg or []) if p[0] > 0.02]
+        if len(pfad) < 2:
+            pfad.append((laenge, 0.0))
+        pfad = np.array(pfad, dtype=float)
+        seg = np.diff(pfad, axis=0)
+        seglen = np.hypot(seg[:, 0], seg[:, 1])
+        if seglen.sum() < laenge and seglen[-1] > 1e-6:      # wie abstand_zum_weg: gerade verlaengern
+            pfad = np.vstack([pfad, pfad[-1] + seg[-1] / seglen[-1] * (laenge - seglen.sum())])
+            seg = np.diff(pfad, axis=0)
+            seglen = np.hypot(seg[:, 0], seg[:, 1])
+        seglen = np.maximum(seglen, 1e-9)
+        kum = np.concatenate([[0.0], np.cumsum(seglen)])
+        L = np.arange(self.abstand - 0.10, self.abstand + c['zebra_tiefe'] + h / 2, h)
+        i = np.clip(np.searchsorted(kum, L, side='right') - 1, 0, len(seg) - 1)
+        tangente = seg[i] / seglen[i][:, None]
+        mitte = pfad[i] + tangente * (L - kum[i])[:, None]
+        q = np.arange(-c['zebra_seite'], c['zebra_seite'] + h / 2, h)
+        xy = (mitte[:, None, :] + q[None, :, None] * np.stack([-tangente[:, 1], tangente[:, 0]], axis=1)[:, None, :])
+        xy = xy.reshape(-1, 2)
+        d = np.hypot(xy[:, 0], xy[:, 1])
+        breite = 2 * math.pi / n
+        mitte_k = np.floor((np.arctan2(xy[:, 1], xy[:, 0]) + math.pi) / breite).astype(int)
+        halb = np.ceil(np.arctan2(h, np.maximum(d, h)) / breite).astype(int) + 1
+        ende = np.full(n, -np.inf)
+        for versatz in range(-int(halb.max()), int(halb.max()) + 1):
+            teil = np.abs(versatz) <= halb
+            np.maximum.at(ende, (mitte_k[teil] + versatz) % n, d[teil] + h)
+        self._ende_schluessel, self._ende = schluessel, ende
+        return ende
 
     def schritt(self, jetzt, w):
         c, d = self.c, self.dauer(jetzt)

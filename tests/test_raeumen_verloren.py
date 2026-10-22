@@ -148,9 +148,9 @@ def zebra(person):
     b = None
     for _ in range(150):
         # #70/#156: Freigabe am Ueberweg nur mit LiDAR-Daten, die den Ueberweg vollstaendig messen (wie von
-        # ki/zentrale.py geliefert): keine Punkte dort, keine Richtungen ohne Messwert -> frei
+        # ki/zentrale.py geliefert): keine Punkte dort, jede Richtung 3 m weit frei gemessen -> frei
         b = lauf.schritt(zebra={'abstand': 0.3}, objekte=person, lidar_breit=1.0,
-                         lidar_xy=np.zeros((0, 2)), lidar_luecken=np.zeros(0))
+                         lidar_xy=np.zeros((0, 2)), lidar_reichweite=np.full(1440, 3.0))
     return b
 
 
