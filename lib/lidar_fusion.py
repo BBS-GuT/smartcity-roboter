@@ -305,10 +305,10 @@ class Sicht:
 
 
 class Geometrie:
-    """Optional measured geometry; incomplete configuration fails closed.
+    """Required measured geometry; missing/incomplete configuration fails closed.
 
-    No device coordinates are supplied by the product. Until geometry is supplied,
-    the existing conservative path is retained. Fields carry the configuration
+    No device coordinates are supplied by the product. Unknown origins/hulls
+    cannot authorize the old sensor-origin path. Fields carry the configuration
     fingerprint and timestamp, so a parameter/callback race cannot mix frames.
     """
     def __init__(self, node):
@@ -331,7 +331,7 @@ class Geometrie:
         active = any(frames) or any(xy) or any(v != 'unbekannt' for v in sources) or any(hull)
         fingerprint = (topics, frames, xy, sources, hull, fronts)
         if not active:
-            return False, None, None, fingerprint, None
+            return False, None, None, fingerprint, 'Geometrie fehlt (Einbaupose/Fahrzeuggrenzen unbekannt)'
         poses, reason = lidar.einbau_aus_parametern(topics, frames, xy, sources)
         if len(hull) != 4 or not all(isinstance(v, (int, float)) and math.isfinite(v) and v > 0 for v in hull):
             reason = reason or 'fahrzeug_grenzen fehlen/ungueltig (vorne, hinten, links, rechts)'
@@ -346,7 +346,7 @@ class Geometrie:
     def aufnehmen(self, msg, topic, stamp):
         active, poses, hull, fingerprint, reason = self.config()
         if not active:
-            return None
+            return reason
         field = None
         if reason is None:
             topics, _, _, _, _, fronts = fingerprint
@@ -360,7 +360,7 @@ class Geometrie:
     def sicht(self, stamps):
         active, poses, hull, fingerprint, reason = self.config()
         if not active:
-            return None, None
+            return None, reason
         if reason:
             return None, reason
         fields, points = [], []

@@ -22,6 +22,7 @@ for _d in ('lib', 'line_follower', 'ki'):
 import lidar  # noqa: E402
 import line_follower as lf  # noqa: E402
 import zentrale  # noqa: E402
+from lidar_testdaten import geometrie  # noqa: E402
 
 KANAELE = (('/scan0', 0), ('/scan1', 1))
 
@@ -33,7 +34,8 @@ def kopf(aufnahme=None):
     """header mit Aufnahmezeit (Standard 50 ms vor jetzt, je Scan etwas spaeter = jeder Scan ist neu)."""
     _scan_nr[0] += 1
     t = time.time() - 0.05 + _scan_nr[0] * 1e-6 if aufnahme is None else aufnahme
-    return types.SimpleNamespace(stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
+    return types.SimpleNamespace(frame_id='base_link',
+                                 stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
 
 
 def scan(werte=3.0, n=360, **meta):
@@ -96,6 +98,7 @@ class ReineQualitaet(unittest.TestCase):
 def linienfolger(m=None):
     """Linienfolger mit gueltiger Kamera/Linie und KI-Freigabe; beide Kanaele bekommen Scan m (Standard 3 m frei)."""
     n = lf.LineFollower()
+    geometrie(n)
     n._p.update(show=False, publish_image=False)
     jetzt = time.time()
     n.gedaechtnis.hinzufuegen([(0.05 + 0.02 * k, 0.0) for k in range(30)])
@@ -106,8 +109,9 @@ def linienfolger(m=None):
     return n
 
 
-def ki_zentrale(m=None):
+def ki_zentrale(m=None, hull=(.06, .06, .06, .06)):
     z = zentrale.Zentrale()
+    geometrie(z, hull)
     z.wahrnehmung['bild_zeit'] = time.time()           # frische Kamerabilder
     for t, i in KANAELE:
         z._scan(m if m is not None else scan(3.0), t, i)

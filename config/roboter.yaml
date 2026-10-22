@@ -11,7 +11,7 @@
     scan_topics: ['/scan0', '/scan1']
     scan_front_deg: [0.0, 0.0]
     # Einbaupose je LiDAR: geraeteeigene Werte nach Vermessung setzen (Messung #66).
-    # KI und Linienfolger nutzen damit gemeinsame Abdeckung; ohne Angaben bleibt die bisherige Pruefung.
+    # KI und Linienfolger nutzen damit gemeinsame Abdeckung; fehlende/unklare Angaben sperren die Fahrt.
     # Vollstaendige Anleitung: docs/lidar-gemeinsame-abdeckung.md (#169, #64).
     # Roboterbezug base_link: x vorne, y links, Meter; Reihenfolge wie scan_topics. Die Drehung kommt allein aus
     # scan_front_deg, hier nur der Sensorursprung: p_basis = R(-scan_front_deg) * p_sensor + (x, y).
