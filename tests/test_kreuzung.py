@@ -58,6 +58,48 @@ def ende(erg):
 
 
 class Kreuzung(unittest.TestCase):
+    def test_plus_und_seitliches_t_mit_spiegelung(self):
+        """Geometrische Ausgaenge relativ zur Zufahrt; dies erteilt keine Verkehrserlaubnis."""
+        for cfg, x in ((None, 0.36), ({'kamera_hoehe': 0.31, 'kamera_neigung': 28.0}, 0.46)):
+            for seiten in ((-1, 1), (-1,), (1,)):
+                with self.subTest(cfg=cfg, seiten=seiten):
+                    img = bild([((0.0, 0.0), (1.2, 0.0))]
+                               + [((x, 0.0), (x, seite * 0.6)) for seite in seiten], cfg)
+                    s = linie.LinienSucher(cfg)
+                    s._vogel(B, H)
+                    teilung = s.aeste(s.vogel(img) > 0, s._zu_raster(0.0, 0.0))
+                    self.assertIsNotNone(teilung)
+                    _, aeste, _ = teilung
+                    richtungen = [math.degrees(r) for r, _ in aeste]
+                    self.assertEqual(len(aeste), 1 + len(seiten), richtungen)
+                    self.assertEqual(sum(abs(r) < 30 for r in richtungen), 1, richtungen)
+                    for seite in seiten:
+                        self.assertEqual(sum(60 < r * seite < 110 for r in richtungen), 1, richtungen)
+                    # Jeden Ausgang erzwingen und pruefen, dass die jeweils andere Seite
+                    # nicht ins Liniengedaechtnis gelangen wuerde (keine Zufallsabdeckung).
+                    for index in range(len(aeste)):
+                        s = linie.LinienSucher(cfg)
+                        with patch.object(s.zufall, 'choice', side_effect=lambda kandidaten, i=index: kandidaten[i]):
+                            erg = s.suche(img, 0.0)
+                        self.assertTrue(erg['gefunden'])
+                        wahl = erg['kreuzung']['wahl']
+                        self.assertEqual(len(erg['kreuzung']['aeste']), 1 + len(seiten))
+                        if abs(wahl) < 30:
+                            self.assertLess(max(abs(y) for _, y in erg['boden']), 0.06)
+                        else:
+                            seite = 1 if wahl > 0 else -1
+                            self.assertGreater(max(y * seite for _, y in erg['boden']), 0.10)
+                            self.assertGreater(min(y * seite for _, y in erg['boden']), -0.06)
+
+    def test_querbalken_am_bildrand_ist_bildgleich_mit_plus(self):
+        """Informationsgrenze #112: gleiche Pixel koennen keine unterschiedliche Bedeutung liefern."""
+        plus = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.5), (0.36, 0.5))])
+        querbalken = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.4), (0.36, 0.4))])
+        self.assertTrue(np.array_equal(plus, querbalken))
+        for img in (plus, querbalken):
+            erg = linie.LinienSucher().suche(img, 0.0)
+            self.assertEqual(len(erg['kreuzung']['aeste']), 3)
+
     def test_t_beide_seiten_zufaellig(self):
         seiten = set()
         for n in range(20):

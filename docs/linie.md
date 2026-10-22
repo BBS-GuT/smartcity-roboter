@@ -170,9 +170,9 @@ In `config/lokal/roboter.yaml` unter `line_follower:` → `ros__parameters:` ein
 | `abbiegen` | true | an Kreuzungen zufällig einen Ast wählen (siehe unten). `false` = wie bisher |
 | `ast_min` | 0.05 | ein Ast muss mindestens so lang zu sehen sein (m), sonst zählt er nicht als Ausfahrt. Kurz, weil die Kamera nur ca. 20 cm Boden sieht |
 
-## Kreuzungen: zufällig abbiegen
+## Kreuzungsgeometrie und Auswahl
 
-Ziel (Zieldefinition 4.2): An Verzweigungen wählt er selbst einen Ausgang, damit nicht immer dieselbe Runde gefahren wird.
+Ziel (Zieldefinition 4.2): An Verzweigungen wählt er selbst einen erlaubten Ausgang, damit nicht immer dieselbe Runde gefahren wird. `LinienSucher.aeste` liefert ausschließlich sichtbare geometrische Äste. Das bestätigt weder Knoten/Zufahrt noch verkehrsrechtlich erlaubte Ausfahrten (GB-05/09). Die bisherige Zufallswahl allein erfüllt diese Anforderungen nicht; unbekannte Erlaubnis darf keine Einfahrt begründen.
 
 So geht es (`line_follower/linie.py`, `LinienSucher.aeste`):
 
@@ -190,6 +190,16 @@ Im Log steht z. B. `Kreuzung: Aeste [-90, 90] Grad -> zufaellig gewaehlt: links 
 - Querbalken, die die Leitlinie berühren und **über den Bildrand hinaus** reichen (und kein Zebrastreifen sind), sähen weiterhin aus wie eine Kreuzung.
 - Erlaubte Ausfahrten (Einbahnstraßen) kennt er noch nicht, siehe oben.
 - Ob er eine 90°-Abzweigung sauber fährt, ist nur mit gezeichneten Bildern geprüft (`tests/test_kreuzung.py`).
+
+### Softwarebeleg zu #112 und offene Informationsgrenze
+
+`python tests/test_kreuzung.py` prüft zusätzlich Pluskreuzungen und seitliche T-Einmündungen samt Spiegelung mit den Standardkamerawerten sowie einer synthetischen Kamera auf 31 cm Höhe und mit 28° Neigung. Plus muss drei Ausgänge liefern, seitliches T genau Geradeaus und den jeweiligen Seitenast. Jeder Ausgang wird deterministisch ausgewählt; die zurückgegebenen Bodenpunkte müssen auf dem gewählten Ast bleiben. Das sind angenommene Bildgeometrien, keine gemessene Kalibrierung oder Geräteabnahme. Die Fälle bestehen bereits auf Basis `dc6acc25e490edc301a6464af8fe19e17339aa42`.
+
+Der Test `test_querbalken_am_bildrand_ist_bildgleich_mit_plus` zeichnet eine durchgehende Leitlinie mit einer 80 cm langen Querlinie und vergleicht sie mit einer Pluskreuzung mit 100 cm Querlinie (jeweils 2,5 cm Strichbreite, bei 36 cm Abstand). Beide Querlinien reichen über beide seitlichen Kamerabildränder; die erzeugten Kamerabilder sind **bytegleich**. Die bestehende Erkennung meldet in beiden Fällen drei geometrische Äste. Dieser Test sichert die Informationsgrenze und behauptet ausdrücklich keine erfolgreiche Haltelinienunterdrückung.
+
+Eine Regel, die dieses Querbalkenbild allein anhand der Pixel verwirft, müsste auch das identische Plusbild verwerfen. Ein längerer sichtbarer Balken ist deshalb kein allgemeines Unterscheidungsmerkmal. #112 bleibt für die geforderte allgemeine Querbalkenkorrektur offen. Benötigt werden unterscheidbare, bestätigte Markierungsmerkmale oder ein bestätigter Knoten-/Zufahrts- und Markierungsbezug; deren Gültigkeit und Ausfallverhalten müssen vor einer Freigabe geklärt sein. Reale Bilder, Maße, Licht, Kamerafahrstellung und die Bedeutung der Markierung sind am Aufbau zu sichern. Geometrische Äste allein dürfen keine Verkehrserlaubnis erzeugen.
+
+Die bestehenden Negativkontrollen (Gerade, enger U-Bogen, im Bild endende Haltelinie, Zebrastreifenbegrenzung) bleiben erhalten. Die Simulatorrunde enthält keine Kreuzungen und ersetzt diese Kontrollen nicht. #111 bleibt die offene Geräteprüfung auf **RM02**; ein späterer RM01-Test ist kein Ersatz.
 
 ## Was er an die KI meldet
 

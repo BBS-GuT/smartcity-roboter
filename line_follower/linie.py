@@ -159,6 +159,8 @@ class LinienSucher:
         ein enger Bogen (U) teilt sich so nie, eine Kreuzung schon.
         Ein Ast zaehlt nur als Ausfahrt, wenn er aus dem Sichtbereich hinauslaeuft (eine Strasse geht weiter). Endet er
         im Bild, ist es eine Markierung (Haltelinie, Querbalken, Zebrastreifen-Begrenzung), keine Abzweigung.
+        Das ist nur Geometrie: ein bildfuellender Querbalken kann exakt dieselben Pixel wie eine Pluskreuzung
+        liefern (#112). Weder Bildrandkontakt noch ein erkannter Ast bestaetigt eine Strasse oder Verkehrserlaubnis.
         Rueckgabe: None (keine Kreuzung) oder (stamm, [(richtung rad, + = links, maske), ...], abzweig_vor m) in voller
         Aufloesung; abzweig_vor = Abstand des Abzweigpunkts vor dem Roboter.
         Gerechnet in Viertel-Aufloesung (16 mm, jedes Pixel mit etwas Linie zaehlt): ca. 1 ms."""
