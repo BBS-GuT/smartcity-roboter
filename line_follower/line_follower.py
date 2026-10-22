@@ -107,6 +107,7 @@ class LineFollower(Node):
         self.bild_zeit = 0.0
         self.bild_zaehler, self.fps, self.fps_zeit = 0, 0.0, time.time()
         self.scans = {}
+        self.scan_stempel = {}           # Kanal -> Aufnahmezeit des letzten Scans (muss vorwaerts laufen)
         self.ki = (0.0, None)            # (zeit, befehl)
         self.last_image_pub = 0.0
         self.status_text = 'startet ...'
@@ -163,11 +164,16 @@ class LineFollower(Node):
     # ---------------- Eingaenge ----------------
     def on_scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
-        grund = lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt -> Halt (nie "frei")
+        # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, time.time(), self.scan_stempel.get(topic))
+        if grund == 'doppelt':
+            return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
+        self.scan_stempel[topic] = aufnahme
+        grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt -> Halt (nie "frei")
         d = None if grund else lidar.naechster_vorne(msg, fronts[i] if i < len(fronts) else 0.0,
                                                      self.p('obstacle_half_deg'), self.p('obstacle_min_range'),
                                                      rueckwaerts=self.p('direction') < 0)
-        self.scans[topic] = (time.monotonic(), d, grund)   # Empfang monoton (Uhrsprung egal)
+        self.scans[topic] = (time.monotonic(), d, grund, aufnahme)   # Empfang monoton (Uhrsprung egal)
 
     def on_odom(self, msg):
         t = msg.twist.twist
@@ -251,7 +257,8 @@ class LineFollower(Node):
             if not self.scans:
                 grund = 'noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
             return 'KEIN LIDAR: ' + grund
-        frisch = [(t, d, g) for t, (_, d, g) in zip(topics, frisch)]
+        jetzt = time.time()     # Aufnahmealter bei der Entscheidung (Scan kann seit dem Empfang gealtert sein)
+        frisch = [(t, d, g or lidar.aufnahme_alter(a, jetzt)) for t, (_, d, g, a) in zip(topics, frisch)]
         ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
         if ungueltig:
             return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'

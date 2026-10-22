@@ -6,8 +6,13 @@
 # (seine Vorderkante), nicht als Flaeche. Was niedriger oder hoeher als die
 # Scheibe ist, sieht er gar nicht.
 import math
+from numbers import Integral
 
 import numpy as np
+
+# Aufnahmezeit (header.stamp) eines Scans: so alt darf sie bei der Auswertung hoechstens sein (s). Gleiche Grenze
+# wie fuer den Empfang (1 s, schon vorher so) - keine eigene, am Geraet nicht gemessene Toleranz.
+AUFNAHME_MAX = 1.0
 
 
 def scan_pruefen(msg):
@@ -30,6 +35,42 @@ def scan_pruefen(msg):
     if not np.any(np.isfinite(r) & (r > meta[0]) & (r < meta[1])):
         return 'kein gueltiger Messwert (alle 0/NaN/inf/ausserhalb)'
     return None
+
+
+def aufnahme_alter(aufnahme, jetzt, max_alter=AUFNAHME_MAX):
+    """Ist die Aufnahmezeit (s, ROS-Zeit) bei 'jetzt' (gleiche Uhr) noch aktuell? None = ja, sonst Grund.
+    Aufnahme in der Zukunft heisst: andere Uhr oder Uhrsprung -> nicht belegbar, also nicht frisch."""
+    if aufnahme is None:
+        return 'keine gueltige Aufnahmezeit'
+    alter = jetzt - aufnahme
+    if alter < 0.0:
+        return f'Aufnahmezeit {-alter:.2f} s in der Zukunft (andere Uhr?)'
+    if alter > max_alter:
+        return f'Aufnahme {alter:.1f} s alt'
+    return None
+
+
+def aufnahme_pruefen(msg, jetzt, vorher=None, max_alter=AUFNAHME_MAX):
+    """Aufnahmezeit eines Scans beim Empfang pruefen (header.stamp, unabhaengig von der Empfangszeit).
+
+    jetzt: ROS-Zeit des Empfaengers in s (ohne use_sim_time = Systemzeit time.time(), dieselbe Uhr, mit der die
+    LiDAR-Treiber und der Simulator stempeln). vorher: Aufnahmezeit des letzten Scans dieses Kanals oder None.
+    Rueckgabe: (aufnahme s oder None, Grund oder None). Grund 'doppelt' = derselbe Scan nochmal (nichts Neues).
+    """
+    try:
+        sec, ns = msg.header.stamp.sec, msg.header.stamp.nanosec
+    except AttributeError:
+        return None, 'keine Aufnahmezeit (header.stamp)'
+    if not (isinstance(sec, Integral) and isinstance(ns, Integral) and not isinstance(sec, bool)
+            and not isinstance(ns, bool) and sec >= 0 and 0 <= ns < 1_000_000_000 and sec + ns > 0):
+        return None, 'Aufnahmezeit ungueltig (null/kaputt)'
+    aufnahme = int(sec) + int(ns) * 1e-9
+    if vorher is not None and aufnahme == vorher:
+        return aufnahme, 'doppelt'
+    grund = aufnahme_alter(aufnahme, jetzt, max_alter)
+    if grund is None and vorher is not None and aufnahme < vorher:
+        grund = f'Aufnahmezeit laeuft {vorher - aufnahme:.2f} s zurueck'
+    return aufnahme, grund
 
 
 def pflichtkanaele(scans, topics, jetzt, max_alter=1.0):
