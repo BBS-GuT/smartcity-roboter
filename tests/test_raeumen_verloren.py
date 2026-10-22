@@ -145,7 +145,8 @@ def zebra(person):
     lauf = Lauf(posen=ZEBRA_POSEN)
     b = None
     for _ in range(150):
-        b = lauf.schritt(zebra={'abstand': 0.3}, objekte=person)
+        # #70: Freigabe am Ueberweg nur mit LiDAR-Daten am Ueberweg (wie von ki/zentrale.py geliefert), hier frei
+        b = lauf.schritt(zebra={'abstand': 0.3}, objekte=person, lidar_breit=1.0)
     return b
 
 
