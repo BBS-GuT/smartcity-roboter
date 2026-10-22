@@ -47,7 +47,7 @@ nichtleere, exakt verglichene Zeichenfolgen ohne implizite Aliasauflösung.
 | `request_seq` | ganze Zahl ≥ 0 | Eigene Requestsequenz, ab 0 je `(robot_id, producer_id, producer_boot_id)`, strikt steigend für jeden neuen Wunsch. Keine Zustandssequenz; Lücken zulässig, kein Umlauf oder Rücksetzen im selben Produzentenstart. |
 | `request_id` | Text | Opake Diagnose-/Korrelationskennung; keine daraus abgeleitete Identität, Sequenz oder Uhr. Wiederverwendung macht zwei verschiedene Sequenzen nicht gleich. |
 | `time_basis_id` | Text | Kennung der gemeinsam bestätigten lokalen monotonen Uhr samt Neustartbereich; keine UTC-Uhr und keine produzentenrelative Stoppuhr. |
-| `generated_mono_s` | Zahl ≥ 0, s | Erzeugungszeit des Wunsches in genau dieser lokalen Uhr. Wird bei Wiederholung nicht erneuert. |
+| `generated_mono_s` | Zahl ≥ 0, s | Erzeugungszeit des Wunsches in genau dieser lokalen Uhr. Bei höherer Sequenz im selben Produzentenstart mindestens die zuletzt angenommene Erzeugungszeit; wird bei Wiederholung nicht erneuert. |
 | `valid_until_mono_s` | Zahl ≥ 0, s | Ausschließliche Ablaufgrenze in derselben Uhr; strikt größer als `generated_mono_s`. Keine Verlängerung durch Empfang oder Wiederholung. |
 | `v_m_s` | Zahl, m/s | Gewünschte lineare Bewegung; bestehender v1-Strukturbereich −1…1, keine damit bestätigte Fahrgrenze. |
 | `w_rad_s` | Zahl, rad/s | Gewünschte Drehbewegung; bestehender v1-Strukturbereich −10…10, keine damit bestätigte Fahrgrenze. |
@@ -101,6 +101,12 @@ Bei bestätigter Basis gilt für A zum Prüfzeitpunkt `now_mono_s`:
 0 < valid_until_mono_s - generated_mono_s <= vereinbarte_maximale_wunschdauer_s
 ```
 
+Für eine höhere Sequenz im selben gebundenen Produzentenstart gilt zusätzlich
+`generated_mono_s >= zuletzt_angenommene_generated_mono_s`. Gleiche Zeiten
+sind bei begrenzter Uhrenauflösung zulässig; rückläufige Zeiten sind gemäß
+GB-13 ungültig, auch wenn Sequenz und eigene Frist sonst passen. A speichert
+Sequenz und Erzeugungszeit gemeinsam nur nach vollständiger Annahme.
+
 Auch `now_mono_s` muss endlich sein. Zukunftszeit, negative Werte, vertauschte
 Grenzen oder zu lange Wunschdauer sind ungültig; Gleichheit von `now` und
 Ablaufgrenze bedeutet bereits abgelaufen. Die maximale Wunschdauer bleibt
@@ -125,12 +131,14 @@ verwendbaren Fahrwunsch; A setzt das vereinbarte sichere Haltverhalten durch.
 | Identisches Tupel und identischer Inhalt | Duplikat: keine erneute Ausführung, keine Fristerneuerung, kein erneuter Manöverbeginn. |
 | Identisches Tupel, anderer Inhalt | Widersprüchlicher Request: nicht übernehmen; Diagnose, keine Änderung des zuletzt gültigen Inhalts. |
 | Kleinere Sequenz im selben aktiven Start | Verspätet/replay: verwerfen. Nur höhere Sequenz kann ein neuer Wunsch sein. |
+| Höhere Sequenz, aber kleinere Erzeugungszeit als zuletzt angenommen im selben Start | Zeitregression: verwerfen; bisherigen Wunsch, Sequenzstand und angenommene Erzeugungszeit unverändert lassen. Ein älterer Fahrwunsch darf einen neueren Haltwunsch nicht ersetzen. |
 | Unbestätigte/fremde `time_basis_id`, Zukunft oder ungültige Zahlen | Nicht verwendbar; keine Altersberechnung mit fremder Uhr. |
 | `now_mono_s >= valid_until_mono_s` | Abgelaufen; nicht übernehmen bzw. bisher verwendeten Wunsch auslaufen lassen. Keine alte Bewegung weiterführen, weil kein neuer Request kommt. |
-| Neuerer, vollständig gültiger Wunsch | Als aktuellen Wunsch übernehmen und Sequenzstand erhöhen; A prüft alle eigenen Sperren weiterhin. Eine ungültige Nachricht erhöht den angenommenen Sequenzstand nicht. |
+| Neuerer, vollständig gültiger Wunsch | Als aktuellen Wunsch übernehmen und Sequenzstand samt Erzeugungszeit aktualisieren; im selben Start darf die Erzeugungszeit nicht zurücklaufen. A prüft alle eigenen Sperren weiterhin. Ungültige Nachrichten ändern diese Vergleichswerte nicht. |
 | A-Neustart oder verlorener Empfängerzustand | Keine Wiederaufnahme aus gepuffertem Zustand. Lokale Zuordnung neu bestätigen, Puffer verwerfen und auf einen nach der erneuten Bindung erzeugten Wunsch warten; alte Requests auch bei noch offener Frist nicht wieder ausführen. |
 
-Nach Ablauf wird der Sequenzstand im aktiven Empfängerkontext nicht gelöscht;
+Nach Ablauf werden Sequenzstand und zuletzt angenommene Erzeugungszeit im
+aktiven Empfängerkontext nicht gelöscht;
 ein verspätetes älteres Paket darf nicht zum aktuellen Wunsch werden.
 Die Zeit der erneuten A-Bindung stammt aus der bestätigten lokalen Uhr;
 für den ersten Wunsch danach gilt zusätzlich `generated_mono_s > bind_mono_s`.
@@ -164,7 +172,8 @@ ohne eingebettete Identitätsinformation gewählt.
 ```
 
 Beispielkontext: A ist an RM02, den genannten Produzenten, B-Start und
-Uhrenbereich gebunden; Bindung bei 119,0 s, zuletzt angenommene Sequenz 16.
+Uhrenbereich gebunden; Bindung bei 119,0 s, zuletzt angenommene Sequenz 16
+mit Erzeugungszeit 119,90 s.
 Die nur für diese Beispiele angenommene Höchstdauer ist 0,20 s.
 Alle folgenden Zeilen sind **unabhängige** Varianten der obigen Nachricht;
 nicht genannte Felder bleiben gleich.
@@ -178,6 +187,9 @@ nicht genannte Felder bleiben gleich.
 | Nur `request_id = "RM01-start-999-seq-999"` | 120,05 s | Identität bleibt RM02/B-Start-001/17; Text wird nicht geparst. |
 | Nur `robot_id = "RM01"` | 120,05 s | Fremdgerät, verwerfen, auch bei gleichlautender `request_id`. |
 | Nur `request_seq = 15` | 120,05 s | Alte Sequenz, verwerfen. |
+| `request_seq = 18`, Erzeugung 120,00 s, Ablauf 120,20 s, Fahrwunsch 0,1 m/s | 120,15 s; zuvor Haltwunsch Sequenz 17, Erzeugung 120,10 s, Ablauf 120,30 s angenommen | Trotz höherer Sequenz und offener Frist Zeitregression: verwerfen; Haltwunsch 17 und Vergleichswerte bleiben erhalten. |
+| `request_seq = 18`, Erzeugung 120,10 s, Ablauf 120,30 s | Derselbe Haltwunsch-17-Kontext, jetzt 120,15 s | Gleiche Erzeugungszeit bei höherer Sequenz zulässig; vollständig gültigen Wunsch übernehmen, A-Sperren weiterhin prüfen. |
+| `request_seq = 18`, Erzeugung 120,12 s, Ablauf 120,32 s | Derselbe Haltwunsch-17-Kontext, jetzt 120,15 s | Steigende Erzeugungszeit zulässig; vollständig gültigen Wunsch übernehmen, A-Sperren weiterhin prüfen. |
 | Neuer B-Start `beispiel-b-start-002`, Sequenz 0 | 120,05 s, alter B-Start noch gebunden | Anderer Start, nicht automatisch übernehmen. |
 | Derselbe neue B-Start, Sequenz 0 | Neue Bindung bei 119,90 s, jetzt 120,05 s | Nach lokal bestätigtem Wechsel erster frischer Wunsch; alter Start bleibt gesperrt. |
 | Unverändert | 120,20 s oder später | Abgelaufen, auch ohne zwischenzeitlich neueren Wunsch. |
