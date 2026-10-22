@@ -18,6 +18,14 @@ LOKAL = os.path.join(REPO, 'config', 'lokal', 'roboter.yaml')
 
 def dateien():
     """Vorhandene Einstellungsdateien in der richtigen Reihenfolge."""
+    simulation = os.environ.get('SMARTCITY_SIM_PARAMETER')
+    if simulation:
+        if os.environ.get('ROS_DOMAIN_ID') != '77':
+            raise ValueError('Simulationsparameter nur in ROS_DOMAIN_ID=77')
+        if not os.path.isfile(simulation):
+            raise FileNotFoundError(simulation)
+        # Simulator truth replaces local DEVICE calibration, never writes it.
+        return [d for d in (STANDARD, AMPEL, simulation) if os.path.exists(d)]
     return [d for d in (STANDARD, AMPEL, LOKAL) if os.path.exists(d)]
 
 

@@ -52,9 +52,10 @@ Gerätekonfiguration. Das Produkt enthält **keine** angenommene Gerätepose.
 Die Fahrzeuggrenzen müssen die ganze aktuelle Fahrstellung einschließlich Rädern,
 Sensoren, Arm und Kamera einschließen. Ein bereits in `base_link` gelieferter Scan
 braucht einen Nullversatz und `scan_front_deg=0`. Ein Sensorursprung außerhalb der
-angegebenen Fahrzeugfläche ist ein Konfigurationsfehler. Ohne Geometrieangaben
-bleibt die bisherige konservative Prüfung erhalten; teilweise oder widersprüchlich
-gesetzte Angaben halten. Keine Einzelquelle oder Schutzfunktion entfernen, um
+angegebenen Fahrzeugfläche ist ein Konfigurationsfehler. Fehlende, teilweise oder
+widersprüchlich gesetzte Geometrieangaben halten. Das gilt auch beim vollständigen
+Entfernen zuvor gesetzter Werte: Ein unbekannter Sensorursprung darf keine Fahrt
+im alten Sensorbezug freigeben. Keine Einzelquelle oder Schutzfunktion entfernen, um
 eine Konfiguration zum Fahren zu bringen.
 
 Nach geänderten Geometrie-/Fahrzeugwerten Anwendungen neu starten. Während eines
@@ -87,3 +88,26 @@ größer eingetragen werden als tatsächlich gemessen.
 5. Erst nach geklärtem Standcheck den separat betreuten Fahrversuch durchführen.
 
 Bezug: #169, #64, #66 und #79. Ein Software-PR ersetzt keine reale Geräteabnahme.
+
+## Expliziter Simulationsbezug
+
+`scripts/simulation.sh` und sein Prüfmodus erzeugen in der isolierten Domain 77
+eine eigene temporäre Parameterdatei. `sim/lidar_geometrie.py` benutzt die
+bestehenden synthetischen Sensorlagen, Frames `laser0`/`laser1`, den Modellkörper
+aus `sim/welt.py` und den Arm in Fahrstellung aus `sim/arm_sim.yaml`. Die Hülle
+umfasst auch die modellierten Armglieder und die gezeichnete Greiferspitze; sie
+wird nicht aus Gerätemaßen übernommen. Das bestehende schwere Profil übergibt
+dieselbe bekannte Einbaupose an Simulator und Verbraucher, mit genau einmaliger
+Drehung und dem umgekehrten Vorzeichen für `scan_front_deg`.
+
+Nur der ausdrückliche Start mit `SMARTCITY_SIM_PARAMETER` in Domain 77 wählt
+diesen Bezug. Ohne diese Auswahl gelten unveränderte Produkt-/Gerätedateien;
+außerhalb der Simulationsdomain oder bei fehlender Parameterdatei wird die
+Auswahl zurückgewiesen. Die Simulationsauswahl lädt keine lokale Roboterkalibrierung
+und schreibt sie nicht um. `gemessen` bezeichnet hier ausschließlich die bekannte
+künstliche Modellgeometrie, keine physische Vermessung. Zusätzliche Fehler über
+`SIM_EXTRA` werden nicht automatisch als neue bestätigte Pose nachgeführt.
+
+Die reinen Konfigurations-/Verbrauchertests sind keine ausgeführte ROS-Simulation.
+Ungültige oder nicht erfasste Modellbereiche halten weiterhin; insbesondere wird
+eine simulierte Fernmessung ohne gültigen Rücklauf nicht pauschal freigegeben.

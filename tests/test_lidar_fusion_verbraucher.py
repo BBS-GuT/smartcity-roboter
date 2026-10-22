@@ -6,6 +6,8 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lidar_qualitaet as q
 
@@ -33,6 +35,115 @@ def feed(node, missing=None, distance=3.0):
 
 
 class ConsumerGeometry(unittest.TestCase):
+    def test_missing_geometry_never_releases_either_consumer(self):
+        # Raw constructors deliberately keep the actual product defaults.
+        # Even ideal full scans do not prove an unknown sensor origin/hull.
+        for make in (q.lf.LineFollower, q.zentrale.Zentrale):
+            node = make()
+            for i, topic in enumerate(['/scan0', '/scan1']):
+                msg = q.scan(3.0)
+                msg.header.frame_id = 'base_link'
+                (node._scan if hasattr(node, '_scan') else node.on_scan)(msg, topic, i)
+            with self.subTest(consumer=make.__name__):
+                if hasattr(node, 'notbremse'):
+                    self.assertIn('Geometrie', node.notbremse(.1, 0, 0) or '')
+                else:
+                    self.assertEqual(node.lidar_pruefen(), (None, None, None))
+                    self.assertIsNone(node.lidar_hinten())
+
+    def test_removing_all_geometry_cannot_restore_legacy_release(self):
+        for make in (self.follower, self.central):
+            node = make()
+            feed(node)
+            node._p.update(scan_frames=['', ''], scan_einbau_xy=[0.0] * 4,
+                           scan_einbau_quelle=['unbekannt'] * 2, fahrzeug_grenzen=[0.0] * 4)
+            # New valid scans cannot authorize a now unknown geometry either.
+            for i, topic in enumerate(['/scan0', '/scan1']):
+                msg = q.scan(3.0)
+                msg.header.frame_id = 'base_link'
+                (node._scan if hasattr(node, '_scan') else node.on_scan)(msg, topic, i)
+            with self.subTest(consumer=type(node).__name__):
+                if hasattr(node, 'notbremse'):
+                    self.assertIn('Geometrie', node.notbremse(.1, 0, 0) or '')
+                else:
+                    self.assertEqual(node.lidar_pruefen(), (None, None, None))
+
+    def test_missing_geometry_reaches_null_publisher_despite_camera_and_ki(self):
+        node = q.lf.LineFollower()
+        node._p.update(drive=True, show=False, publish_image=False)
+        node.gedaechtnis.hinzufuegen([(.05 + .02 * k, 0.0) for k in range(30)])
+        node.bild_zeit, node.stempel_ok = q.time.time(), True
+        node.ki = (q.time.time(), {'aktion': 'fahren', 'faktor': 1.0})
+        for i, topic in enumerate(['/scan0', '/scan1']):
+            node.on_scan(q.scan(3.0), topic, i)
+        node.steuern()
+        cmd = node.pub.letzte
+        self.assertEqual((cmd.linear.x, cmd.linear.y, cmd.angular.z), (0.0, 0.0, 0.0))
+        self.assertIn('Geometrie', node.pub_status.letzte.data)
+
+    def test_partial_geometry_never_releases(self):
+        changes = ({'scan_frames': ['', 'laser_b']},
+                   {'scan_einbau_xy': [-.1, .05]},
+                   {'scan_einbau_quelle': ['unbekannt', 'gemessen']},
+                   {'fahrzeug_grenzen': [.2, .2, .15, 0.0]})
+        for make in (self.follower, self.central):
+            for change in changes:
+                node = make()
+                node._p.update(change)
+                feed(node)
+                with self.subTest(consumer=type(node).__name__, change=change):
+                    if hasattr(node, 'notbremse'):
+                        self.assertIn('UNBEKANNT', node.notbremse(.1, 0, 0) or '')
+                    else:
+                        self.assertEqual(node.lidar_pruefen(), (None, None, None))
+
+    def test_issue64_front_side_rear_points_in_actual_consumers(self):
+        # Historical model offsets are ONLY synthetic test poses here. Full
+        # ideal scans isolate translation/rotation from real-device coverage.
+        poses = ((-.11617, .09156), (.10766, -.09078))
+        cases = ((1, (.30, .20), (.40766, .10922), 'front'),
+                 (1, (.40, -.10), (.50766, -.19078), 'side'),
+                 (0, (-.30, -.20), (-.41617, -.10844), 'rear'))
+        for make in (q.lf.LineFollower, q.zentrale.Zentrale):
+            for rotation in (0.0, 90.0, -90.0, 180.0):
+                for source, target, expected, area in cases:
+                    node = make()
+                    configure(node)
+                    node._p.update(scan_einbau_xy=[v for pose in poses for v in pose],
+                                   scan_front_deg=[rotation, rotation],
+                                   fahrzeug_grenzen=[.15] * 4, notbremse_dist=.3)
+                    for index, topic in enumerate(('/scan0', '/scan1')):
+                        angle = math.atan2(target[1], target[0]) + math.radians(rotation)
+                        msg = q.scan(3.0, n=1440, angle_min=angle - math.pi,
+                                     angle_increment=2 * math.pi / 1440)
+                        msg.header.frame_id = 'laser_a' if index == 0 else 'laser_b'
+                        if index == source:
+                            msg.ranges[720] = math.hypot(*target)
+                        (node._scan if hasattr(node, '_scan') else node.on_scan)(msg, topic, index)
+                    with self.subTest(consumer=make.__name__, rotation=rotation, area=area):
+                        stamps = {t: e[3 if hasattr(node, 'notbremse') else 4] for t, e in node.scans.items()}
+                        view, reason = node.scan_geometrie.sicht(stamps)
+                        self.assertIsNone(reason)
+                        self.assertTrue(np.any(np.linalg.norm(view.points - expected, axis=1) < 1e-8))
+                        if hasattr(node, 'notbremse'):
+                            result = node.notbremse(-.1 if area == 'rear' else .1, 0, 0)
+                            if area == 'side':
+                                self.assertIsNone(result)
+                            else:
+                                self.assertIn('NOTBREMSE', result or '')
+                        else:
+                            distance, obj, _ = node.lidar_pruefen()
+                            if area == 'front':
+                                self.assertIsNotNone(obj)
+                                self.assertAlmostEqual(obj['vor'], expected[0], places=6)
+                                self.assertLessEqual(distance, expected[0])
+                            else:
+                                self.assertEqual(distance, float('inf'))
+                            if area == 'rear':
+                                node.lidar_d = distance
+                                self.assertGreater(node.lidar_hinten(), .3)
+                                self.assertLessEqual(node.lidar_hinten(), -expected[0] + 1e-12)
+
     def follower(self):
         n = q.lf.LineFollower()
         configure(n)

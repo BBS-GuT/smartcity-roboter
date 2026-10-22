@@ -147,23 +147,26 @@ class Linienfolger(unittest.TestCase):
         self.assertIn(text, status)
 
     def test_gegenbeispiel_keine_vorwaertsfreigabe(self):
-        self.halt(q.linienfolger(gegenbeispiel()), 'LIDAR UNBEKANNT (/scan0 vorne')
+        self.halt(q.linienfolger(gegenbeispiel()), 'LIDAR UNBEKANNT')
 
     def test_einzelne_luecke_vorne(self):
         n = q.linienfolger()
+        # A valid second source can now measure the first source's missing ray.
         n.on_scan(mit_luecke(-3, float('inf')), '/scan1', 1)
-        self.halt(n, '/scan1 vorne: -4 bis -2 Grad teils ohne Messung')
+        self.assertGreater(n.entscheide()[0], 0)
+        n.on_scan(mit_luecke(-3, float('inf')), '/scan0', 0)
+        self.halt(n, 'LIDAR UNBEKANNT')
 
     def test_echtes_hindernis_bleibt_haltgrund(self):
         r = [0.10 if 177 <= k <= 183 else 3.0 for k in range(N)]
         r[170] = r[190] = 0.0                                         # weitere unbekannte Strahlen vorne
-        self.halt(q.linienfolger(q.scan(r)), 'NOTBREMSE 10 cm vorne')
+        self.halt(q.linienfolger(q.scan(r)), 'NOTBREMSE')
 
     def test_luecke_ausserhalb_und_wiederfreigabe(self):
         n = q.linienfolger(mit_luecke(90))                            # links ohne Messung: Fahrweg vorne ok
         self.assertGreater(n.entscheide()[0], 0)
         n = q.linienfolger(mit_luecke(0))
-        self.halt(n, 'vorne')
+        self.halt(n, 'LIDAR UNBEKANNT')
         for t, i in q.KANAELE:
             n.on_scan(q.scan(3.0), t, i)
         self.assertGreater(n.entscheide()[0], 0)
@@ -174,7 +177,7 @@ class Linienfolger(unittest.TestCase):
         for wunsch in ({'lin': -0.05}, {'dreh': 0.8}, {'quer': 0.05}):
             with self.subTest(wunsch=wunsch):
                 n.ki = (time.time(), {'aktion': 'manoever', 'manoever': wunsch})
-                self.halt(n, 'hinten: ')
+                self.halt(n, 'LIDAR UNBEKANNT')
 
 
 class KiZentrale(unittest.TestCase):
@@ -198,15 +201,19 @@ class KiZentrale(unittest.TestCase):
     def test_luecke_im_fahrschlauch(self):
         z = q.ki_zentrale()
         z._scan(mit_luecke(2, float('nan')), '/scan0', 0)
+        self.assertEqual(z.lidar_pruefen()[0], float('inf'))   # second source proves this area
+        z._scan(mit_luecke(2, float('nan')), '/scan1', 1)
         self.assertEqual(z.lidar_pruefen(), (None, None, None))
 
     def test_luecke_neben_dem_weg_bleibt_frei(self):
-        z = q.ki_zentrale(mit_luecke(90))
+        # Synthetic long rear: the missing rear ray lies outside the complete
+        # straight corridor, including its near-field end disk.
+        z = q.ki_zentrale(mit_luecke(180), hull=(.2, .4, .15, .15))
         self.assertEqual(z.lidar_pruefen()[0], float('inf'))
         self.assertEqual(q.befehl(z)['aktion'], 'fahren')
 
     def test_kurve_aus_dem_linienfolger(self):
-        z = q.ki_zentrale(mit_luecke(45))
+        z = q.ki_zentrale(mit_luecke(180), hull=(.2, .4, .15, .15))
         self.assertEqual(z.lidar_pruefen()[0], float('inf'))
         z.linie_status = {'_zeit': time.time(), 'weg': links_kurve()}
         self.assertEqual(z.lidar_pruefen(), (None, None, None))
@@ -216,19 +223,21 @@ class KiZentrale(unittest.TestCase):
         for k in range(177, 184):
             r[k] = 0.15                                               # Hindernis 15 cm vorne ...
         for k in (145, 215):
-            r[k] = 0.0                                                # ... Luecken (+-35 Grad) erst ab ca. 21 cm
+            r[k] = 0.5                                                # ... shadow only BEHIND valid 50-cm returns
         z = q.ki_zentrale(q.scan(r))
         d, obj, _ = z.lidar_pruefen()
-        self.assertAlmostEqual(d, 0.15, delta=0.01)
+        self.assertGreater(d, .06)                                    # outside the synthetic hull
+        self.assertLessEqual(d, .15)                                  # unresolved cell edge is conservative
+        self.assertAlmostEqual(obj['vor'], .15, delta=.01)             # actual target is preserved
         self.assertEqual(obj['quelle'], 'lidar')
 
     def test_rueckraum_nur_so_weit_wie_gemessen(self):
         z = q.ki_zentrale(mit_luecke(180))                            # hinten ohne Messung, vorne frei
         z._entscheiden()
-        self.assertLess(z.lidar_hinten(), 0.1)                        # kein erfundener Rueckraum
+        self.assertIsNone(z.lidar_hinten())                          # gap immediately outside the hull
         z = q.ki_zentrale()
         z._entscheiden()
-        self.assertAlmostEqual(z.lidar_hinten(), 3.0, delta=0.01)     # gemessen frei bis zur Wand
+        self.assertAlmostEqual(z.lidar_hinten(), .86, delta=0.01)     # 0.8-m query beyond 0.06-m rear hull
 
 
 if __name__ == '__main__':
