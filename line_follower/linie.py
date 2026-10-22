@@ -221,16 +221,22 @@ class LinienSucher:
             return stamm, aeste, bx
         return None
 
-    def _keine_kreuzung(self, kamera_ok):
+    def _wahl_offen(self, gier):
+        """Noch nicht in Richtung des gewaehlten Asts eingelenkt (gleiche Toleranz wie bei der Astzuordnung)."""
+        return self.c.get('abbiegen', True) and self.wahl is not None and (gier is None or not math.isfinite(gier)
+                or abs(math.remainder(gier - self.wahl, 2 * math.pi)) > math.radians(45))
+
+    def _keine_kreuzung(self, kamera_ok, gier=None):
         """Gueltiges Bild ohne Kreuzung (auch ganz ohne Linie). Die Wahl verfaellt erst nach ca. 15 solchen Bildern UND
         wenn er seit der letzten Sichtung der Kreuzung mindestens 20 cm gefahren ist (GB-06: Wahl bis zur Ausfahrt
-        halten - steht er an Ampel oder Hindernis, bleibt sie). Ohne Position (pos None) nur nach Bildern."""
+        halten - steht er an Ampel oder Hindernis, bleibt sie). Zusaetzlich muss seine Richtung zum gewaehlten Ast
+        passen. Ohne Position (pos None) entfaellt nur die Streckenpruefung, nicht die Richtungspruefung."""
         if not kamera_ok:
             return
         self.ohne_kreuzung += 1
         gefahren = (self.pos is None or self.kreuzung_pos is None
                     or math.hypot(self.pos[0] - self.kreuzung_pos[0], self.pos[1] - self.kreuzung_pos[1]) > 0.20)
-        if self.ohne_kreuzung > 15 and gefahren:
+        if self.ohne_kreuzung > 15 and gefahren and not self._wahl_offen(gier):
             self.wahl = None
 
     def _abbiegen(self, teil, start, gier, erg, kamera_ok=True):
@@ -247,7 +253,19 @@ class LinienSucher:
             # Abzweigung (Zieldefinition 4.3). Ein Zebrastreifen woanders im Bild hebt eine echte Kreuzung nicht auf.
             teilung = None
         if teilung is None:
-            self._keine_kreuzung(kamera_ok)
+            self._keine_kreuzung(kamera_ok, gier)
+            if self._wahl_offen(gier):
+                # Im nahen Blindbereich kann nur die NICHT gewaehlte Gerade sichtbar bleiben.
+                # Sie darf den bereits gesehenen Seitenast im Gedaechtnis nicht ersetzen.
+                # Eine zur Wahl passende Querlinie darf dagegen weiter beobachtet werden.
+                py, px = np.nonzero(teil)
+                if gier is None or not math.isfinite(gier) or len(px) < 3:
+                    return np.zeros_like(teil)
+                punkte = np.column_stack((px, py)).astype(float)
+                _, _, vt = np.linalg.svd(punkte - punkte.mean(axis=0), full_matrices=False)
+                richtung = math.atan2(-vt[0, 0], -vt[0, 1])
+                if abs(math.remainder(gier + richtung - self.wahl, math.pi)) > math.radians(45):
+                    return np.zeros_like(teil)
             return teil
         self.ohne_kreuzung = 0
         self.kreuzung_pos = self.pos
@@ -280,7 +298,7 @@ class LinienSucher:
         erg = {'gefunden': False, 'boden': [], 'punkte': [], 'fehler': None, 'zeilen': (oben, h - 1), 'vogel': vogel}
         n, etiketten, stat, _ = cv2.connectedComponentsWithStats(vogel)
         if n <= 1:
-            self._keine_kreuzung(kamera_ok)
+            self._keine_kreuzung(kamera_ok, gier)
             return erg
         abstand = cv2.distanceTransform(vogel, cv2.DIST_L2, 3)
         ziel = self.erwartung if self.erwartung is not None else (0.3, 0.0)
@@ -305,7 +323,7 @@ class LinienSucher:
             if beste_d is None or d < beste_d:
                 beste, beste_d = i, d
         if beste is None:
-            self._keine_kreuzung(kamera_ok)
+            self._keine_kreuzung(kamera_ok, gier)
             return erg
         # Kreuzung von der Linie direkt vor dem Roboter aus messen (Startpunkt naechster Linienpunkt zum Roboter):
         # von der Erwartung (30 cm) aus lag der Start oft schon hinter dem Abzweig
