@@ -236,6 +236,10 @@ class Entscheider:
             if self.ablauf is not None and self.ablauf.braucht_arm:
                 self._ereignis(jetzt, f'{self.ablauf.name}: abgebrochen (Fahrprogramm aus)', 'info')
                 self._ablauf_abbrechen()
+            elif self.ablauf is not None and self.ablauf.name == 'zebra':
+                # Zebrastreifen ohne Arm: weiter halten, aber nichts zaehlt - sonst endete er im Stillstand und der
+                # Ueberweg galt nach START ungeprueft als frei (Codex-Review PR #158)
+                self.ablauf.pausieren(jetzt)
         neues_bild = w.get('bild_nr', -1) != self.letzte_bild_nr
         if neues_bild:
             self.letzte_bild_nr = w.get('bild_nr', -1)

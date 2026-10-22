@@ -140,8 +140,12 @@ class Zebrastreifen(Ablauf):
             nr = w.get('bild_nr')
             if nr is not None and nr != self.bild_nr:
                 self.bild_nr = nr
+                aufnahme = w.get('aufnahme')
                 if jetzt - w.get('bild_zeit', float('-inf')) > c['ki_max_alter']:
                     self.bilder, self.luecke = 0, 'Kamerabild zu alt'
+                elif aufnahme is None or not 0.0 <= jetzt - aufnahme <= c['ki_max_alter']:
+                    # bild_zeit ist die Auswertung; ein verzoegertes/wiederholtes Bild zeigt eine alte Szene
+                    self.bilder, self.luecke = 0, 'Aufnahmezeit des Kamerabilds fehlt oder zu alt'
                 elif w.get('kamera_vorne') is False:
                     self.bilder, self.luecke = 0, 'Kamera schaut nicht nach vorne'
                 else:
@@ -175,6 +179,12 @@ class Zebrastreifen(Ablauf):
         self.ereignisse.append((f"Zebrastreifen frei ({self.bilder} Bilder mit LiDAR) -> weiter", 'fahren'))
         self.ergebnis = 'ok'
         return None
+
+    def pausieren(self, jetzt):
+        """Fahrprogramm aus (STOPP/TEST): keine Beobachtung zaehlt, der Ablauf darf nicht im Stillstand fertig
+        werden. Nach START beginnt er wieder mit dem Halt und braucht ein neues, vollstaendiges Fenster."""
+        self.jemand, self.bilder, self.bild_nr, self.luecke = False, 0, None, None
+        self._phase(jetzt, 'halt')
 
     def unterbrochen(self, grund):
         """Der Entscheider hat in diesem Zyklus schon vorher gehalten (kein LiDAR, keine frischen Bilder, Notbremse,

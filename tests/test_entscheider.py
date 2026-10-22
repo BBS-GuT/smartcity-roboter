@@ -32,7 +32,7 @@ class Lauf:
                 time.sleep(0.001)
             self.t += 0.1
             self.nr += 1
-            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None,
+            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'aufnahme': self.t, 'objekte': [], 'ampel': None,
                      'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False,
                      'lidar_hinten': 1.0}   # hinten frei (sonst faehrt er nicht rueckwaerts)
             daten.update(w)
@@ -302,6 +302,27 @@ folge = [lauf.schritt(1, zebra={'abstand': 0.3}, bild_zeit=t0, **FREI) for _ in 
 ok = all(x['aktion'] == 'stopp' and not x['arm'] for x in folge)
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} #70 veraltete Kamerabilder -> bleibt stehen ({folge[-1]['grund']})")
+# negativ (Codex-Review PR #158): frisch ausgewertet, aber alte oder fehlende AUFNAHME -> bleibt stehen
+for name, aufnahme in (('Aufnahme 3 s alt', lambda lauf: lauf.t + 0.1 - 3.0), ('Aufnahme fehlt', lambda lauf: None)):
+    lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+    lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+    folge = [lauf.schritt(1, zebra={'abstand': 0.3}, aufnahme=aufnahme(lauf), **FREI) for _ in range(200)]
+    ok = all(x['aktion'] == 'stopp' for x in folge) and 'Aufnahmezeit' in folge[-1]['grund']
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} #70 {name} (Auswertung frisch) -> bleibt stehen ({folge[-1]['grund']})")
+# negativ (Codex-Review PR #158): STOPP/TEST waehrend der Beobachtung -> Ablauf endet nicht im Stillstand,
+# nach START wird der Ueberweg neu beobachtet (nicht gesperrt/uebersprungen)
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+lauf.e.fahrt_aktiv = False
+lauf.schritt(200, **FREI)
+ok = lauf.e.ablauf is not None and lauf.e.ablauf.name == 'zebra' and not lauf.e.zebra_gesperrt
+lauf.e.fahrt_aktiv = True
+nach = [lauf.schritt(1, **FREI) for _ in range(60)]
+erst = next((i for i, x in enumerate(nach) if x['aktion'] == 'fahren'), None)
+ok = ok and erst is not None and erst * 0.1 >= 0.5 + STANDARD['zebra_schauen']
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 STOPP am Zebrastreifen -> nach START neu beobachtet (frei nach {erst} Zyklen)")
 # direkt am Ablauf (ohne den Frische-Halt des Entscheiders davor): alte Bilder, Kamera nicht vorne, keine neuen
 # Bilder geben nie frei; gueltige freie Beobachtung gibt frei. Nie ein Armbefehl.
 def ablauf_lauf(n, w_von):
@@ -317,16 +338,16 @@ def ablauf_lauf(n, w_von):
 
 
 faelle = {'alt': lambda k, t: dict(bild_nr=k, bild_zeit=t - 2.0, objekte=[], **FREI),
-          'kamera weg': lambda k, t: dict(bild_nr=k, bild_zeit=t, objekte=[], kamera_vorne=False, **FREI),
+          'kamera weg': lambda k, t: dict(bild_nr=k, bild_zeit=t, aufnahme=t, objekte=[], kamera_vorne=False, **FREI),
           'kein neues Bild': lambda k, t: dict(bild_nr=1, bild_zeit=t, objekte=[], **FREI),
-          'leer ohne LiDAR': lambda k, t: dict(bild_nr=k, bild_zeit=t, objekte=[])}
+          'leer ohne LiDAR': lambda k, t: dict(bild_nr=k, bild_zeit=t, aufnahme=t, objekte=[])}
 for name, w_von in faelle.items():
     a, bs = ablauf_lauf(300, w_von)
     ok = bs[-1] is not None and a.ergebnis is None and not any(b['arm'] for b in bs if b)
     ok = ok and a.braucht_arm is False and a.arm_bewegt is False
     fehler += not ok
     print(f"{'OK  ' if ok else 'FEHLER'} #70 Ablauf direkt, {name} -> keine Freigabe ({bs[-1]['grund'] if bs[-1] else 'frei!'})")
-a, bs = ablauf_lauf(300, lambda k, t: dict(bild_nr=k, bild_zeit=t, objekte=[], **FREI))
+a, bs = ablauf_lauf(300, lambda k, t: dict(bild_nr=k, bild_zeit=t, aufnahme=t, objekte=[], **FREI))
 ok = bs[-1] is None and a.ergebnis == 'ok' and a.bilder >= STANDARD['anschauen_bilder']
 ok = ok and not any(b['arm'] for b in bs if b)
 fehler += not ok
