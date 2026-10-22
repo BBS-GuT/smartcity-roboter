@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """L8 (#156): Nicht gemessene Teile der Zebrastreifenzone sind unbekannt, nicht frei.
 
-Die Zentrale gibt je Richtung die frei gemessene Reichweite als w['lidar_reichweite'] weiter (0 = ohne Messung,
-hinter einem Treffer verdeckt); der Ablauf Zebrastreifen prueft
-sie gegen seine Ueberwegzone (seitlich bis zebra_seite, in der Tiefe bis abstand + zebra_tiefe).
+Die Zentrale gibt die gemessene Fusionssicht in base_link weiter; der Ablauf
+prueft damit seine Ueberwegzone. Reine Zonenfaelle pruefen daneben den bisherigen
+Reichweitenbaustein (0 = ohne Messung, hinter einem Treffer verdeckt).
 Nur ROS-Attrappen, kein Geraet. Aufruf: python3 tests/test_lidar_zebrazone.py
 """
 import math
@@ -105,7 +105,9 @@ class Zebrazone(unittest.TestCase):
         m = q.scan(r)
         self.assertIsNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))   # kein Strahl ohne Messung
         z = q.ki_zentrale(m)
-        self.assertEqual(z.lidar_pruefen()[0], float('inf'))        # Fahrschlauch frei
+        # The complete hull corridor also sees the unknown shadow near its
+        # side now; already holding here must not release the crossing.
+        self.assertIsNone(z.lidar_pruefen()[0])
         folge = zebra(200, lidar_xy=np.vstack([WAND, lidar.punkte_xy(m)]), lidar_reichweite=lidar.freie_reichweite(m))
         self.assertTrue(all(b['aktion'] == 'stopp' for b in folge))
         self.assertIn('Ueberweg links nicht gemessen', folge[-1]['grund'])
@@ -193,14 +195,19 @@ class Zentrale(unittest.TestCase):
         z._entscheiden()
         return gesehen[-1]
 
-    def test_reichweiten_kommen_im_wahrnehmungsvertrag_an(self):
-        z = q.ki_zentrale(scan_mit_luecke(45))
+    def test_fusionssicht_kommt_im_wahrnehmungsvertrag_an(self):
+        z = q.ki_zentrale(q.scan(3.0))
         w = self.mitschnitt(z)
         self.assertEqual(w['lidar'], float('inf'))                      # Fahrschlauch gemessen und frei
-        frei = np.asarray(w['lidar_reichweite'])
-        richtung = -math.pi + (np.arange(len(frei)) + 0.5) * 2 * math.pi / len(frei)
-        self.assertTrue(np.all(frei[np.abs(richtung - math.radians(45)) < math.radians(0.5)] == 0.0))   # ohne Messung
-        self.assertAlmostEqual(float(frei[np.argmin(np.abs(richtung))]), 3.0, places=5)               # vorne 3 m
+        self.assertIsNone(w['lidar_reichweite'])                       # no mixed sensor-origin contract
+        self.assertIs(w['lidar_fusionssicht'], z.lidar_sicht)
+        self.assertTrue(w['lidar_fusionssicht'].zone_frei((.2, .6, -.28, .28)))
+
+    def test_unbekannter_korridor_liefert_keine_freie_zebrazone(self):
+        w = self.mitschnitt(q.ki_zentrale(scan_mit_luecke(45)))
+        self.assertIsNone(w['lidar'])
+        self.assertIsNone(w['lidar_fusionssicht'])
+        self.assertIsNone(w['lidar_xy'])
 
     def test_ohne_lidar_keine_reichweiten(self):
         z = q.ki_zentrale(q.scan(0.0))                                  # ganz ungueltig -> lidar None

@@ -52,9 +52,10 @@ Gerätekonfiguration. Das Produkt enthält **keine** angenommene Gerätepose.
 Die Fahrzeuggrenzen müssen die ganze aktuelle Fahrstellung einschließlich Rädern,
 Sensoren, Arm und Kamera einschließen. Ein bereits in `base_link` gelieferter Scan
 braucht einen Nullversatz und `scan_front_deg=0`. Ein Sensorursprung außerhalb der
-angegebenen Fahrzeugfläche ist ein Konfigurationsfehler. Ohne Geometrieangaben
-bleibt die bisherige konservative Prüfung erhalten; teilweise oder widersprüchlich
-gesetzte Angaben halten. Keine Einzelquelle oder Schutzfunktion entfernen, um
+angegebenen Fahrzeugfläche ist ein Konfigurationsfehler. Fehlende, teilweise oder
+widersprüchlich gesetzte Geometrieangaben halten. Das gilt auch beim vollständigen
+Entfernen zuvor gesetzter Werte: Ein unbekannter Sensorursprung darf keine Fahrt
+im alten Sensorbezug freigeben. Keine Einzelquelle oder Schutzfunktion entfernen, um
 eine Konfiguration zum Fahren zu bringen.
 
 Nach geänderten Geometrie-/Fahrzeugwerten Anwendungen neu starten. Während eines
