@@ -38,15 +38,17 @@ WEISS, GELB, AUS = (90, 90, 90), (255, 140, 0), (0, 0, 0)
 
 
 def knick(weg):
-    """Richtungsaenderung (rad, + = links) der Linie vor dem Roboter aus [(x vorne, y links), ...] oder None."""
-    if not weg or len(weg) < 4:
+    """Richtung (rad, + = links) der Linie ca. 70-80 cm voraus, gemessen gegen die eigene Fahrtrichtung, oder None.
+    weg: [(x vorne, y links), ...] vom Linienfolger. Bewusst NICHT gegen das erste Linienstueck am Roboter: direkt
+    nach dem Abbiegen liegen dort noch Reste der Ecke, dann sah die gerade Strecke wie ein Rechtsknick aus und
+    er blinkte nach dem Linksabbiegen rechts (RM02 22.10.)."""
+    vorne = [p for p in (weg or []) if p[0] > 0.03]
+    if len(vorne) < 3:
         return None
-    (x0, y0), (x1, y1) = weg[0], weg[2]
-    (x2, y2), (x3, y3) = weg[-3], weg[-1]
-    if math.hypot(x1 - x0, y1 - y0) < 0.03 or math.hypot(x3 - x2, y3 - y2) < 0.03:
+    (x2, y2), (x3, y3) = vorne[-3], vorne[-1]
+    if math.hypot(x3 - x2, y3 - y2) < 0.03:
         return None
-    d = math.atan2(y3 - y2, x3 - x2) - math.atan2(y1 - y0, x1 - x0)
-    return (d + math.pi) % (2 * math.pi) - math.pi
+    return math.atan2(y3 - y2, x3 - x2)
 
 
 def rgb_befehle(alt, neu, links_zuerst=True):

@@ -15,7 +15,7 @@ Rechnet das Panel (`lib/lichter.py`, 10x pro Sekunde) und sendet den Zustand auf
 1. Die KI meldet ausdrücklich `"blinker": "links"/"rechts"` im Befehl (Platz für die Wegwahl an den Kreuzungen K1–K8,
    **gibt es noch nicht**).
 2. KI-Manöver mit Drehung (z. B. Wenden) in Drehrichtung. Rückwärtsfahren blinkt nicht.
-3. Die Linie vor dem Roboter (Linien-Gedächtnis, ca. 80 cm voraus) knickt um mindestens `kurve_grad` (60°) ab.
+3. Die Linie ca. 70–80 cm voraus zeigt um mindestens `kurve_grad` (60°) von der eigenen Fahrtrichtung weg.
    Er blinkt also **vor** der Ecke. Sanfte Kurven blinken nicht.
 
 Die Linie zählt erst, wenn sie `bestaetigen` s (0,5 s) lang zur selben Seite abknickt; die Seite wechselt erst nach

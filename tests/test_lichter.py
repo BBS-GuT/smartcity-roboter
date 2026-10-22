@@ -43,6 +43,15 @@ class Blinker(unittest.TestCase):
         self.assertIsNone(lichter.knick([]))
         self.assertIsNone(lichter.knick([(0.05, 0.0), (0.1, 0.0)]))
 
+    def test_nach_linksabbiegen_kein_rechtsblinker(self):
+        # RM02 22.10.: nach dem Linksabbiegen blinkte er auf der Geraden rechts. Am Roboter liegen noch Reste der
+        # Ecke (Linie kommt von links), der Roboter steht etwas schraeg (20 Grad zu weit links gedreht).
+        w = math.radians(-20)
+        nach_ecke = [(0.02, 0.03), (0.04, 0.06), (0.06, 0.08)] + [
+            (0.08 + d * math.cos(w), 0.08 + d * math.sin(w)) for d in [0.05 * i for i in range(1, 14)]]
+        li = lichter.Lichter()
+        self.assertEqual(set(fahre(li, 0.0, 3.0, nach_ecke)), {None})
+
     def test_ecke_blinkt_vorher_und_nicht_bei_sanfter_kurve(self):
         li = lichter.Lichter(SOFORT)
         self.assertIsNone(li.schritt(0.0, lf(GERADE), None)['blinker'])
