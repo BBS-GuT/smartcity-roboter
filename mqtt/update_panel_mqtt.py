@@ -13,6 +13,12 @@ FILES = {"panel.py":"panel/panel.py", "panel_index.html":"panel/index.html",
          "auto_bridge.py":"mqtt/auto_bridge.py", "local_broker.py":"mqtt/local_broker.py",
          "mqtt_bridge.sh":"scripts/mqtt_bridge.sh", "panel.sh":"scripts/panel.sh",
          "mqtt_requirements.txt":"mqtt/requirements.txt",
+         "m1_protocol.py":"lib/m1_protocol.py", "m1_map.py":"lib/m1_map.py",
+         "m1_local_map.py":"lib/m1_local_map.py", "m1_routes.py":"lib/m1_routes.py",
+         "m1_start_slots.py":"lib/m1_start_slots.py",
+         "m1_map_transport.py":"mqtt/m1_map_transport.py",
+         "m1_publish_map.py":"mqtt/m1_publish_map.py",
+         "m1-v1.schema.json":"schemas/m1-v1.schema.json",
          "robot_live_test.py":"mqtt/robot_live_test.py",
          "microros_agent_stable.sh":"scripts/microros_agent_stable.sh"}
 MAX_SIZE = 2_000_000
@@ -24,6 +30,7 @@ def validate_file(relative, body):
     except UnicodeDecodeError as exc: raise RuntimeError("Keine UTF-8-Datei: " + relative) from exc
     if relative.endswith(".py"): ast.parse(text, filename=relative)
     elif relative.endswith(".html") and 'id="s-mqtt"' not in text: raise RuntimeError("MQTT-Ansicht fehlt")
+    elif relative.endswith(".json"): json.loads(text)
     elif relative.endswith(".sh") and not text.startswith("#!/"):
         raise RuntimeError("Ungueltiges Shellskript")
     if relative == 'scripts/microros_agent_stable.sh' and 'micro_ros_agent' not in text:
@@ -171,8 +178,47 @@ def fresh_battery():
         print('Akkuabruf nicht bestätigt:', error)
     return status(timeout=3)
 
+
+def ros_command(repo, command, timeout=12):
+    script='source ' + shlex.quote(str(repo/'scripts/env.sh')) + ' && ' + command
+    try:
+        result=subprocess.run(['bash','-lc',script],text=True,capture_output=True,timeout=timeout)
+        return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        return 124, '', 'Zeitlimit'
+
+
+def battery_diagnostics(repo):
+    """Read ROS graph and one fresh sample without touching serial or agent."""
+    active=agent_is_active()
+    _, topics, error=ros_command(repo,'ros2 topic list -t',timeout=8)
+    candidates=[line.split(' [',1)[0] for line in topics.splitlines()
+                if re.search(r'battery|voltage|volt|vbat|power',line,re.I)]
+    print('Micro-ROS-Agent:', 'aktiv' if active else 'inaktiv')
+    print('Spannungs-Topics:', ', '.join(candidates) if candidates else 'keine')
+    if error and not candidates: print('ROS-Topicliste:',error[:180])
+    if '/battery' not in candidates:
+        print('/battery: kein Publisher nachweisbar; keine aktuelle Spannungsmessung.')
+        return {'agent_active':active,'topics':candidates,'battery_publisher':False,'voltage_v':None}
+    _, info, error=ros_command(repo,'ros2 topic info -v /battery',timeout=8)
+    found=re.search(r'Publisher count:\s*(\d+)',info)
+    publishers=int(found.group(1)) if found else 0
+    print('/battery Publisher:',publishers)
+    if not publishers:
+        return {'agent_active':active,'topics':candidates,'battery_publisher':False,'voltage_v':None}
+    code,sample,error=ros_command(repo,'ros2 topic echo --once --qos-reliability best_effort /battery',timeout=12)
+    voltage=None
+    if code==0:
+        match=re.search(r'(?m)^\s*(?:voltage|data):\s*([-+]?\d+(?:\.\d+)?)\s*$',sample)
+        if match:
+            parsed=float(match.group(1))
+            if math.isfinite(parsed) and 0<parsed<100: voltage=parsed
+    print('Neue /battery-Nachricht:',f'{voltage:.3f} V' if voltage is not None else
+          ('empfangen, Spannung nicht erkannt' if code==0 else 'keine innerhalb von 12 s'))
+    return {'agent_active':active,'topics':candidates,'battery_publisher':True,'voltage_v':voltage}
+
 def main(argv=None):
-    parser=argparse.ArgumentParser(); parser.add_argument("--activate",action="store_true"); parser.add_argument("--restart-agent",action="store_true")
+    parser=argparse.ArgumentParser(); parser.add_argument("--activate",action="store_true"); parser.add_argument("--restart-agent",action="store_true"); parser.add_argument("--check-battery",action="store_true")
     args=parser.parse_args(argv); repo=Path.home()/"smartcity-roboter"
     if not (repo/"panel/panel.py").is_file(): raise RuntimeError("Roboter-Repository ~/smartcity-roboter fehlt")
     preflight(process_rows()); downloaded=download_all()
@@ -192,5 +238,10 @@ def main(argv=None):
     print("Installation erfolgreich. Sicherung:",backup)
     print("Panelstatus:","online" if state is not None else "nicht aktiv")
     print("Aktueller Akku:",battery_text(state))
+    if args.check_battery or args.activate:
+        diagnosis=battery_diagnostics(repo)
+        report=repo/'logs'/('battery-diagnosis-'+datetime.now().strftime('%Y%m%d-%H%M%S')+'.json')
+        report.write_text(json.dumps(diagnosis,ensure_ascii=False,indent=2),encoding='utf-8')
+        print('Akkudiagnose:',report)
 
 if __name__ == "__main__": main()
