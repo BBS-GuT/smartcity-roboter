@@ -24,7 +24,7 @@ def settings():
             raise ValueError('MQTT config must be an object')
     def get(name, default):
         return os.environ.get(name, values.get(name, default))
-    return {'host': str(get('MQTT_HOST', '10.0.10.11')),
+    return {'host': str(get('MQTT_HOST', '10.0.40.100')),
             'port': int(get('MQTT_PORT', 1883)),
             'username': get('MQTT_USERNAME', None),
             'password': get('MQTT_PASSWORD', None)}
@@ -157,3 +157,4 @@ def run():
 
 if __name__ == '__main__':
     run()
+

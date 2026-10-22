@@ -374,7 +374,7 @@ class Bridge:
 
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', default=os.getenv('MQTT_HOST', '10.0.10.11'))
+    parser.add_argument('--host', default=os.getenv('MQTT_HOST', '10.0.40.100'))
     parser.add_argument('--port', type=int, default=int(os.getenv('MQTT_PORT', '1883')))
     parser.add_argument('--robot', default=os.getenv('SMARTCITY_ROBOT_ID'))
     parser.add_argument('--panel', default=os.getenv('SMARTCITY_PANEL_URL', 'http://127.0.0.1:8080'))
@@ -421,3 +421,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

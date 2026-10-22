@@ -12,6 +12,7 @@ Stand: 22.10.2026. Diese Übersicht beschreibt die zusätzlichen Funktionen gege
 ## MQTT-Betrieb
 
 - Der Desktop-Start aktiviert die Bridge. Sie versucht zuerst den konfigurierten Projektbroker; bei Ausfall verwendet sie einen lokalen, nur auf dem Roboter erreichbaren Testbroker und prüft regelmäßig die Rückkehr des Projektbrokers.
+- Die aktuelle Standardadresse des Projektbrokers ist `10.0.40.100:1883`. Eine vorhandene lokale `MQTT_HOST`-Konfiguration hat Vorrang und muss bei einer alten Adresse angepasst werden.
 - Broker-Zugangsdaten können lokal in `~/.config/smartcity/mqtt.json` liegen. Sie werden nicht ins Repository geschrieben.
 - Die Integrationstests decken unter anderem Authentifizierung, bestätigte Veröffentlichungen, Brokerneustart und Quellenverlust ab.
 

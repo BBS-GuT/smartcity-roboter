@@ -13,7 +13,7 @@ Im Projektordner (ROS/Panel bereits gestartet):
 
 ```bash
 python3 -m pip install -r mqtt/requirements.txt
-export MQTT_HOST=10.0.10.11  # geplante Projektadresse; bei Abweichung anpassen
+export MQTT_HOST=10.0.40.100  # aktuelle Projektadresse; bei Abweichung anpassen
 export MQTT_PORT=1883
 export SMARTCITY_ROBOT_ID=RM02
 # Der dokumentierte Projektbroker verlangt Anmeldung; Werte lokal setzen:
@@ -29,7 +29,7 @@ schaltet MQTT ausdrücklich aus. Bei direktem Aufruf von `panel/panel.py`
 ist weiterhin `SMARTCITY_MQTT=1` nötig. Die Bridge endet mit dem Panel.
 Mit `MQTT_PYTHON` lässt sich der Pythonpfad einer eigenen Umgebung wählen.
 
-Der Desktop-Start versucht zuerst den Projektbroker (Standard `10.0.10.11:1883`).
+Der Desktop-Start versucht zuerst den Projektbroker (Standard `10.0.40.100:1883`).
 Erst eine erfolgreiche MQTT-Anmeldung zählt als Verbindung. Bei Ausfall nutzt
 er `127.0.0.1:1883` auf dem Roboter; falls dort noch kein Broker läuft, startet
 er einen auf die Loopback-Adresse begrenzten Testbroker. Alle 30 Sekunden prüft
@@ -42,7 +42,7 @@ Umgebungsvariablen. Brokeradresse und Zugang können lokal in
 `~/.config/smartcity/mqtt.json` mit Dateirechten `0600` stehen, etwa:
 
 ```json
-{"MQTT_HOST":"10.0.10.11","MQTT_PORT":1883,
+{"MQTT_HOST":"10.0.40.100","MQTT_PORT":1883,
  "MQTT_USERNAME":"BENUTZER","MQTT_PASSWORD":"PASSWORT"}
 ```
 
@@ -59,7 +59,7 @@ PowerShell im Projektordner, Panel auf dem Roboter bereits geöffnet:
 py -m pip install -r mqtt/requirements.txt
 $env:MQTT_USERNAME = 'DEIN_BENUTZER'
 $env:MQTT_PASSWORD = 'DEIN_PASSWORT'
-py mqtt/panel_bridge.py --host 10.0.10.11 --robot RM02 --panel http://ROBOTER-IP:8080
+py mqtt/panel_bridge.py --host 10.0.40.100 --robot RM02 --panel http://ROBOTER-IP:8080
 ```
 
 Eine andere im Panel gemeldete Gerätekennung wird abgelehnt. Der PC benötigt
@@ -154,7 +154,7 @@ Realer Projektbroker und ROS-/Gerätelauf müssen separat geprüft werden.
 ```powershell
 python -m venv .venv-mqtt
 .\.venv-mqtt\Scripts\python.exe -m pip install -r mqtt/requirements-test.txt
-.\.venv-mqtt\Scripts\python.exe mqtt/check_broker.py --host 10.0.10.11 --port 1883
+.\.venv-mqtt\Scripts\python.exe mqtt/check_broker.py --host 10.0.40.100 --port 1883
 ```
 
 Der Test prüft zuerst TCP, dann MQTT-Anmeldung (mit `MQTT_USERNAME` und
@@ -167,7 +167,7 @@ Erfolg, 1 TCP-Fehler, 2 MQTT-/Übertragungsfehler. Bei TCP-Fehlern sind Anmeldun
 Übertragung noch nicht geprüft.
 
 Bei Timeout zuerst Projektnetz/WLAN, VLAN-Routing, Firewall und VPN prüfen.
-`Find-NetRoute -RemoteIPAddress 10.0.10.11` zeigt unter Windows die gewählte Route.
+`Find-NetRoute -RemoteIPAddress 10.0.40.100` zeigt unter Windows die gewählte Route.
 Ein Timeout allein unterscheidet nicht zwischen fehlendem Netzpfad, Paketfilter
 und ausgefallenem Broker. Zugangsdaten nicht ins Repository oder in Logs schreiben.
 
@@ -210,15 +210,15 @@ sowie den Empfang von online und offline. Es werden keine echten Roboter benöti
 ## Projektunterlagen vom 21.10.2026
 
 Die bereitgestellte Brokerdokumentation nennt `172.16.3.29` als alte temporäre
-Schulnetzadresse und `10.0.10.11:1883` als Ziel im Projektnetz (VLAN 10).
+Schulnetzadresse und `10.0.40.100:1883` als aktuelles Projektbroker-Ziel.
 MQTT verlangt Anmeldung; TLS ist laut Dokumentation nicht eingerichtet.
 Der Nutzer bestätigt das 10er Projektnetz als künftigen Standort; die genaue
 Laufzeitadresse und der aktive Brokerdienst sind noch zu bestätigen. Der Code
-verwendet `10.0.10.11` als geplanten Standard und erlaubt eine abweichende IP
+verwendet `10.0.40.100` als aktuellen Standard und erlaubt eine abweichende IP
 mit `MQTT_HOST` oder `--host`. Für einen Test im Projektnetz:
 
 ```powershell
-.\.venv-mqtt\Scripts\python.exe mqtt/check_broker.py --host 10.0.10.11
+.\.venv-mqtt\Scripts\python.exe mqtt/check_broker.py --host 10.0.40.100
 ```
 
 `MQTT_USERNAME` und `MQTT_PASSWORD` zuvor lokal mit den bereitgestellten Daten
@@ -227,3 +227,4 @@ setzen. Der Robotikanschluss liegt laut Netzwerkübergabe in VLAN 12,
 MQTT-Teilnehmer zum bestätigten Broker auf TCP 1883 zulassen. Ein erreichbares
 Gateway bestätigt noch keine Verbindung zum Broker. Dokumentierte Haus-Aktor-
 Topics werden für diese Diagnose nicht verwendet.
+
