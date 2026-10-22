@@ -35,6 +35,20 @@ Abschluss sind unterscheidbare Haltgründe. Ein gültiges leeres Erlaubnisresult
 ist kein Transportfehler. Die Gültigkeitsdauer ist eine vom bestätigten
 Produzenten gelieferte Grenze, kein hier erfundener Geräteparameter.
 
+Die intern trotz Halt gespeicherte Bindung ist keine öffentliche
+`route.selected_exit`-Freigabe. Eine spätere C1-Projektion muss R9 aus
+`lib/grundbetrieb_vertrag.py` beachten: Bei ungültigem oder entzogenem aktuellem
+Erlaubnisbezug ist `selected_exit=null`; `allowed_exits` enthält ausschließlich
+die tatsächlich aktuell belegten erlaubten Ausgänge (bei unbekannter Menge
+keine erfundene Freigabe). Der gespeicherte verbotene Ausgang wird niemals
+zur Erfüllung von R9 in `allowed_exits` aufgenommen. Die interne Bindung bleibt
+für Wiederaufnahme/Konfliktdiagnose erhalten. Bestehendes C1 bietet
+`diagnostics.warnings` und Ereignisse in `diagnostics.events` mit `kind`,
+`text`, `event_id` und `mono_s`; eine spätere Darstellung darf
+nur den dann gültigen C1-Vertrag benutzen. Der genaue Adapter samt gültiger
+Projektion und Quellenstatus bleibt offen; diese Lieferung ändert weder
+C1-Schema noch öffentliche Nachrichten und behauptet keine Laufzeitabbildung.
+
 ## Zustandsregeln
 
 1. Nur bei gültigem bestätigtem Anfahrtsbezug wird aus
