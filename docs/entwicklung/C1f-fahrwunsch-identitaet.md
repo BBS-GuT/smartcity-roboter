@@ -96,6 +96,30 @@ Motorfreigabe verwenden. UTC-Synchronisation des Zustands ändert das nicht.
 
 Bei bestätigter Basis gilt für A zum Prüfzeitpunkt `now_mono_s`:
 
+**Exakte Vergleichssemantik des Entwurfs:** Alle Zeitwerte dieser Nachricht,
+die vereinbarte Maximaldauer sowie die lokalen Vergleichswerte `now_mono_s`,
+`bind_mono_s` und die zuletzt angenommene Erzeugungszeit werden als ganze
+Nanosekunden verglichen. Die `_s`-Felder bleiben JSON-Zahlen in Sekunden;
+ihr dezimaler Zahlenwert muss exakt ein Vielfaches von `0.000000001` s sein
+und zwischen 0 und `9223372036.854775807` s liegen (0…2⁶³−1 ns).
+Auch Exponentialschreibweise und nachgestellte Dezimalnullen sind erlaubt,
+sofern der exakte Wert diese Bedingungen erfüllt.
+
+JSON-Zahlentokens werden vor einer Binärfloat-Umwandlung exakt dezimal gelesen
+und ohne Rundung in ganze Nanosekunden überführt. Differenzen und Vergleiche
+erfolgen ausschließlich auf diesen Ganzzahlen; die Formeln unten verwenden
+Sekunden nur als lesbare Notation. Kein Epsilon, kein gerundetes Ergebnis und
+kein `float`-Zwischenschritt. Werte außerhalb des Rasters/Bereichs sind
+ungültig und werden nicht auf einen passenden Wert gerundet.
+
+B und A müssen die bestätigte lokale Uhr als ganzzahlige Nanosekunden
+bereitstellen und für die Nachricht exakt in Dezimalsekunden darstellen;
+das Raster behauptet keine tatsächliche Messauflösung von 1 ns. Eine bloße
+Binärfloat-Uhr ohne festgelegten exakten Bezug erfüllt diesen Vorschlag nicht.
+Die lokale Bindungszeit nutzt denselben Weg. Der bestehende v1-JSON-Ladepfad
+mit Binärfloats implementiert diese vorgeschlagene Semantik noch nicht;
+das bleibt Teil des späteren ausdrücklich zugeteilten Implementierungsauftrags.
+
 ```text
 0 <= generated_mono_s <= now_mono_s < valid_until_mono_s
 0 < valid_until_mono_s - generated_mono_s <= vereinbarte_maximale_wunschdauer_s
@@ -197,6 +221,19 @@ nicht genannte Felder bleiben gleich.
 | Andere `time_basis_id` | 120,05 s | Zahlen nicht vergleichbar, verwerfen. |
 | C-Zustand neu: `boot_id = "beispiel-c-start-009"`, `seq = 0` | B unverändert, jetzt 120,05 s | Neue Zustandsidentität, B-Tupel unverändert; kein neuer B-Wunsch. |
 | A neu gebunden bei 120,02 s | 120,05 s | Alter Wunsch von 120,00 s wird trotz offener Ablaufgrenze nicht wieder aufgenommen. |
+
+Randbeispiele der exakten Zeitvergleiche, jeweils unabhängig und bei sonst
+gültiger Zuordnung/Sequenz; Maximaldauer ausschließlich hier `0.20` s:
+
+| Erzeugung / Ablauf / lokales Jetzt (s) | Exakte Prüfung in ns | Ergebnis |
+|---|---|---|
+| 120.00 / 120.20 / 120.05 | Dauer 200000000 ≤ 200000000 | Zulässig; kein binärer Subtraktionsfehler. |
+| 120.10 / 120.30 / 120.15 | Dauer 200000000 ≤ 200000000 | Ebenfalls zulässig am gleichen Dauerrand. |
+| 120.00 / 120.200000001 / 120.05 | Dauer 200000001 > 200000000 | Unzulässig; schon 1 ns Überschreitung wird verworfen. |
+| 120.00 / 120.20 / 120.199999999 | Jetzt 120199999999 < Ablauf 120200000000 | Noch innerhalb der Frist. |
+| 120.00 / 120.20 / 120.20 | Jetzt = Ablauf = 120200000000 | Bereits abgelaufen, ohne Toleranzverlängerung. |
+| 120.00 / 120.20 / 120.200000001 | Jetzt > Ablauf um 1 ns | Abgelaufen. |
+| 120.00 / 120.2000000001 / 120.05 | Ablauf ist kein ganzzahliger ns-Wert | Ungültig; nicht auf 120.20 runden. |
 
 Negative Struktur-/Zeitkontrollen: fehlendes `producer_boot_id`, negative
 Sequenz, gebrochene Sequenz, Boolean als Sequenz, negative Zeit, Ablauf gleich
