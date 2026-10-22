@@ -64,17 +64,30 @@ class Ablauf:
 
 
 class Zebrastreifen(Ablauf):
-    """Vor dem Zebrastreifen anhalten, umschauen, erst weiterfahren wenn niemand kommt."""
-    name = 'zebra'
+    """Vor dem Zebrastreifen anhalten, mit Kamera und LiDAR nach vorne beobachten, erst weiterfahren, wenn eine
+    gueltige Beobachtung den Ueberweg frei zeigt.
 
-    def __init__(self, jetzt, c, posen, abstand=0.3):
+    Kein eigenstaendiger Arm-/Kameraschwenk (#70, Scopeentscheidung #8): die Freigabe fuer das Wegraeumen umfasst
+    keinen Schwenk am Ueberweg, vorhandene Posen allein sind keine Erlaubnis. Dieser Ablauf gibt nie Armbefehle aus.
+
+    Frei ist der Ueberweg nur nach mindestens anschauen_bilder NEUEN, FRISCHEN Kamerabildern im Beobachtungsfenster,
+    zu denen jeweils LiDAR-Daten fuer den Ueberweg vorliegen (lidar_xy oder lidar_breit) und die keine Belegung zeigen.
+    Ablaufende Zeit, leere Objektlisten, fehlende oder alte Daten zaehlen nicht als frei: dann bleibt er stehen.
+    Vertragsluecke (#60/#58): die Wahrnehmung hat kein Gueltigkeitsmerkmal fuer die Scanqualitaet. Ein vorhandener,
+    aber ungueltiger Scan (z. B. ohne Punkte) ist hier nicht von einem freien zu unterscheiden."""
+    name = 'zebra'
+    braucht_arm = False     # bewegt den Arm nie (#70)
+
+    def __init__(self, jetzt, c, abstand=0.3):
         super().__init__(jetzt, c)
-        self.mit_arm = bool(posen.get('blick_links') and posen.get('blick_rechts') and posen.get('fahrstellung'))
-        self.braucht_arm = self.mit_arm
         self.abstand = abstand      # Zebrastreifen so weit voraus (m), gemessen beim Anhalten
         self.weg = None             # Linie voraus beim Anhalten (Bereich wird ENTLANG der Strasse geprueft)
         self.jemand = False
         self.runde = 0
+        self.bilder = 0             # gueltige Beobachtungen (neues, frisches Bild + LiDAR am Ueberweg) im Fenster
+        self.bild_nr = None         # zuletzt gezaehltes Bild
+        self.luecke = None          # warum zuletzt ein Bild nicht zaehlte (fuer den Haltegrund)
+        self.grund_warten = ''
         self._phase(jetzt, 'halt')
 
     def _beobachten(self, w):
@@ -111,34 +124,36 @@ class Zebrastreifen(Ablauf):
 
     def schritt(self, jetzt, w):
         c, d = self.c, self.dauer(jetzt)
-        arm_ruhig = d > c['arm_zeit']
         if self.phase == 'halt':
             if d >= 0.5:
-                self.jemand = False
-                if self.mit_arm:
-                    self.arm_bewegt = True
-                    self._phase(jetzt, 'links')
-                    return befehl('stopp', 'Zebrastreifen: schaue nach links', arm={'pose': 'blick_links'})
-                self._phase(jetzt, 'geradeaus')
+                # neues Beobachtungsfenster: nichts aus frueheren Runden zaehlt mit
+                self.jemand, self.bilder, self.bild_nr, self.luecke = False, 0, None, None
+                self._phase(jetzt, 'beobachten')
             return befehl('stopp', 'Zebrastreifen: anhalten')
-        if self.phase in ('links', 'rechts', 'geradeaus'):
-            if arm_ruhig or self.phase == 'geradeaus':
-                self._beobachten(w)
-            if self.phase == 'links' and d >= c['arm_zeit'] + c['zebra_schauen']:
-                self._phase(jetzt, 'rechts')
-                return befehl('stopp', 'Zebrastreifen: schaue nach rechts', arm={'pose': 'blick_rechts'})
-            if self.phase == 'rechts' and d >= c['arm_zeit'] + c['zebra_schauen']:
-                self._phase(jetzt, 'mitte')
-                return befehl('stopp', 'Zebrastreifen: Kamera zurueck', arm={'pose': 'fahrstellung'})
-            if self.phase == 'geradeaus' and d >= c['zebra_schauen'] + 1.0:
+        if self.phase == 'beobachten':
+            # Nur neue, frische Bilder mit LiDAR-Daten am Ueberweg zaehlen. Fehlt etwas, faengt die Zaehlung von
+            # vorne an (die Beobachtung muss lueckenlos sein). Kein neues Bild: zaehlt nicht.
+            nr = w.get('bild_nr')
+            if nr is not None and nr != self.bild_nr:
+                self.bild_nr = nr
+                if jetzt - w.get('bild_zeit', float('-inf')) > c['ki_max_alter']:
+                    self.bilder, self.luecke = 0, 'Kamerabild zu alt'
+                elif w.get('kamera_vorne') is False:
+                    self.bilder, self.luecke = 0, 'Kamera schaut nicht nach vorne'
+                else:
+                    self._beobachten(w)    # Person/Tier im Bild haelt auch ohne LiDAR-Daten
+                    if w.get('lidar_xy') is None and w.get('lidar_breit') is None:
+                        self.bilder, self.luecke = 0, 'keine LiDAR-Daten am Ueberweg'
+                    else:
+                        self.bilder += 1
+            if d >= c['zebra_schauen'] + 1.0 and (self.jemand or self.bilder >= c['anschauen_bilder']):
                 return self._entscheiden(jetzt)
-            return befehl('stopp', f'Zebrastreifen: schaue ({self.phase})')
-        if self.phase == 'mitte':
-            if d >= c['arm_zeit']:
-                self.arm_bewegt = False
-                self._beobachten(w)
-                return self._entscheiden(jetzt)
-            return befehl('stopp', 'Zebrastreifen: Kamera zurueck')
+            if d >= c['zebra_schauen'] + 1.0:
+                # Zeit allein ist keine Freigabe: ohne genug gueltige Beobachtungen bleibt er stehen
+                warum = self.luecke or 'zu wenige neue Kamerabilder'
+                return befehl('stopp', f"Zebrastreifen: Beobachtung unvollstaendig ({warum}, "
+                                       f"{self.bilder}/{c['anschauen_bilder']} Bilder) -> bleibe stehen")
+            return befehl('stopp', 'Zebrastreifen: beobachte den Ueberweg')
         if self.phase == 'warten':
             if d >= c['zebra_warten']:
                 self._phase(jetzt, 'halt')
@@ -153,7 +168,7 @@ class Zebrastreifen(Ablauf):
             self.ereignisse.append((f'Zebrastreifen: {self.jemand} -> warte', 'stopp'))
             self._phase(jetzt, 'warten')
             return befehl('stopp', f'Zebrastreifen: {self.jemand} -> warte')
-        self.ereignisse.append(('Zebrastreifen frei -> weiter', 'fahren'))
+        self.ereignisse.append((f"Zebrastreifen frei ({self.bilder} Bilder mit LiDAR) -> weiter", 'fahren'))
         self.ergebnis = 'ok'
         return None
 

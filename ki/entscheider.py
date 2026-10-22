@@ -443,7 +443,7 @@ class Entscheider:
             self._ereignis(jetzt, 'Schild "Einfahrt verboten" (Einbahnstrasse) -> wende', 'stopp')
             self.zebra_merk = None       # nach dem Wenden liegt er nicht mehr vor ihm
             return self._ablauf_start(jetzt, Wenden(jetzt, c, w.get('gier', 0.0)))
-        # 6. Zebrastreifen -> anhalten und umschauen
+        # 6. Zebrastreifen -> anhalten und beobachten (ohne Armschwenk, #70)
         z = w.get('zebra')
         if not z and self.zebra_merk and not self.zebra_gesperrt:
             # Kamera sieht ihn gerade nicht mehr, vorhin aber schon: mit der gefahrenen Strecke weiterrechnen.
@@ -458,9 +458,9 @@ class Entscheider:
                 z = {'abstand': max(0.05, rest)}
         if z and not self.zebra_gesperrt and z['abstand'] <= c['zebra_halt']:
             self.zebra_merk = None
-            self._ereignis(jetzt, f"Zebrastreifen {z['abstand'] * 100:.0f} cm voraus -> anhalten, umschauen", 'stopp')
-            posen = self.posen if self.arm_erlaubt else {}
-            return self._ablauf_start(jetzt, Zebrastreifen(jetzt, c, posen, z['abstand']))
+            self._ereignis(jetzt, f"Zebrastreifen {z['abstand'] * 100:.0f} cm voraus -> anhalten, beobachten", 'stopp')
+            # #70/#8: vorhandene Posen oder die Armfreigabe fuers Wegraeumen erlauben keinen Kameraschwenk am Ueberweg
+            return self._ablauf_start(jetzt, Zebrastreifen(jetzt, c, z['abstand']))
         # Umschauen (Wunsch von Kartograf/Panel): nur wenn sonst nichts los ist, Wunsch gilt 20 s
         if self.umschauen_wunsch is not None:
             if jetzt - self.umschauen_wunsch < 20.0 and not self.ampel_halt and jetzt >= self.schild_bis:
