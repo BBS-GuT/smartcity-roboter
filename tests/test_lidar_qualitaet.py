@@ -42,6 +42,8 @@ def scan(werte=3.0, n=360, **meta):
                               angle_min=-math.pi, angle_increment=2 * math.pi / n, range_min=0.05, range_max=12.0,
                               header=kopf())
     m.__dict__.update(meta)
+    if 'angle_max' not in meta:             # passend zur Strahlgeometrie (wie ein korrekter Treiber)
+        m.angle_max = m.angle_min + (len(m.ranges) - 1) * m.angle_increment
     return m
 
 
@@ -70,6 +72,8 @@ def ungueltige():
         'range_min NaN': scan(3.0, range_min=float('nan')),
         'angle_increment 0': scan(3.0, angle_increment=0.0),
         'range_min negativ': scan(3.0, range_min=-1.0),
+        'angle_max inf': scan(3.0, angle_max=float('inf')),
+        'angle_max widerspruechlich': scan(3.0, angle_max=0.0),       # passend waere pi - 1 Grad
         'Messwerte keine Zahlen': scan(['x'] * 10),
         }
 
@@ -82,6 +86,9 @@ class ReineQualitaet(unittest.TestCase):
 
     def test_gueltige_scans(self):
         self.assertIsNone(lidar.scan_pruefen(scan(3.0)))
+        # Treiber mit angle_increment = Spanne / N statt / (N-1): ein Strahlabstand Spielraum
+        self.assertIsNone(lidar.scan_pruefen(scan(3.0, angle_max=math.pi)))
+        self.assertIsNotNone(lidar.scan_pruefen(scan(3.0, angle_max=math.pi + math.radians(1.5))))
         # einzelne ungueltige Strahlen machen den Scan nicht insgesamt unbrauchbar (Abdeckung: #79)
         self.assertIsNone(lidar.scan_pruefen(scan([0.0] * 359 + [3.0])))
 

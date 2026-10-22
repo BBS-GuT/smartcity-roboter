@@ -151,6 +151,10 @@ class LineFollower(Node):
     def p(self, name):
         return self.get_parameter(name).value
 
+    def ros_jetzt(self):
+        """ROS-Zeit dieses Knotens (s) - dieselbe Uhr wie header.stamp, auch mit use_sim_time."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
     def _parameter_geaendert(self, params):
         # Einstellungen der Linie/Lenkung gelten sofort (z. B. ros2 param set ... kamera_neigung 30.0)
         from rcl_interfaces.msg import SetParametersResult
@@ -166,7 +170,7 @@ class LineFollower(Node):
     def on_scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
         # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
-        aufnahme, grund = lidar.aufnahme_pruefen(msg, time.time(), self.scan_stempel.get(topic))
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
         if grund == 'doppelt':
             return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
         if grund is None:
@@ -278,7 +282,7 @@ class LineFollower(Node):
             if not self.scans:
                 grund = 'noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
             return 'KEIN LIDAR: ' + grund
-        jetzt = time.time()     # Aufnahmealter bei der Entscheidung (Scan kann seit dem Empfang gealtert sein)
+        jetzt = self.ros_jetzt()     # Aufnahmealter bei der Entscheidung (Scan kann seit dem Empfang gealtert sein)
         frisch = [(t, d, g or lidar.aufnahme_alter(a, jetzt)) for t, (_, d, g, a) in zip(topics, frisch)]
         ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
         if ungueltig:

@@ -39,6 +39,7 @@ def scan(abstand, index_vorne=180):
     for k in range(index_vorne - 3, index_vorne + 4):
         r[k] = abstand
     return types.SimpleNamespace(ranges=r, angle_min=-math.pi, angle_increment=2 * math.pi / 360,
+                                 angle_max=math.pi - 2 * math.pi / 360,
                                  range_min=0.05, range_max=12.0, header=stempel())
 
 

@@ -148,6 +148,33 @@ class Linienfolger(unittest.TestCase):
             self.halt(n, 'KEIN LIDAR: /scan0: letzter Scan vor 1.5')
 
 
+class SimZeit(unittest.TestCase):
+    """Codex-Befund zu PR #143: mit use_sim_time stempeln Treiber/Simulator in ROS-Zeit, nicht in Systemzeit.
+    Verglichen wird mit der Uhr des Knotens."""
+
+    def uhr(self, sekunden):
+        ns = int(sekunden * 1e9)
+        return types.SimpleNamespace(now=lambda: types.SimpleNamespace(nanoseconds=ns))
+
+    def test_linienfolger(self):
+        n = q.lf.LineFollower()
+        n.get_clock = lambda: self.uhr(50.3)                          # Simulationszeit 50,3 s
+        for t, i in q.KANAELE:
+            n.on_scan(mit_aufnahme(50.2), t, i)                       # 0,1 s alt in ROS-Zeit: gueltig
+        self.assertIsNone(n.notbremse(0.05, 0.0, 0.0))
+        n.get_clock = lambda: self.uhr(52.0)                          # 1,8 s spaeter ohne neuen Scan
+        self.assertIn('Aufnahme 1.8 s alt', n.notbremse(0.05, 0.0, 0.0))
+
+    def test_ki_zentrale(self):
+        z = q.zentrale.Zentrale()
+        z.get_clock = lambda: self.uhr(50.3)
+        for t, i in q.KANAELE:
+            z._scan(mit_aufnahme(50.2), t, i)
+        self.assertEqual(z.lidar_pruefen()[0], float('inf'))
+        z.get_clock = lambda: self.uhr(52.0)
+        self.assertEqual(z.lidar_pruefen(), (None, None, None))
+
+
 class KiZentrale(unittest.TestCase):
     def test_frischer_empfang_mit_altem_header(self):
         z = q.ki_zentrale()

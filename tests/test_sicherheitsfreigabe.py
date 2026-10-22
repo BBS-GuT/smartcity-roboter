@@ -20,6 +20,7 @@ def scan(abstand):
     t = lf.time.time() - 0.05 + _scan_nr[0] * 1e-6
     kopf = types.SimpleNamespace(stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
     return types.SimpleNamespace(ranges=[abstand] * 360, angle_min=-math.pi, angle_increment=2 * math.pi / 360,
+                                 angle_max=math.pi - 2 * math.pi / 360,
                                  range_min=0.05, range_max=12.0, header=kopf)
 
 

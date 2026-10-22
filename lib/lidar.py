@@ -30,7 +30,8 @@ def scan_pruefen(msg):
     halten dann wie ohne LiDAR; der naechste verwertbare Scan desselben Kanals gibt wieder frei.
     """
     try:
-        meta = [float(msg.range_min), float(msg.range_max), float(msg.angle_min), float(msg.angle_increment)]
+        meta = [float(msg.range_min), float(msg.range_max), float(msg.angle_min), float(msg.angle_increment),
+                float(msg.angle_max)]
         r = np.asarray(msg.ranges, dtype=np.float64)
     except (AttributeError, TypeError, ValueError, OverflowError):
         return 'Scan unlesbar'
@@ -40,6 +41,10 @@ def scan_pruefen(msg):
         return 'keine Messwerte'
     if not winkelspanne_ok(r.size, meta[3]):
         return 'Winkelangaben ungueltig (mehr als eine Umdrehung)'
+    # angle_max muss zur Strahlgeometrie passen (angle_min + (N-1) * angle_increment). Ein Strahlabstand
+    # Spielraum: manche Treiber rechnen angle_increment = Spanne / N statt / (N-1).
+    if abs(meta[2] + (r.size - 1) * meta[3] - meta[4]) > abs(meta[3]) + 1e-6:
+        return 'Winkelangaben widerspruechlich (angle_max passt nicht zu Strahlzahl und -abstand)'
     if not np.any(np.isfinite(r) & (r > meta[0]) & (r < meta[1])):
         return 'kein gueltiger Messwert (alle 0/NaN/inf/ausserhalb)'
     return None
@@ -61,8 +66,8 @@ def aufnahme_alter(aufnahme, jetzt, max_alter=AUFNAHME_MAX):
 def aufnahme_pruefen(msg, jetzt, vorher=None, max_alter=AUFNAHME_MAX):
     """Aufnahmezeit eines Scans beim Empfang pruefen (header.stamp, unabhaengig von der Empfangszeit).
 
-    jetzt: ROS-Zeit des Empfaengers in s (ohne use_sim_time = Systemzeit time.time(), dieselbe Uhr, mit der die
-    LiDAR-Treiber und der Simulator stempeln). vorher: neueste AKZEPTIERTE Aufnahmezeit dieses Kanals oder None
+    jetzt: ROS-Zeit des Empfaengers in s (Node-Uhr, dieselbe Uhrdomaene wie header.stamp; ohne use_sim_time
+    ist das die Systemzeit, mit der die LiDAR-Treiber und der Simulator stempeln). vorher: neueste AKZEPTIERTE Aufnahmezeit dieses Kanals oder None
     (die Verbraucher ruecken sie nur mit akzeptierten, groesseren Stempeln vor - ein zurueckgesetzter Stempel
     bleibt so ungueltig, bis er die Marke ueberholt).
     Rueckgabe: (aufnahme s oder None, Grund oder None). Grund 'doppelt' = derselbe Scan nochmal (nichts Neues).

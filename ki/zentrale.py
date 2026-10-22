@@ -296,6 +296,10 @@ class Zentrale(Node):
     def p(self, name):
         return self.get_parameter(name).value
 
+    def ros_jetzt(self):
+        """ROS-Zeit dieses Knotens (s) - dieselbe Uhr wie header.stamp, auch mit use_sim_time."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
     # ---------------- Eingaenge ----------------
     def _bild(self, msg):
         with self.lock:
@@ -309,7 +313,7 @@ class Zentrale(Node):
         fronts = self.p('scan_front_deg')
         front = fronts[i] if i < len(fronts) else 0.0
         # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
-        aufnahme, grund = lidar.aufnahme_pruefen(msg, time.time(), self.scan_stempel.get(topic))
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
         if grund == 'doppelt':
             return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
         if grund is None:
@@ -415,7 +419,7 @@ class Zentrale(Node):
         with self.lock:
             # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
             frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
-        jetzt = time.time()     # Aufnahmealter jetzt nochmal: der Scan kann seit dem Empfang gealtert sein
+        jetzt = self.ros_jetzt()     # Aufnahmealter jetzt nochmal: der Scan kann seit dem Empfang gealtert sein
         ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt)}' for t, (_, _, _, g, a, _) in zip(topics, frisch)
                      if g or lidar.aufnahme_alter(a, jetzt)]
         if grund or ungueltig:
