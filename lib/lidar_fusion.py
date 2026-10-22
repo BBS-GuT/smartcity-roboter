@@ -221,9 +221,21 @@ class Sicht:
         if not len(low):
             return None, 0.0
         free = gemeinsame_zellen(self.fields, low, high)
-        gap = float(max(0.0, np.min(distance[~free] - radius[~free]))) if np.any(~free) else None
         obj = lidar.fahrschlauch(self.points, weg, halbe_breite=half_width,
                                 laenge=length, nah=0.0, nah_halb_deg=180.0)
+        unknown = ~free
+        if obj is not None:
+            # A return's own cell is occupied, not a missing measurement. Only
+            # cells entirely before it can establish a separate coverage gap.
+            # The unresolved end band is NEVER free: move the reported stopping
+            # distance to its near edge, keeping the measured target coordinates.
+            before = distance + radius < obj['abstand']
+            occupied_end = unknown & ~before
+            if occupied_end.any():
+                obj = dict(obj, abstand=min(obj['abstand'], float(max(
+                    0.0, np.min(distance[occupied_end] - radius[occupied_end])))))
+            unknown &= before
+        gap = float(max(0.0, np.min(distance[unknown] - radius[unknown]))) if unknown.any() else None
         return obj, gap
 
     def hinten(self, half_width, length=0.8):

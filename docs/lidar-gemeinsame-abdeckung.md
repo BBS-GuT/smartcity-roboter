@@ -21,6 +21,11 @@ ungültiger Strahl durch das Zellinnere kann sich nicht zwischen gültigen Ecken
 verstecken. Jede Zelle muss vollständig von mindestens einer gültigen Quelle
 gemessen sein. Die eigene Fahrzeugfläche wird ausgespart. Ein echtes Hindernis
 im äußeren Schutzbereich hat Vorrang vor einer unbekannten Abdeckung.
+Im Vorschaukorridor wird die Trefferzelle samt unaufgelöstem Zellrand als
+gesperrtes Hindernisende behandelt. Der gemeldete Stoppabstand rückt konservativ
+an dessen Nahkante; die gemessenen Zielkoordinaten bleiben erhalten. Eine echte
+unbekannte Zelle vor diesem Ende bleibt ein eigener Haltgrund. Der Raum hinter
+einem Treffer wird dabei niemals als frei freigegeben.
 Der frühere Nahkegel zum Ausblenden vermuteter eigener Teile entfällt in diesem
 Pfad: Außerhalb der bestätigten Fahrzeugfläche zählt der ganze Fahrkorridor.
 Die Vorschau reicht um die Fahrzeugfront über den Pfad der Fahrzeugmitte hinaus.

@@ -192,6 +192,35 @@ class ConsumerGeometry(unittest.TestCase):
         z._scan(m, '/scan1', 1)
         self.assertNotEqual(z.lidar_pruefen()[0], float('inf'))
 
+    def test_actual_ki_preserves_known_obstacle_instead_of_no_lidar(self):
+        z = self.central()
+        feed(z)
+        m = message(1)
+        angle = math.atan2(.05, .5)
+        k = round((angle - m.angle_min) / m.angle_increment)
+        m.ranges[k] = math.hypot(.5, .05)
+        z._scan(m, '/scan1', 1)
+        distance, obj, _ = z.lidar_pruefen()
+        self.assertIsNotNone(distance)
+        self.assertIsNotNone(obj)
+        self.assertGreater(distance, .55)
+        self.assertLessEqual(distance, .61)
+        self.assertAlmostEqual(obj['vor'], .6, delta=.01)
+
+    def test_a_genuine_gap_before_an_obstacle_still_holds_unknown(self):
+        z = self.central()
+        feed(z)
+        m = message(1)
+        angle = math.atan2(.05, .5)
+        k = round((angle - m.angle_min) / m.angle_increment)
+        m.ranges[k] = math.hypot(.5, .05)
+        for j in range(len(m.ranges)):
+            a = m.angle_min + j * m.angle_increment
+            if math.radians(-15) < a < math.radians(-5):
+                m.ranges[j] = 0.0
+        z._scan(m, '/scan1', 1)
+        self.assertIsNone(z.lidar_pruefen()[0])
+
     def test_actual_ki_reports_partial_rear_clearance(self):
         z = self.central()
         feed(z)
