@@ -21,6 +21,7 @@ freigegebene gerichtete Regelkarte und keine reale Knoten-/Zufahrtsbrücke.
 | Bezug | Gerätekennung, eindeutige Startkennung, Quellen-/Belegkennung einschließlich Karten-/Regelversion, bestätigter Knoten, bestätigte eigene Zufahrt, eindeutige Anfahrtkennung. Alle sind nichtleere interne Kennungen; synthetische Kennungen nur im Test. |
 | Beobachtung | Monoton steigende Sequenz, lokale monotone Aufnahmezeit und explizite Gültigkeitsdauer. Endliche Zeitwerte; Zukunft, überschrittene Gültigkeit, rückläufige Sequenz oder abweichender erwarteter Geräte-/Start-/Quellenbezug sperren. Duplikate erneuern keine Frische. |
 | Geometrie | Menge stabil zugeordneter sichtbarer Ausgangskennungen, getrennt von Erlaubnis; nur bestätigte Verzweigung, kein Überwegquerbalken. Die Zuordnung Ausgang zu Bildast muss eindeutig sein. |
+| Eigene Spur | Separat positiv bestätigte aktuelle eigene Spur und gültiger Manöverfortschritt im selben Bezug; bleibt nach Einfahrt erforderlich, auch wenn die Verzweigungsform nicht mehr sichtbar ist. Fehlender oder ungültiger Nachweis hält. Keine Ableitung aus Timeout oder Fahrbefehl. |
 | Erlaubnis | `None` bedeutet unbekannt; sonst die für genau diesen Bezug bestätigte Menge nach Regelkarte und Beschilderung, auch leer zulässig. Einfahrtsfreigabe wird separat geprüft. Geometrie ist kein Erlaubnisbeleg. |
 | Einfahrt | Separate aktuelle passende Signal-/Infrastrukturfreigabe und positiv bestätigtes Einfahrtereignis mit identischem Bezug und gewähltem Ausgang. Vor Einfahrt sperrt unbekannte/rote Freigabe. Das bestätigte Ereignis bindet die erteilte Räumfreigabe bis zum Abschluss. |
 | Historie | Eigene lokale Besuchszähler je Quellen-/Kartenversion, Knoten, Zufahrt und Ausgang; nur bestätigte Abschlüsse zählen. Gültig leer ist bekannt; unbekannte/ungültige Historie wird als `historie_unbekannt` gehalten, nicht als leere Liste ersetzt. |
@@ -61,9 +62,13 @@ C1-Schema noch öffentliche Nachrichten und behauptet keine Laufzeitabbildung.
    Nicht initialisierbare oder unpassend zugeordnete Historie hält.
    Identischer Seed und gleiche Eingabefolge ergeben dieselbe Auswahlfolge.
 2. Pro Anfahrt höchstens ein Zufallszug. Gleiche Bilder, Duplikate, Erkennungslücken
-   und Wiederkehr desselben Knotens lösen keine Neuwahl aus. Bei Erkennungslücke
-   bleibt die Wahl gespeichert und die Fahrt hält. Ein fehlender gewählter Ast
-   wird nicht durch einen anderen sichtbaren Ast ersetzt.
+   und Wiederkehr desselben Knotens lösen keine Neuwahl aus. Vor bestätigter
+   Einfahrt hält fehlende Verzweigungserkennung oder ein fehlender gewählter Ast
+   mit gespeicherter Wahl. Nach bestätigter Einfahrt darf die Verzweigungsform
+   regulär verschwinden: allein dies hält die gebundene Räumung nicht, solange
+   die zugeordnete eigene Spur und der Manöverfortschritt aktuell positiv
+   bestätigt bleiben. Fehlen diese Pflichtnachweise, wird gehalten. In beiden
+   Phasen wird kein anderer sichtbarer Ast als Ersatz ausgewählt.
 3. Entfällt seine Erlaubnis oder wird die Zuordnung ungültig, bleibt die Wahl
    gespeichert, mit Haltgrund. Wieder gültige Daten dürfen dieselbe Wahl
    bestätigen, niemals heimlich eine andere wählen. Ein anderer Anfahrtsbezug
@@ -86,7 +91,9 @@ C1-Schema noch öffentliche Nachrichten und behauptet keine Laufzeitabbildung.
    im bestehenden Fahrweg übergeordnet. Sie löschen die Auswahl nicht.
    Rot sperrt die Einfahrt, nicht allein die bereits bestätigte Räumung.
    Ein Überweg allein erzeugt keine Auswahl; während gebundener Querung ist
-   fehlende Verzweigungserkennung weiterhin kein Abschluss.
+   fehlende Verzweigungserkennung weder Abschluss noch alleiniger Haltgrund.
+   Die positive aktuelle Spur-/Fortschrittsbestätigung und alle übrigen
+   Schutzvoraussetzungen bleiben erforderlich.
 
 ## Vier synthetische Beispiele
 
