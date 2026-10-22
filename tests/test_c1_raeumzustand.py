@@ -237,6 +237,47 @@ class Raeumdaten(unittest.TestCase):
         s['motion']['output']['v_m_s'] = Decimal('sNaN')
         self.assertTrue(self.check(s, bindings=b))
 
+    def measurement_entries(self):
+        f = ref('frame_id', 'f', 'camera'); f['source'] = 'camera'
+        components = {'coord_frame': 'robot', 'calibration_version': 'v',
+                      'values': {'x': {'value': 0, 'unit': 'm'}}, 'status': 'valid', 'reason': None}
+        good = {'frame_ref': f, 'time_basis_id': 'clock', 'captured_mono_s': 99,
+                'received_mono_s': 100, 'components': components, 'status': 'valid', 'reason': None}
+        bad = copy.deepcopy(good)
+        bad.update({'status': 'invalid', 'reason': 'SENSOR_INVALID', 'components': {
+            'coord_frame': 'robot', 'calibration_version': 'v', 'values': None,
+            'status': 'invalid', 'reason': 'NO_MEASUREMENT'}})
+        kw = {'frames': ({**f, 'time_basis_id': 'clock', 'captured_mono_s': 99},),
+              'component_units': {('robot', 'v'): {'x': 'm'}}}
+        return good, bad, kw
+
+    def test_valid_measurement_blocks_require_one_valid_entry(self):
+        for path in (('camera_pose',), ('arm', 'measured'), ('arm', 'load')):
+            for status in ('invalid', 'missing'):
+                with self.subTest(path=path, status=status):
+                    s = state(); good, bad, kw = self.measurement_entries()
+                    bad['status'] = status
+                    block = s[path[0]] if len(path) == 1 else s[path[0]][path[1]]
+                    block.update({'status': 'valid', 'reason': None, 'measurements': [bad]})
+                    self.assertTrue(any('mindestens einen' in e for e in self.check(s, **kw)))
+                    block['measurements'].append(good)
+                    self.assertEqual(self.check(s, **kw), [])
+
+    def test_measurement_schema_requires_valid_entry_and_components(self):
+        try:
+            from jsonschema import Draft202012Validator
+        except ImportError:
+            self.skipTest('optionale jsonschema-Abhaengigkeit fehlt')
+        good, bad, _ = self.measurement_entries()
+        schema = {'$defs': SCHEMA_DEFS, '$ref': '#/$defs/c1_measurements'}
+        validator = Draft202012Validator(schema)
+        for status in ('invalid', 'missing'):
+            bad['status'] = status
+            block = {'status': 'valid', 'reason': None, 'measurements': [bad]}
+            self.assertTrue(list(validator.iter_errors(block)))
+            block['measurements'].append(good)
+            self.assertEqual(list(validator.iter_errors(block)), [])
+
     def test_success_does_not_come_from_phase_or_timer(self):
         s = state(); b = clearing(s, 'beendet')
         s['clearing'].update({'execution_status': 'beendet', 'result': 'erfolgreich'})

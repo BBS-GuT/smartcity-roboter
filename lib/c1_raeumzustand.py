@@ -217,8 +217,10 @@ class _Check:
         if not isinstance(entries, list) or not entries:
             self.fail(p, 'valid braucht echte Messdatensaetze')
             return
+        valid_entries = 0
         for i, entry in enumerate(entries):
             q = f'{p}.measurements[{i}]'
+            before = len(self.errors)
             if self.obj(entry, q, ('frame_ref', 'time_basis_id', 'captured_mono_s', 'received_mono_s', 'components', 'status', 'reason')):
                 ev = self.q(entry, q)
                 record = self.frame(entry.get('frame_ref'), q + '.frame_ref', require=ev)
@@ -233,6 +235,10 @@ class _Check:
                 self.components(entry.get('components'), q + '.components')
                 if ev and not (isinstance(entry.get('components'), dict) and entry['components'].get('status') == 'valid'):
                     self.fail(q, 'valid braucht gueltige Messkomponenten')
+                if ev and len(self.errors) == before:
+                    valid_entries += 1
+        if not valid_entries:
+            self.fail(p + '.measurements', 'valid braucht mindestens einen gueltigen Messdatensatz mit gueltigen Komponenten')
 
     def observation(self, x, p, obj_ref):
         fields = ('observation_ref', 'object_ref', 'frame_ref', 'detail_ref', 'time_basis_id', 'captured_mono_s', 'received_mono_s', 'class_value', 'class_status', 'class_reason', 'spatial', 'status', 'reason')
@@ -667,6 +673,14 @@ def _schema_defs():
     defs['c1_components'] = obj({'coord_frame': nullable_text, 'calibration_version': nullable_text, 'values': maybe({'type': 'object', 'minProperties': 1, 'additionalProperties': component}), **q})
     defs['c1_measurement'] = obj({'frame_ref': ref('frame_ref'), 'time_basis_id': nullable_text, 'captured_mono_s': maybe(time), 'received_mono_s': maybe(time), 'components': ref('components'), **q})
     defs['c1_measurements'] = obj({'measurements': maybe({'type': 'array', 'minItems': 1, 'items': ref('measurement')}), **q})
+    defs['c1_measurements']['allOf'] = [{
+        'if': {'properties': {'status': {'const': 'valid'}}, 'required': ['status']},
+        'then': {'properties': {'measurements': {'type': 'array', 'minItems': 1, 'contains': {
+            'type': 'object', 'required': ['status', 'components'],
+            'properties': {'status': {'const': 'valid'}, 'components': {
+                'type': 'object', 'required': ['status'], 'properties': {'status': {'const': 'valid'}}}},
+        }}}},
+    }]
     defs['c1_latch'] = obj({'value': {'type': ['boolean', 'null']}, **q})
     defs['c1_package_use'] = obj({'mode': {'enum': ['current', 'historical', 'unknown']}, 'reason': nullable_text, 'evaluation_ref': ref('evaluation_ref', True)})
     defs['c1_block_entry'] = obj({'block_ref': ref('block_ref'), 'code': text, 'effect': {'enum': ['motion', 'arm', 'both']}, 'frame_ref': ref('frame_ref', True), 'time_basis_id': nullable_text, 'reported_mono_s': maybe(time), **q})
