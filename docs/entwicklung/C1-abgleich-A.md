@@ -120,7 +120,7 @@ für denselben Vertrag 2.0, keine bereits eingeführte Schnittstelle:
 | `motion.output` | Von A tatsächlich ausgegebene SI-Bewegung mit A-`producer_id`/`producer_boot_id`, `output_seq`, `time_basis_id`, `issued_mono_s`, Status/Grund, `request_ref` und verpflichtender `evaluation_ref` gemäß Regel unten. `request_ref` ist der vollständige Requestschlüssel oder `null` bei eigenständigem Sicherheitshalt mit Grund. Keine Ausgabe aus Wunsch rekonstruieren. Fehlende Ausgabe bleibt unbekannt/null; bestätigter Nullbefehl beweist keinen Stillstand. |
 | `motion.measured` | Wirkliche Messung mit Quellen-/Frame-/Aufnahme-/Empfangsbezug, m/s und rad/s, Qualität/Grund; nicht vom ausgegebenen Sollwert befüllen. |
 | `arm.output` | Tatsächlich vom Armausgabebesitzer weitergereichter Auftrag: `robot_id`, dessen `producer_id`/`producer_boot_id`, eigene ganzzahlige `output_seq` ≥ 0 ohne Wiederverwendung im selben Start, `time_basis_id`, `issued_mono_s`, Status/Grund, tatsächlich ausgegebene Aktion/Zielwerte mit Einheit/Koordinatenbezug, vollständige `command_ref` und verpflichtende `evaluation_ref` für `domain=arm`. Ausgabeschlüssel ist `(robot_id, producer_id, producer_boot_id, output_seq)`; `arm.release.output_ref` muss genau diesen Schlüssel referenzieren. `command_ref` bezeichnet `(robot_id, producer_id, producer_boot_id, command_seq)` des Armwunschproduzenten; bei eigenständigem Schutzauftrag null mit Grund. Ausgabebesitzer und Freigabebesitzer dürfen verschieden sein und behalten ihre eigenen Starts; die gemeinsame `evaluation_ref` gehört dem Freigabebesitzer. Fehlende Ausgabe bleibt unbekannt/null mit Grund. Empfangsbestätigung separat mit diesem Ausgabeschlüssel referenzieren; weder Ausgabe noch Empfang beweisen erreichte Stellung oder gehaltene Last. |
-| `motion.release` / `arm.release` | Jeweils geliefertes abschließendes Ergebnis `decision=allowed/blocked/unknown`, Qualität/Grund, eigener Besitzerstart und `decision_seq`, Prüfzeit/Uhr, vollständige `request_ref` bzw. `command_ref` und verpflichtende `evaluation_ref`. `output_ref` bezeichnet genau die zugehörige Ausgabe mit Gerät/Besitzerstart/Ausgabesequenz, bei fehlender Ausgabe ausdrücklich null mit Grund. Grundsätzliche Motorbereitschaft getrennt halten. Fehlender Besitzer/Nachweis bedeutet `unknown`, nie `allowed`. Historische Ergebnisse bleiben als solche referenzierbar; ein Resultat zu anderem Request darf nicht als aktuelles angezeigt werden. |
+| `motion.release` / `arm.release` | Jeweils geliefertes abschließendes Ergebnis `decision=allowed/blocked/unknown`, Qualität/Grund, eigener Besitzerstart und `decision_seq`, Prüfzeit/Uhr, vollständige `request_ref` bzw. `command_ref` oder kontrolliert null gemäß Schutzauftragsregel unten, sowie verpflichtende `evaluation_ref`. `output_ref` bezeichnet genau die zugehörige Ausgabe mit Gerät/Besitzerstart/Ausgabesequenz, bei fehlender Ausgabe ausdrücklich null mit Grund. Grundsätzliche Motorbereitschaft getrennt halten. Fehlender Besitzer/Nachweis bedeutet `unknown`, nie `allowed`. Historische Ergebnisse bleiben als solche referenzierbar; ein Resultat zu anderem Request darf nicht als aktuelles angezeigt werden. |
 | Sperren / Betriebszustand | Geliefertes vollständiges Sperrbild je Auswertung mit verpflichtender `evaluation_ref`, `status`, `reason`, Besitzerstart, `seq`, `time_basis_id`, `evaluated_mono_s`; `blocks[]` mit stabiler `block_id`, `code`, Quelle/Produzent, Zeit/Qualität und `effect=motion/arm/both`. Leere Liste bedeutet nur bei ausdrücklich gültigem vollständigem Bild keine gemeldete Sperre. Unvollständiges/fehlendes Bild bleibt unbekannt, nicht leere Freigabe. |
 | STOPP / Fehler | `stop_latched` und `fault_latched` als gelieferte bool/null-Angaben mit Qualität und Grund; aktive Ursachen bleiben zusätzlich in `blocks`. Bestätigter Reset mit Besitzer-/Zeitbezug ist von Wiederkehr frischer Daten getrennt. Ein Zustandswechsel, Grün, Timer oder Reconnect löscht keine Verriegelung. |
 | `protection` / Sensorpflicht | Politik-ID/-Version, Pflichtmatrixreferenz und Nachweisreferenz jeweils mit Status/Grund; unbekannte Referenzen dürfen null sein. Fehlender Politiknachweis ist darstellbar. Kein `allowed` aus bloß vorhandener Referenz, Phase, Klasse oder `ki_darf_arm_bewegen` ableiten. |
@@ -137,12 +137,43 @@ genau diese Ausgabe zeigen. Änderung der Ausgabe oder der bewerteten Sperren
 verlangt eine neue vollständige Auswertung, auch bei unverändertem Request.
 Identische Auswertungskennung mit geändertem Inhalt ist ein Widerspruch.
 C übernimmt das Paket atomar und kombiniert keine separat neuesten Teilwerte.
-Fehlt ein Teil/Bezug, bleibt das aktuelle Ergebnis unbekannt; ältere vollständige
+Fehlt ein erforderlicher Teil/Bezug, bleibt das aktuelle Ergebnis unbekannt;
+eine nach folgender Regel ausdrücklich belegte Nullreferenz ist kein fehlender
+Bezug. Ältere vollständige
 Pakete dürfen nur als historische Diagnose erscheinen. Ohne bekannten
 Armbesitzer bleibt das Armpaket unbekannt/null statt einer erfundenen Kennung.
 Fahrt- und Armpakete besitzen eigene Auswertungen; ein vom jeweiligen Besitzer
 bewerteter gemeinsamer Sperrgrund bleibt in beiden mit seinem Quellenbezug
 sichtbar. Ein zusammenfassendes Sperrdisplay ersetzt diese beiden Pakete nicht.
+
+**Schutzauftrag ohne Wunsch:** Bei nachweislich eigenständigem Sicherheitshalt
+ohne Fahrwunsch führen sowohl `motion.output.request_ref` als auch
+`motion.release.request_ref` ausdrücklich null und `reason=NO_REQUEST`.
+Analog führen eigenständige Armschutzaufträge ohne Armwunsch sowohl
+`arm.output.command_ref` als auch `arm.release.command_ref` als null mit
+`reason=PROTECTIVE_ACTION_WITHOUT_REQUEST`. Die Gründe sind hier vorgeschlagene
+Daten-Codes, keine neue Schutzpolitik. Ausgabe und Ergebnis müssen in derselben
+Auswertung denselben Wunschbezug und für diesen Nullfall denselben Grund tragen.
+`evaluation_ref`, reale Ausgabeidentität und deren `output_ref` bleiben dabei
+verpflichtend; nur der nicht existierende Wunsch wird nicht referenziert.
+So kann ein vollständig belegtes `blocked`-Ergebnis mit gültiger Datenqualität
+und tatsächlich ausgegebenem Schutzauftrag vorliegen, ohne erfundenen Wunsch
+und ohne allein wegen dessen Abwesenheit `unknown` zu werden. Ist dagegen nur
+der Bezug unbekannt oder verloren, ist dies kein belegter Schutzauftrag:
+`unknown` mit Grund für den fehlenden Nachweis, keine Ersatzkennung und keine
+Umdeutung als `NO_REQUEST`. Ein fehlender Referenzschlüssel ist nie dasselbe
+wie der vorgeschriebene explizite Nullwert. Das tatsächliche sichere Verhalten
+liefert weiterhin der zuständige Freigabe-/Ausgabeweg.
+
+Synthetische Dokumentfälle, jeweils mit sonst vollständig passendem atomarem
+Paket, bekanntem Besitzer und tatsächlich gelieferter Ausgabeidentität:
+
+| Fall | Ausgabe / Ergebnis | Datenbewertung |
+|---|---|---|
+| Kein Fahrwunsch, Sicherheitshalt | Beide `request_ref=null`, beide `reason=NO_REQUEST`, Ergebnis `blocked`; Ausgabe v=0 m/s, w=0 rad/s | Vollständig darstellbar mit gültiger Datenqualität; kein gemessener Stillstand behauptet. |
+| Kein Armwunsch, eigenständiger Schutzauftrag | Beide `command_ref=null`, beide `reason=PROTECTIVE_ACTION_WITHOUT_REQUEST`, Ergebnis `blocked`; Ausgabe ist ein hypothetisch vom Besitzer gelieferter Schutzauftrag | Vollständig darstellbar; keine Festlegung einer physischen Armreaktion oder Lastbestätigung. |
+| Ausgabe ohne Wunsch, Ergebnis verweist auf alten Wunsch | Ausgabe null, Ergebnis vollständige frühere Wunschreferenz | Widersprüchliches Paket trotz gleicher Auswertungskennung; nicht als aktuelles vollständiges Ergebnis übernehmen. |
+| Nullbezug ohne belegten Grund oder mit verschiedenen Gründen | Beide Referenzen null, Grund fehlt oder passt zwischen Ausgabe/Ergebnis nicht | Kein kontrollierter Schutzauftragsfall; unbekannten Bezug ehrlich zeigen, keine vollständige gültige Auswertung behaupten. |
 
 Referenzen müssen zum Gerät, Besitzerstart und jeweiligen Schlüssel passen;
 Ausgabe- und Prüfzeit sind keine Sensoraufnahmezeiten. Vergleiche zwischen
@@ -221,3 +252,12 @@ Armwunsch darf eine Ausgabe aus anderem Ausgabestart oder mit anderer
 Paket. Ein vollständig passendes Paket bewahrt die getrennte Empfangs-/
 Stellungs-/Lastqualität. Keine JSON-Beispiele oder Runtimeänderung ergänzt;
 6/6 lokale Links und beide Diffchecks erneut erfolgreich.
+
+Nativer Folgebefund auf `3d6d5e812e66e9975509ca0ddfd21c082c5717ab`
+([Nullbezüge im Ergebnis](https://github.com/BBS-GuT/smartcity-roboter/pull/145#discussion_r4346582538))
+vollständig gelesen: Die Ergebnisregel verlangte stets eine Wunschreferenz,
+obwohl die Ausgabe eigenständige Schutzaufträge ohne Wunsch erlaubte.
+Die kontrollierte Nullregel und vier obige Dokumentfälle schließen diesen
+Widerspruch; die atomare Bindung bleibt erhalten. Dokumentkontrolle mit
+synthetischen Null-/Referenz-/Grundvarianten und lokale Link-/Diffprüfung
+erfolgreich; keine implementierte Validatorprüfung oder Runtimeänderung.
