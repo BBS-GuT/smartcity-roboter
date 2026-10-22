@@ -342,6 +342,8 @@ class Kartierer:
         self.imu_offen = 0.0          # Drehung (korrigiert) seit der letzten Odometrie
         self.odom_vorausdrehung = 0.0 # bereits verbuchte IMU-Drehung seit der letzten Odometrie
         self.imu_luecke = False       # seit der letzten Odometrie fehlten Lagesensor-Daten (Drehung unvollstaendig)
+        self.imu_ersatz_bis = None    # bis hier hat laufende Odometrie die fehlende IMU ersetzt
+        self.imu_rest = 0.0           # Odom-Anteil nach der zuletzt verwendeten IMU-Messzeit
         self.imu_roh = 0.0            # Integral der rohen Drehrate (fuer die Kalibrierung)
         self.imu_winkel = 0.0         # Integral der korrigierten Drehrate
         self.odom_winkel = 0.0        # Drehung laut Raedern
@@ -418,9 +420,15 @@ class Kartierer:
                 else:
                     w = self.kal.drehrate(gz)
                 self.imu_roh += gz * dt
-                self.imu_offen += w * dt
+                # Zurueckkehrende IMU nicht nochmals fuer bereits von den Raedern
+                # ersetzte Zeit verwenden (auch bei kurzen Luecken unter 0,25 s).
+                offen_dt = max(0.0, t - max(self.imu_t, self.imu_ersatz_bis or self.imu_t))
+                self.imu_offen += w * offen_dt
                 self.imu_winkel += w * dt
                 self.dreh = w
+        elif self.imu_ersatz_bis is not None:
+            # Auch eine erst spaeter startende IMU hat noch kein Integral.
+            self.imu_luecke = True
         self.imu_t, self.imu_empfang = t, empfang
         if self.odom_empfang is None or empfang - self.odom_empfang > 0.5:
             # keine Odometrie: wenigstens die Drehung mitrechnen (Strecke macht der Scan-Abgleich)
@@ -438,7 +446,8 @@ class Kartierer:
             self.odom_t, self.odom_empfang = t, empfang
             self.odom_vorausdrehung = 0.0
             return
-        dt = t - self.odom_t
+        odom_t_alt = self.odom_t
+        dt = t - odom_t_alt
         if dt <= 0:
             return
         self.odom_t, self.odom_empfang = t, empfang
@@ -466,14 +475,25 @@ class Kartierer:
         self.v = math.hypot(vx, vy)
         self.steht = self.v < 0.01 and abs(wz) < 0.005     # langsamer als 1 cm/s und dreht nicht
         self.odom_winkel += dw_odom
-        if self.imu_empfang is not None and empfang - self.imu_empfang < 0.3 and not self.imu_luecke:
+        if (self.imu_t is not None and self.imu_t > odom_t_alt
+                and empfang - self.imu_empfang < 0.3 and not self.imu_luecke):
             dw = self.imu_offen       # Drehung lieber vom Lagesensor (Mecanum-Raeder rutschen beim Drehen)
             self.imu_offen = 0.0
+            # Messungen sind versetzt: faellt die IMU jetzt aus, fehlt neben
+            # dem naechsten Odom-Intervall noch dieses kleine Reststueck.
+            self.imu_rest = dw_odom * max(0.0, t - self.imu_t) / dt
         elif self.imu_luecke:
             dw = dw_odom              # Lagesensor hatte eine Luecke: Drehung dieses Stuecks von den Raedern
             self.imu_offen, self.imu_luecke = 0.0, False
+            if self.imu_ersatz_bis is not None:
+                self.imu_ersatz_bis = t
+            self.imu_rest = 0.0
         else:
-            dw = 0.0 if self.steht else dw_odom
+            # Der Rest stammt noch aus dem vorherigen bewegten Intervall;
+            # ein inzwischen gemeldeter Stillstand darf ihn nicht loeschen.
+            dw = self.imu_rest + (0.0 if self.steht else dw_odom)
+            self.imu_rest, self.imu_offen = 0.0, 0.0
+            self.imu_ersatz_bis = t
             self.dreh = wz
         s = 1.0 / self.kal.odom_skala if self.c['selbst_kalibrieren'] else 1.0
         self._schritt(dx * s, dy * s, dw, t)
