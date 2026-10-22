@@ -12,7 +12,12 @@ for workspace in "$workspace_root/yahboomcar_ws" "$workspace_root/mircoROS_agent
     [ ! -f "$workspace/install/setup.bash" ] || source "$workspace/install/setup.bash"
 done
 
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-30}"
+domain_file="$workspace_root/ros_domain_id"
+domain_from_file=""
+if [ -f "$domain_file" ]; then
+    domain_from_file="$(tr -dc '0-9' < "$domain_file")"
+fi
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-${ROS_DOMAIN_ID_OVERRIDE:-${domain_from_file:-30}}}"
 export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY:-0}"
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 

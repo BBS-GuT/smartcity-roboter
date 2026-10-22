@@ -52,6 +52,22 @@ Die beim absichtlichen USB-Port-Stromzyklus erzeugten CP210x-Fehler und der
 unmittelbare `errno 5` waren Folgefehler dieses Eingriffs. Spätere erfolgreiche
 Portöffnungen dürfen nicht mit diesem vorübergehenden Rebind-Fehler verwechselt werden.
 
+## Live-Nachprüfung nach der Installation
+
+Der Nutzer startete um 08:27 den micro-ROS-Agenten über den Installer neu. Der
+Agent wurde aktiv und öffnete die serielle Schnittstelle. Um 08:28:20 meldete
+sich der Board-Client `0x45033032` an; später folgten erneut Sitzungen. Im
+aktuellen Journal fehlen jedoch nach diesem Neustart `create_participant` und
+`create_datawriter`. Der ROS-Test in Domain 30 sah für `/battery` **0 Publisher**
+und nach 15 Sekunden keine Nachricht (`echo_exit=124`). Panel und Agent verwenden
+beide Domain 30; eine Domänenabweichung erklärt diesen konkreten Ausfall nicht.
+
+Damit ist der Agent-Prozess allein kein Nachweis für eine funktionsfähige
+Board-Brücke. Beim früheren kompletten Roboterstart wurden die Entities erzeugt.
+Ein Software-Neustart des Roboters wird als Wiederherstellung geprüft. Ob
+danach auch neue Batteriesamples fließen, ist noch offen; die frühere
+Phase mit vorhandenem Publisher, aber ohne Sample darf nicht übergangen werden.
+
 ## Lokale Änderungen
 
 - Der Agent-Wrapper übernimmt nicht länger das Projektprofil für Fast-DDS-

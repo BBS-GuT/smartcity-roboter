@@ -56,4 +56,12 @@ class Tests(unittest.TestCase):
         for record in ({'akku':True}, {'battery':12.7}, {'akku':float('nan')}, {}):
             self.assertEqual(updater.battery_text(record), 'unbekannt')
 
+    def test_active_agent_detected_before_optional_start(self):
+        with patch.object(updater.subprocess, 'run') as run:
+            run.return_value.returncode = 0
+            self.assertTrue(updater.agent_is_active())
+            run.assert_called_once_with(
+                ['systemctl', 'is-active', '--quiet', 'm3pro-microros.service'],
+                capture_output=True)
+
 if __name__=="__main__": unittest.main()
