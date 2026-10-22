@@ -158,6 +158,7 @@ class SimZeit(unittest.TestCase):
 
     def test_linienfolger(self):
         n = q.lf.LineFollower()
+        q.geometrie(n)
         n.get_clock = lambda: self.uhr(50.3)                          # Simulationszeit 50,3 s
         for t, i in q.KANAELE:
             n.on_scan(mit_aufnahme(50.2), t, i)                       # 0,1 s alt in ROS-Zeit: gueltig
@@ -167,6 +168,7 @@ class SimZeit(unittest.TestCase):
 
     def test_ki_zentrale(self):
         z = q.zentrale.Zentrale()
+        q.geometrie(z)
         z.get_clock = lambda: self.uhr(50.3)
         for t, i in q.KANAELE:
             z._scan(mit_aufnahme(50.2), t, i)
