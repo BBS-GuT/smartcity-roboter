@@ -10,7 +10,10 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import grundbetrieb_vertrag as V
-import jsonschema
+try:
+    import jsonschema
+except ImportError:
+    jsonschema = None
 
 
 def beispiel():
@@ -114,6 +117,12 @@ class IdentitaetUndUhr(unittest.TestCase):
         self.d['motion']['measured_w_rad_s']['source'] = self.d['sensors']['imu']['source_id']
         self.abgelehnt('source')
 
+    def test_aktive_versionen_ohne_schemaabhaengigkeit(self):
+        for version in ('1.0', 'unknown', '3.0', None, True):
+            self.d['schema_version'] = version
+            self.abgelehnt('schema_version')
+
+    @unittest.skipIf(jsonschema is None, 'jsonschema nicht installiert')
     def test_version_und_historisches_schema(self):
         schema = json.loads((ROOT / 'schemas/grundbetrieb-v2.schema.json').read_text(), parse_float=Decimal)
         validator = jsonschema.Draft202012Validator(schema)
@@ -127,6 +136,7 @@ class IdentitaetUndUhr(unittest.TestCase):
         self.assertNotIn('received_mono_s', alt['$defs']['quelle']['properties'])
         self.assertNotIn('received_mono_s', alt['$defs']['quelle']['required'])
 
+    @unittest.skipIf(jsonschema is None, 'jsonschema nicht installiert')
     def test_schema_neue_pflichtschluessel_und_typen(self):
         schema = json.loads((ROOT / 'schemas/grundbetrieb-v2.schema.json').read_text(), parse_float=Decimal)
         jsonschema.Draft202012Validator.check_schema(schema)
