@@ -161,6 +161,30 @@ for wunsch in ({'dreh': 0.8}, {'quer': 0.05}, {'quer': -0.05, 'dreh': -0.5}):
     hinten_10cm(n)
     manoever(n, **wunsch)
     halt_mit(f'hinten 10 cm, KI-Manoever {wunsch} auf der Stelle -> Halt', n.entscheide(), 'hinten')
+# Seitwaerts (Codex-Befund zu PR #143): Hindernis 10 cm LINKS (Strahl 270), vorne/hinten frei
+
+
+def links_10cm(n):
+    for t, i in (('/scan0', 0), ('/scan1', 1)):
+        n.on_scan(scan(0.10, index_vorne=270), t, i)
+
+
+for name, wunsch, haelt in [('quer nach links', {'quer': 0.05}, True),
+                            ('schraeg vorwaerts nach links', {'lin': 0.05, 'quer': 0.05}, True),
+                            ('schraeg rueckwaerts nach links', {'lin': -0.05, 'quer': 0.03}, True),
+                            ('quer nach rechts (weg vom Hindernis)', {'quer': -0.05}, False),
+                            ('nur vorwaerts', {'lin': 0.05}, False)]:
+    n = neu()
+    links_10cm(n)
+    manoever(n, **wunsch)
+    if haelt:
+        halt_mit(f'links 10 cm, KI-Manoever {name} -> Halt', n.entscheide(), 'NOTBREMSE 10 cm links')
+    else:
+        lin, quer, dreh, status = n.entscheide()
+        ok = (lin, quer, dreh) == (wunsch.get('lin', 0.0), wunsch.get('quer', 0.0), 0.0)
+        fehler += not ok
+        print(f"{'OK  ' if ok else 'FEHLER'} links 10 cm, KI-Manoever {name} -> faehrt: {lin:.2f}/{quer:.2f} - {status}")
+
 n = neu()
 hinten_10cm(n)
 manoever(n)

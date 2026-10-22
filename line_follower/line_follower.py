@@ -21,7 +21,8 @@
 #   - Ohne Antwort der KI (ki_pflicht), ohne Kamerabilder oder ohne Linie: Stopp.
 #   - Notbremse ueber LiDAR, unabhaengig von der KI (blockiert vorwaerts und seitwaerts, einschliesslich Drehen
 #     und Rueckwaerts): prueft den Bereich der Fahrtrichtung (direction) UND den, in den der tatsaechliche Befehl
-#     faehrt (rueckwaerts -> hinten, Drehen/seitwaerts auf der Stelle -> vorne und hinten).
+#     faehrt (rueckwaerts -> hinten, seitwaerts -> links/rechts, Drehen/seitwaerts auf der Stelle zusaetzlich
+#     vorne und hinten).
 #
 # Einstellungen: -p name:=wert beim Start oder  ros2 param set /line_follower name wert
 import json
@@ -56,6 +57,8 @@ sys.path.insert(0, os.path.join(REPO, 'line_follower'))
 import lidar  # noqa: E402
 import linie  # noqa: E402
 
+# LiDAR-Bereiche der Notbremse: Mitte (Grad, links positiv), je +-obstacle_half_deg
+BEREICHE = {'vorne': 0.0, 'hinten': 180.0, 'links': 90.0, 'rechts': -90.0}
 # Grenzen fuer Manoever der KI (Sicherheit)
 MANOEVER_MAX = {'lin': 0.10, 'quer': 0.08, 'dreh': 1.2}
 
@@ -184,9 +187,8 @@ class LineFollower(Node):
             halb, mindest = self.p('obstacle_half_deg'), self.p('obstacle_min_range')
             # je Bereich: (naechster Abstand, Abdeckungsluecke oder None). Ein Strahl ohne Messung im Bereich
             # macht ihn unbekannt - gueltige Punkte daneben belegen nicht, dass der Bereich selbst frei ist
-            d = {b: (lidar.naechster_vorne(msg, front, halb, mindest, rueckwaerts=b == 'hinten'),
-                     lidar.sektor_abdeckung(msg, front, halb, rueckwaerts=b == 'hinten'))
-                 for b in ('vorne', 'hinten')}
+            d = {b: (lidar.naechster_vorne(msg, front + w, halb, mindest), lidar.sektor_abdeckung(msg, front + w, halb))
+                 for b, w in BEREICHE.items()}
         self.scans[topic] = (time.monotonic(), d, grund, aufnahme)   # Empfang monoton (Uhrsprung egal)
 
     def on_odom(self, msg):
@@ -261,13 +263,21 @@ class LineFollower(Node):
 
     @staticmethod
     def bereiche(lin, quer, dreh):
-        """In welche LiDAR-Bereiche faehrt dieser Befehl? Vorwaerts -> vorne, rueckwaerts -> hinten.
-        Nur drehen/seitwaerts (ohne vor/zurueck): vorne UND hinten (der Aufbau schwenkt in beide)."""
+        """In welche LiDAR-Bereiche faehrt dieser Befehl? Vorwaerts -> vorne, rueckwaerts -> hinten,
+        seitwaerts -> links bzw. rechts (auch schraeg zusammen mit vor/zurueck). Ohne vor/zurueck, aber mit
+        Drehen oder seitwaerts: zusaetzlich vorne UND hinten (der Aufbau schwenkt in beide)."""
+        b = set()
         if lin > 0:
-            return ('vorne',)
-        if lin < 0:
-            return ('hinten',)
-        return ('vorne', 'hinten') if quer or dreh else ()
+            b.add('vorne')
+        elif lin < 0:
+            b.add('hinten')
+        elif quer or dreh:
+            b.update(('vorne', 'hinten'))
+        if quer > 0:
+            b.add('links')
+        elif quer < 0:
+            b.add('rechts')
+        return tuple(sorted(b))
 
     def notbremse(self, lin=0.0, quer=0.0, dreh=0.0):
         """Grund (Text) oder None. Fehlende/unbrauchbare LiDAR-Daten halten immer. Ein frischer, aber unbrauchbarer
