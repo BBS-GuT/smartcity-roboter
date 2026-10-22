@@ -1,8 +1,22 @@
 # Startprotokoll vor jeder Fahrt
 
-Diese **manuelle Checkliste** wird vor TEST/START für den vereinbarten Prüf- oder Betriebsumfang abgearbeitet, auch vor der ersten Fahrt. Voraussetzung sind die abgeschlossenen Einrichtungsschritte 1–5 der [Ersten Inbetriebnahme](Erste-Inbetriebnahme) und passende Gerätebelege; die erste Fahrt selbst steht dann noch aus. Ein Häkchen ersetzt keine Geräteabnahme und keinen Nachweis der tatsächlich wirksamen Motorsperre. Ein automatischer Gesamtcheck mit gemeinsamer Bereitschafts-/Motorfreigabe ist noch offene Entwicklungsarbeit.
+Für einen Fahrversuch gilt die vollständige **manuelle Checkliste** unten, auch vor der ersten Fahrt: Einrichtungsschritte 1–5 der [Ersten Inbetriebnahme](Erste-Inbetriebnahme) und passende Gerätebelege müssen dafür vorliegen. Der reine Kalibrier-TEST während dieser Einrichtung hat den eigenen Vorabcheck im nächsten Abschnitt und setzt die noch zu ermittelnde Kalibrierung nicht voraus. Ein Häkchen ersetzt keine Geräteabnahme und keinen Nachweis der tatsächlich wirksamen Motorsperre. Ein automatischer Gesamtcheck mit gemeinsamer Bereitschafts-/Motorfreigabe ist noch offene Entwicklungsarbeit.
 
-## Vorbereiten und prüfen
+Beide Abläufe verwenden die vorhandene Schaltfläche **TEST**. „Kalibrier-TEST“ bezeichnet hier nur den Zweck der Prüfung, keine zusätzliche Panel-Funktion.
+
+## Kalibrier-TEST ohne Fahrt
+
+Dieser Vorabcheck gilt nur für die stehende Kamera-/Draufsichtprüfung in Einrichtungsschritt 4. Die vollständige Fahrcheckliste wird dafür noch nicht verlangt.
+
+- [ ] Gerät und Softwarestand sind zugeordnet; den Git-Prüfweg unten verwenden. ROS-Zuordnung und Startverfahren sind bekannt, andere Roboter mit gleicher Domain bleiben ausgeschaltet. Kein Gamepad oder anderes Fahr-/Armprogramm greift gleichzeitig ein.
+- [ ] Der betreute Aufbau steht still, STOPP und das am Gerät geprüfte Abbruchverfahren sind erreichbar. Bekannte Einschalt-/Armbewegungen vorher berücksichtigen. Arm/Kamera sind wie in Einrichtungsschritt 3 eingestellt; der Bewegungsbereich ist frei.
+- [ ] Die für diesen Bildtest benötigten Kamerabilder kommen aktuell vom richtigen Gerät. Kamerahöhe/-neigung dürfen noch eingemessen werden; eine abgeschlossene Kamera-, LiDAR- oder Greifkalibrierung ist keine Voraussetzung dieses reinen Bildtests.
+
+Nur **TEST** wählen und die Kameradarstellung prüfen: **kein START**, keine Fahr-, Arm- oder Greifkommandos betätigen. Bei unerwarteter Bewegung oder unbrauchbaren Bildern abbrechen und STOPP sowie das geprüfte Abbruchverfahren verwenden. Anschließend STOPP, Werte dokumentieren und die Einrichtung fortsetzen. Dieser Test bestätigt keine Fahrbereitschaft; vor einem Fahrversuch folgt der vollständige Check.
+
+## Check vor einem Fahrversuch
+
+Nach abgeschlossenen Einrichtungsschritten 1–5 und vor **TEST** zur Fahrvorbereitung sowie **START** alle folgenden Punkte prüfen:
 
 - [ ] **Gerät und Platz:** Beschriftung RM01–RM04 stimmt mit dem Geräteblatt überein. Prüfbereich ist frei, eine Person bedient und beobachtet. Vor dem Einschalten bekannte Startbewegungen aus dem Geräteprotokoll berücksichtigen, insbesondere eine eingerichtete Arm-Ausgangsposition. Solange die ROS-Trennung nicht nachgewiesen ist, andere Roboter mit derselben Domain im selben Netz ausgeschaltet lassen.
 - [ ] **Software und Einstellungen:** Im [Panel](Bedienung-mit-dem-Panel) unter **System → Systemcheck** Gerätename und Software-Version mit dem festgelegten Stand vergleichen. Zusätzlich den sauberen Arbeitsbaum über den Git-Prüfweg unten bestätigen; der Systemcheck allein zeigt keine lokalen Änderungen. Geladene Karte und lokale Einstellungen gehören zu diesem Gerät und Aufbau; die zugehörigen Kalibrierbelege liegen vor. Fehlende Versions- oder Kalibrierzuordnung bleibt ungeprüft.
@@ -17,7 +31,7 @@ Diese **manuelle Checkliste** wird vor TEST/START für den vereinbarten Prüf- o
 
 ## Ausgeführten Softwarestand bestätigen
 
-Im Terminal des Roboters in den **tatsächlich vom Panel gestarteten Projektordner** wechseln; der Pfad steht im Geräteprotokoll. Dort vor START lesend prüfen:
+Im Terminal des Roboters in den **tatsächlich vom Panel gestarteten Projektordner** wechseln; der Pfad steht im Geräteprotokoll. Diesen lesenden Prüfweg für den Kalibrier-TEST und für die Fahrvorbereitung verwenden:
 
 ```bash
 git rev-parse HEAD
@@ -26,9 +40,9 @@ git status --short --untracked-files=all
 
 Beide Befehle müssen fehlerfrei laufen: Der erste muss den festgelegten vollständigen Commit ausgeben, der zweite **keine Ausgabe**. Jede Änderung an versionierten Dateien und jede unversionierte Datei bleibt zunächst ungeprüft, auch bei passender Commit-ID. Befund sichern und mit der zuständigen Person klären; nichts durch Löschen oder Zurücksetzen verbergen. Ignorierte geräteeigene Konfigurations-, Karten- und Kalibrierdaten brauchen weiterhin ihren gesonderten Beleg.
 
-## TEST, dann bewusster START
+## Fahrversuch: TEST, dann bewusster START
 
-1. **TEST** wählen. Im Dashboard Kamerabild, Linie, Wahrnehmung, Entscheidung und Haltgründe ansehen. Der Roboter muss dabei tatsächlich stehen bleiben; ein laufender Prozess ist kein Stillstandsnachweis.
+1. Nach dem vollständigen Check **TEST** zur Fahrvorbereitung wählen. Im Dashboard Kamerabild, Linie, Wahrnehmung, Entscheidung und Haltgründe ansehen. Der Roboter muss dabei tatsächlich stehen bleiben; ein laufender Prozess ist kein Stillstandsnachweis.
 2. Bei alten/fehlenden Daten, unplausibler Anzeige oder unerwarteter Bewegung abbrechen. **STOPP** benutzen und den Stillstand nach dem am Gerät geprüften Verfahren herstellen. Unter **System → Logs herunterladen** die Belege sichern; siehe [Fehlersuche](Fehlersuche).
 3. Erst nach geklärten Pflichtpunkten und für den vereinbarten Prüf-/Betriebsumfang bewusst **START** drücken. Nur das dafür bestätigte Tempo und Fahrgebiet verwenden, STOPP erreichbar halten. Aktive Haltgründe gelten weiter. Nach Bedien-STOPP oder kritischem Fehler darf eine Wiederfreigabe nicht allein durch Sensorwiederkehr, Grün oder Netzverbindung entstehen.
 

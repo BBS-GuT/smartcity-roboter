@@ -24,6 +24,8 @@ Die Kamera sitzt am Arm. Ohne richtige Fahrstellung stimmt die Draufsicht nicht.
 
 ## 4. Kamera nachmessen
 
+Vor dem folgenden Kalibrier-TEST den [Vorabcheck für Kalibrier-TEST ohne Fahrt](Startprotokoll#kalibrier-test-ohne-fahrt) abarbeiten. Dafür muss die Kamerakalibrierung noch nicht abgeschlossen sein; es wird kein START und keine Fahrt ausgeführt.
+
 Eingestellt sind geschätzte Werte (`kamera_hoehe` 0,22 m, `kamera_neigung` 32°). Ein öffentliches Robotermodell spricht eher für ca. 31 cm Höhe. Eine falsche Neigung verzerrt Linie, Karte und Tiefe.
 
 - [ ] Mit dem Arm in Fahrstellung Höhe der Linse über dem Boden messen.
@@ -34,18 +36,18 @@ Eingestellt sind geschätzte Werte (`kamera_hoehe` 0,22 m, `kamera_neigung` 32°
       kamera_hoehe: 0.21
       kamera_neigung: 35.0
   ```
-- [ ] Neigung prüfen: Panel → TEST, Roboter gerade auf eine gerade Linie stellen. In der Draufsicht muss die Linie **senkrecht und gleich breit** sein. Nach oben breiter = Neigung zu klein, schmaler = zu groß.
+- [ ] Neigung im reinen Kalibrier-TEST prüfen: Roboter im betreuten Aufbau gerade auf eine gerade Linie stellen, dann Panel → **TEST**, ohne START. In der Draufsicht muss die Linie **senkrecht und gleich breit** sein. Nach oben breiter = Neigung zu klein, schmaler = zu groß. Danach STOPP und die Einrichtung fortsetzen.
 - Details: [`docs/linie.md`](https://github.com/BBS-GuT/smartcity-roboter/blob/main/docs/linie.md#kamera-nachmessen-wichtig).
 
 ## 5. Ampel-Farben
 
 - [ ] Panel → System → „Ampel einstellen“: LED-Farben der SmartCity-Ampeln einlernen.
 
-Nach den Einrichtungsschritten 1–5 und mit den zugehörigen Gerätebelegen das [Startprotokoll vor jeder Fahrt](Startprotokoll) abarbeiten. Es gilt bereits vor der ersten Fahrt; erst danach folgt der Fahrversuch in Schritt 6 im vereinbarten betreuten Prüfumfang.
+Nach den Einrichtungsschritten 1–5 und mit den zugehörigen Gerätebelegen den [vollständigen Check vor einem Fahrversuch](Startprotokoll#check-vor-einem-fahrversuch) abarbeiten. Er gilt bereits vor der ersten Fahrt; erst danach folgt Schritt 6 im vereinbarten betreuten Prüfumfang.
 
 ## 6. Erste Fahrt
 
-- [ ] Panel → **TEST**: Entscheidungen und Gründe im Dashboard ansehen, ohne dass er fährt.
+- [ ] Panel → **TEST** zur Fahrvorbereitung: Entscheidungen und Gründe im Dashboard ansehen, ohne dass er fährt.
 - [ ] **START** mit 0,15 m/s auf freier Strecke, eine Hand am STOPP.
 - [ ] Bei Auffälligkeiten: Logs herunterladen und im [Problemprotokoll](Problemprotokoll) nachsehen. Bei Kartenproblemen: [Messfahrt aufzeichnen](Messfahrt-aufzeichnen).
 
