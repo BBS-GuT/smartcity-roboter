@@ -214,6 +214,13 @@ class Welt:
             treffer = (t > 0) & (hz >= 0) & (hz <= z['h']) & (t < tiefe)
             tiefe[treffer] = t[treffer]
             bild[treffer] = z['farbe']
+            # Deckel (Oberseite): von oben sieht man sie (Arm-Gehirn misst daraus die Tiefe des Gegenstands)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                td = (z['h'] - c[2]) / r[..., 2]
+            dx, dy = c[0] + td * r[..., 0] - zx, c[1] + td * r[..., 1] - zy
+            deckel = (td > 0) & (dx * dx + dy * dy <= z['r'] ** 2) & (td < tiefe)
+            tiefe[deckel] = td[deckel]
+            bild[deckel] = z['farbe']
         self._schilder_malen(bild, pose, c, arm_dreh_deg, f)
         tiefe[~np.isfinite(tiefe)] = 0.0  # keine Messung
         return bild, tiefe
