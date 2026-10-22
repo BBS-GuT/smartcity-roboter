@@ -142,7 +142,8 @@ class Zebrastreifen(Ablauf):
         Jede Richtung ohne Messung wird direkt entlang ihres Strahls gegen die Zone geprueft - ein einzelner
         fehlender Strahl reicht. Rechenzeit: Richtungen auf 0,25 Grad zusammengefasst (am Zonenende hoechstens ca.
         2 mm seitlich); Grobstufe alle 6 cm gegen die um 6 cm groessere Zone (jeder Zonenpunkt eines Strahls hat
-        einen Grobpunkt hoechstens 3 cm daneben), fein alle 2 cm nur fuer Strahlen, die dabei in die Naehe kommen."""
+        einen Grobpunkt hoechstens 3 cm daneben), fein alle 2 cm gegen die um 1 cm groessere Zone (halber Schritt:
+        auch ein Strahl, der nur eine Ecke anschneidet, hat dort einen Punkt) - nur fuer Strahlen in deren Naehe."""
         if w.get('lidar_xy') is None or w.get('lidar_luecken') is None:
             return 'Abdeckung des Ueberwegs unbekannt (keine LiDAR-Punkte/Luecken)'
         winkel = np.asarray(w['lidar_luecken'], dtype=float).reshape(-1)
@@ -165,7 +166,7 @@ class Zebrastreifen(Ablauf):
         for k in range(0, len(winkel), 16):         # fein, in kleinen Gruppen: der erste Treffer genuegt
             xy, vorn = strahlen(winkel[k:k + 16], 0.02)
             xy = xy[vorn]
-            zone = self._zone(xy)[0]
+            zone = self._zone(xy, rand=0.01)[0]     # 1 cm = halber Abtastschritt: auch knappe Eckschnitte
             if zone.any():
                 seite = 'links' if xy[zone][0, 1] > 0 else 'rechts'
                 return f'Ueberweg {seite} nicht gemessen (LiDAR-Strahlen ohne Messwert)'

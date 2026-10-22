@@ -78,7 +78,8 @@ class Zebrazone(unittest.TestCase):
         # Codex-Befund zu PR #159: ein einzelner ungueltiger Strahl um 47 Grad aus einem hochaufloesenden Scan
         # (0,25 Grad) schneidet die Zone bei x = 0,20-0,26 m; ein Raster mit Winkelluecken uebersah ihn
         n = 1440
-        for grad in (46.5, 47.0, 47.25, 48.0, 52.0, -47.0):
+        # 54 Grad (Codex-Befund zu PR #161): schneidet die vordere linke Ecke nur ueber ca. 6 mm
+        for grad in (46.5, 47.0, 47.25, 48.0, 52.0, 54.0, 54.25, -47.0, -54.0):
             with self.subTest(grad=grad):
                 r = [3.0] * n
                 r[int(round((grad + 180) / 360 * n))] = 0.0
@@ -87,9 +88,9 @@ class Zebrazone(unittest.TestCase):
                 folge = zebra(80, lidar_luecken=winkel)
                 self.assertTrue(all(b['aktion'] == 'stopp' for b in folge), grad)
                 self.assertIn('nicht gemessen', folge[-1]['grund'])
-        # knapp ausserhalb der Zone (Ecke bei ca. 54,5 Grad): frei
+        # deutlich ausserhalb der Zone (Ecke bei ca. 54,5 Grad, Pruefrand 1 cm): frei
         r = [3.0] * n
-        r[int(round((57 + 180) / 360 * n))] = 0.0
+        r[int(round((60 + 180) / 360 * n))] = 0.0
         self.assertEqual(zebra(80, lidar_luecken=lidar.ungueltige_winkel(q.scan(r, n=n)))[-1]['aktion'], 'fahren')
 
     def test_luecke_hinter_dem_fahrschlauchende_haelt(self):
