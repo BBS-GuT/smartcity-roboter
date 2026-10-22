@@ -152,3 +152,19 @@ def abstand_im_kasten(tiefe_m, box, bild_groesse, anteil=15, min_gueltig=0.7):
         return None
     return float(np.percentile(gut, anteil))
 
+
+
+def spielfigur(box, abstand, bild_groesse, fov_grad, max_hoehe=0.30):
+    """Ist eine von der KI gefundene 'Person' eine Spielfigur (True) oder ein echter Mensch (False)? None = unbekannt
+    (kein Abstand). Geschaetzte Groesse = Kastenhoehe im Bild x Abstand / Brennweite. Stoesst der Kasten oben an den
+    Bildrand, ist nur ein Teil zu sehen (z. B. Beine eines Zuschauers) -> echter Mensch, wenn schon dieser Teil zu
+    gross ist oder der Kasten fast das ganze Bild fuellt."""
+    if abstand is None:
+        return None
+    h, w = bild_groesse
+    f = (w / 2) / math.tan(math.radians(fov_grad) / 2)
+    _, y, _, bh = box
+    groesse = bh * abstand / f
+    if groesse > max_hoehe:
+        return False
+    return not (y <= 2 and bh > 0.8 * h)

@@ -7,6 +7,8 @@
 # 2. Dunkle Flaechen suchen. Genommen wird die, die am besten zur bisherigen Linie passt
 #    (nicht die groesste) -> Zebrastreifen und Kreuzungen stoeren weniger.
 #    Mittellinie = "Grat" der Abstandstransformation (Punkte, die am weitesten vom Rand weg sind).
+#    Kreuzung (die Flaeche teilt sich in mehrere lange Aeste): ZUFAELLIG einen Ast waehlen und bis hinter die
+#    Kreuzung dabei bleiben, nur dessen Punkte zaehlen (Zieldefinition 4.2: abwechslungsreicher Verkehr).
 # 3. Gedaechtnis: Linienpunkte in Metern (x = vorne, y = links) merken und mit der eigenen Bewegung
 #    mitverschieben. So ist die Linie auch direkt UNTER dem Roboter bekannt (die Kamera sieht dort
 #    nichts) -> Abstand, Winkel und Kruemmung der Linie genau am Roboter.
@@ -16,11 +18,17 @@
 #    die eigene Lage um diese Zeit vorausrechnen (sonst pendelt er bei hohem Tempo). Die Verzoegerung misst er
 #    waehrend der Fahrt selbst (Klasse Verzoegerung).
 import math
+import os
+import random
+import sys
 import time
 from collections import deque
 
 import cv2
 import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'lib'))
+from zebra import finde_zebra  # noqa: E402
 
 STANDARD = {
     'threshold': 70,          # dunkler als das = Linie (0 schwarz - 255 weiss)
@@ -47,6 +55,11 @@ STANDARD = {
     'such_zeit': 0.8,         # Linie weg: so lange (s) vorsichtig zur letzten Seite drehen (ca. 30 Grad), dann Stopp.
                               # Nicht laenger: blindes Drehen kann Aufbauten streifen (Zieldefinition 4.1)
     'such_dreh': 0.7,         # Drehgeschwindigkeit beim Suchen (rad/s)
+    # Kreuzungen
+    'abbiegen': True,         # an Kreuzungen zufaellig abbiegen (False = immer dem bisherigen Verlauf nach)
+    'ast_min': 0.05,          # ein Ast der Kreuzung muss mindestens so lang zu sehen sein (m), sonst Stummel. Kurz,
+                              # weil die Kamera nur ca. 22 cm Boden sieht (RM02 22.10.: Abzweige nie erkannt);
+                              # Haltelinien filtert die Regel "Ast muss aus dem Bild hinauslaufen"
 }
 
 
@@ -89,6 +102,11 @@ class LinienSucher:
         self.c.update(cfg or {})
         self.groesse = None
         self.erwartung = None      # wo die Linie vermutlich ist (Roboter-System), vom Gedaechtnis
+        self.wahl = None           # an der aktuellen Kreuzung gewaehlter Ast: Richtung (rad, wie gier) oder None
+        self.ohne_kreuzung = 0     # so viele Bilder in Folge ohne Kreuzung (danach gilt sie als durchfahren)
+        self.pos = None            # eigene Position beim aktuellen Bild (x, y m, Gedaechtnis) oder None (unbekannt)
+        self.kreuzung_pos = None   # dort zuletzt die Kreuzung gesehen
+        self.zufall = random.Random()
 
     def _vogel(self, w, h):
         """Umrechnung Kamerabild -> Draufsicht (Homographie, gilt fuer den ebenen Boden)."""
@@ -107,6 +125,17 @@ class LinienSucher:
         bw = int(2 * self.SEITE / self.RASTER)
         bh = int((self.VORNE[1] - self.VORNE[0]) / self.RASTER)
         self.vogel_groesse = (bw, bh)
+        # Rand des Sichtbereichs in der Draufsicht (Viertel-Aufloesung wie in aeste): Ausfahrten laufen hinaus
+        sicht = np.zeros((h, w), np.uint8)
+        sicht[int(oben):] = 1
+        sicht = cv2.warpPerspective(sicht, self.H, (bw, bh), flags=cv2.INTER_NEAREST)
+        klein = cv2.resize(sicht, (bw // 4, bh // 4), interpolation=cv2.INTER_AREA) > 0
+        # Am fernen Bildrand wird die Linie unscharf und endet oft knapp davor: dort 2 Pixel (32 mm) breit. Nur in
+        # Fahrtrichtung verbreitert - an den (steilen) Seitenraendern bleibt er ca. 1 Pixel, sonst gaelte eine lange
+        # Haltelinie, die kurz vor dem seitlichen Bildrand endet, als Ausfahrt (Review PR #126)
+        innen = cv2.erode(klein.astype(np.uint8), np.ones((3, 3), np.uint8), borderValue=0)
+        innen = cv2.erode(innen, np.ones((3, 1), np.uint8), borderValue=0)
+        self.sicht_rand = klein & ~(innen > 0)
 
     def _zu_raster(self, x, y):
         return ((self.SEITE - y) / self.RASTER, (self.VORNE[1] - x) / self.RASTER)
@@ -124,8 +153,124 @@ class LinienSucher:
         maske[oben:] = (gray[oben:] < self.c['threshold']).astype(np.uint8) * 255
         return cv2.warpPerspective(maske, self.H, self.vogel_groesse, flags=cv2.INTER_NEAREST)
 
-    def suche(self, img):
-        """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige."""
+    def aeste(self, teil, start):
+        """Teilt sich die Linienflaeche 'teil' (Draufsicht, bool) in mehrere Aeste? start: Pixel (px, py), von dem aus
+        gemessen wird (auf der eigenen Linie). Gemessen wird die Strecke ENTLANG der Flaeche (nicht Luftlinie):
+        ein enger Bogen (U) teilt sich so nie, eine Kreuzung schon.
+        Ein Ast zaehlt nur als Ausfahrt, wenn er aus dem Sichtbereich hinauslaeuft (eine Strasse geht weiter). Endet er
+        im Bild, ist es eine Markierung (Haltelinie, Querbalken, Zebrastreifen-Begrenzung), keine Abzweigung.
+        Rueckgabe: None (keine Kreuzung) oder (stamm, [(richtung rad, + = links, maske), ...], abzweig_vor m) in voller
+        Aufloesung; abzweig_vor = Abstand des Abzweigpunkts vor dem Roboter.
+        Gerechnet in Viertel-Aufloesung (16 mm, jedes Pixel mit etwas Linie zaehlt): ca. 1 ms."""
+        h, w = teil.shape
+        f = 4
+        klein = cv2.resize(teil.astype(np.uint8), (w // f, h // f), interpolation=cv2.INTER_AREA) > 0
+        sx = min(w // f - 1, max(0, int(start[0]) // f))
+        sy = min(h // f - 1, max(0, int(start[1]) // f))
+        ys, xs = np.nonzero(klein)
+        if not len(xs):
+            return None
+        i = np.argmin(np.hypot(xs - sx, ys - sy))
+        stufe = np.full(klein.shape, -1, np.int16)
+        front = np.zeros(klein.shape, np.uint8)
+        front[ys[i], xs[i]] = 1
+        erreicht = front.astype(bool)
+        kern = np.ones((3, 3), np.uint8)
+        k = 0
+        while front.any():
+            stufe[front.astype(bool)] = k
+            neu = (cv2.dilate(front, kern) > 0) & klein & ~erreicht
+            erreicht |= neu
+            front = neu.astype(np.uint8)
+            k += 1
+        schritt_m = f * self.RASTER                     # eine Stufe = 1 Pixel zu 16 mm
+        ast_stufen = max(2, int(self.c['ast_min'] / schritt_m))
+        for grenze in range(1, k - ast_stufen):
+            weiter = (stufe >= grenze).astype(np.uint8)
+            n, etik, _, _ = cv2.connectedComponentsWithStats(weiter, connectivity=8)
+            lange = []
+            for j in range(1, n):
+                ast = etik == j
+                ende = stufe[ast].max()
+                rand = getattr(self, 'sicht_rand', None)
+                hinaus = rand is None or rand.shape != ast.shape or (ast & rand & (stufe >= ende - 1)).any()
+                if ende - grenze >= ast_stufen and hinaus:
+                    lange.append(j)
+            if len(lange) < 2:
+                continue
+            # Abzweigpunkt = Ende des Stamms; Richtung je Ast = vom Abzweigpunkt zu seinem Anfang (ca. ast_min)
+            py, px = np.nonzero((stufe >= max(0, grenze - 2)) & (stufe < grenze))
+            if not len(px):
+                return None
+            bx, by = self._zu_boden(f * px.mean(), f * py.mean())
+            aeste = []
+            for j in lange:
+                py, px = np.nonzero((etik == j) & (stufe < grenze + ast_stufen))
+                ax, ay = self._zu_boden(f * px.mean(), f * py.mean())
+                richtung = math.atan2(ay - by, ax - bx)
+                if abs(richtung) > math.radians(110):    # zeigt zum Roboter zurueck: woher er kommt, kein Ausgang
+                    continue
+                aeste.append((richtung, cv2.resize((etik == j).astype(np.uint8), (w, h),
+                                                    interpolation=cv2.INTER_NEAREST).astype(bool) & teil))
+            if len(aeste) < 2:
+                continue                                 # z. B. nur Stamm zurueck + ein Ast: weiter aussen suchen
+            stamm = cv2.resize(((stufe >= 0) & (stufe < grenze)).astype(np.uint8), (w, h),
+                               interpolation=cv2.INTER_NEAREST).astype(bool) & teil
+            return stamm, aeste, bx
+        return None
+
+    def _keine_kreuzung(self, kamera_ok):
+        """Gueltiges Bild ohne Kreuzung (auch ganz ohne Linie). Die Wahl verfaellt erst nach ca. 15 solchen Bildern UND
+        wenn er seit der letzten Sichtung der Kreuzung mindestens 20 cm gefahren ist (GB-06: Wahl bis zur Ausfahrt
+        halten - steht er an Ampel oder Hindernis, bleibt sie). Ohne Position (pos None) nur nach Bildern."""
+        if not kamera_ok:
+            return
+        self.ohne_kreuzung += 1
+        gefahren = (self.pos is None or self.kreuzung_pos is None
+                    or math.hypot(self.pos[0] - self.kreuzung_pos[0], self.pos[1] - self.kreuzung_pos[1]) > 0.20)
+        if self.ohne_kreuzung > 15 and gefahren:
+            self.wahl = None
+
+    def _abbiegen(self, teil, start, gier, erg, kamera_ok=True):
+        """Kreuzung? Dann einen Ast waehlen (zufaellig beim ersten Sehen, danach derselbe) und nur Stamm + diesen Ast
+        zurueckgeben. gier: Drehung des Roboters (rad, Gedaechtnis) - damit bleibt die Wahl beim Abbiegen dieselbe,
+        auch wenn sich der Ast im Bild dreht. kamera_ok False (Arm dreht die Kamera weg): Bild zeigt nicht den Boden
+        davor -> Kreuzungszustand nicht aendern (sonst verfiele die Wahl, waehrend er an der Kreuzung steht)."""
+        if not kamera_ok:
+            return teil
+        teilung = self.aeste(teil, start) if self.c.get('abbiegen', True) else None
+        zebra = finde_zebra(erg.get('vogel'), self.RASTER, self.VORNE[1]) if teilung is not None else None
+        if zebra and zebra['abstand'] - 0.05 <= teilung[2] <= zebra['abstand'] + 0.30:
+            # Abzweig liegt am Zebrastreifen (vordere Kante bis ca. 25 cm dahinter): dessen Begrenzungen sind keine
+            # Abzweigung (Zieldefinition 4.3). Ein Zebrastreifen woanders im Bild hebt eine echte Kreuzung nicht auf.
+            teilung = None
+        if teilung is None:
+            self._keine_kreuzung(kamera_ok)
+            return teil
+        self.ohne_kreuzung = 0
+        self.kreuzung_pos = self.pos
+        stamm, aeste, _ = teilung
+        g = gier or 0.0
+        if self.wahl is None:
+            richtung, _ = self.zufall.choice(aeste)
+            self.wahl = g + richtung
+            erg['kreuzung_neu'] = True
+        abw = lambda a: abs(math.remainder(g + a[0] - self.wahl, 2 * math.pi))   # noqa: E731
+        richtung, ast = min(aeste, key=abw)
+        erg['kreuzung'] = {'aeste': sorted(round(math.degrees(r)) for r, _ in aeste),
+                           'wahl': round(math.degrees(richtung))}
+        if abw((richtung, ast)) > math.radians(45):
+            # gewaehlter Ast in diesem Bild nicht zu sehen (verdeckt, Rauschen): keinen anderen nehmen, nur den
+            # Stamm - die Wahl bleibt, bis der gewaehlte Ast wieder erkannt wird
+            erg['kreuzung']['wahl'] = None
+            return stamm
+        return stamm | ast
+
+    def suche(self, img, gier=None, kamera_ok=True, pos=None):
+        """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige.
+        gier: Drehung des Roboters (rad), fuer die Wahl an Kreuzungen. kamera_ok: Kamera schaut in Fahrstellung.
+        pos: eigene Position (x, y m, Gedaechtnis) - die Kreuzungswahl verfaellt erst nach Fahrstrecke."""
+        self.pos = pos
         h, w = img.shape[:2]
         c = self.c
         oben = int(h * c['zeilen_oben'])
@@ -133,6 +278,7 @@ class LinienSucher:
         erg = {'gefunden': False, 'boden': [], 'punkte': [], 'fehler': None, 'zeilen': (oben, h - 1), 'vogel': vogel}
         n, etiketten, stat, _ = cv2.connectedComponentsWithStats(vogel)
         if n <= 1:
+            self._keine_kreuzung(kamera_ok)
             return erg
         abstand = cv2.distanceTransform(vogel, cv2.DIST_L2, 3)
         ziel = self.erwartung if self.erwartung is not None else (0.3, 0.0)
@@ -157,8 +303,11 @@ class LinienSucher:
             if beste_d is None or d < beste_d:
                 beste, beste_d = i, d
         if beste is None:
+            self._keine_kreuzung(kamera_ok)
             return erg
-        teil = etiketten == beste
+        # Kreuzung von der Linie direkt vor dem Roboter aus messen (Startpunkt naechster Linienpunkt zum Roboter):
+        # von der Erwartung (30 cm) aus lag der Start oft schon hinter dem Abzweig
+        teil = self._abbiegen(etiketten == beste, self._zu_raster(0.0, 0.0), gier, erg, kamera_ok)
         a = abstand * teil
         grat = teil & (a >= 0.6 * a.max())                     # Mittellinie (Grat der Abstandskarte)
         ys, xs = np.nonzero(grat)

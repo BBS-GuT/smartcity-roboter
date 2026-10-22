@@ -285,9 +285,19 @@ class LineFollower(Node):
         with self.lock:
             ziel = self.gedaechtnis.linie(0.3)
             self.sucher.erwartung = ziel['ziel'] if ziel['gefunden'] else None
-        erg = self.sucher.suche(img)
+            pose = self.gedaechtnis.pose_bei(aufnahme)    # Lage beim Fotografieren (Wahl an Kreuzungen)
         if kamera_weg:
-            erg.update({'gefunden': False, 'boden': [], 'punkte': []})
+            # Ergebnis wuerde ohnehin verworfen und die Kreuzungswahl nicht geaendert -> Liniensuche sparen
+            h = img.shape[0]
+            erg = {'gefunden': False, 'boden': [], 'punkte': [],
+                   'zeilen': (int(h * self.sucher.c['zeilen_oben']), h - 1)}
+        else:
+            erg = self.sucher.suche(img, pose[2], kamera_ok=True, pos=pose[:2])
+        if erg.get('kreuzung_neu'):
+            k = erg['kreuzung']
+            seite = 'links' if k['wahl'] > 30 else 'rechts' if k['wahl'] < -30 else 'geradeaus'
+            self.get_logger().info(f"Kreuzung: Aeste {k['aeste']} Grad -> zufaellig gewaehlt: {seite} "
+                                   f"({k['wahl']:+d} Grad)")
         with self.lock:
             # Punkte dort eintragen, wo der Roboter bei der AUFNAHME stand (Bild kommt verspaetet an)
             self.stempel_ok = True
@@ -347,6 +357,13 @@ class LineFollower(Node):
         manoever = ki.get('manoever') if (ki and ki.get('aktion') == 'manoever' and jetzt - ki_zeit < 0.6) else None
         if grund:
             return 0.0, 0.0, 0.0, grund + ' -> STOPP'
+        # Frisches KI-Manoever (zum Greifen ausrichten, wenden) braucht die Linienbilder nicht, nur ein frisch
+        # AUFGENOMMENES Bild der KI (Kamera-Zeitstempel, nicht Auswertezeit). Vorher blockierte jeder Aussetzer der
+        # Linienbilder das Heranfahren (RM02 22.10.).
+        ki_aufnahme = ki.get('aufnahme') if ki else None
+        if (manoever and self.p('ki_pflicht') and isinstance(ki_aufnahme, (int, float))
+                and 0.0 <= jetzt - ki_aufnahme <= 0.5):
+            return self._manoever(manoever, 'KI-Manoever: ')
         if jetzt - bild_zeit > 0.5:
             return 0.0, 0.0, 0.0, 'KEINE KAMERABILDER -> STOPP'
         if not stempel_ok:

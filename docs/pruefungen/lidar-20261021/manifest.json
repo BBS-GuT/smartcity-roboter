@@ -1,0 +1,60 @@
+{
+  "sha256_scope": "UTF-8 text normalized CRLF/CR to LF; manifest itself excluded",
+  "files": [
+    {
+      "path": "docs/abnahme/RM01-2026-10-21-lidar-software.md",
+      "normalized_bytes": 9795,
+      "sha256": "e101e8973fa071a273ae43510b446a7c6dba10e2c42c1fd6a074fdc39c8d8865"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/basis.py",
+      "normalized_bytes": 2314,
+      "sha256": "db6375548f71ee3d94cd47003e119d9cf54767f8419bd2e48ccd18dda4986031"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/historische_geometrie.py",
+      "normalized_bytes": 3617,
+      "sha256": "c1560291169b5e2ca2b88fb7d230b03590ebef893d30b2771f80cfb057d75c6b"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/historischer_fahrpfad.py",
+      "normalized_bytes": 7975,
+      "sha256": "86653aced9fe828f737f3fd3866081d833cf217c9c0dca9d5644055e63508252"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/historisches-ergebnis.json",
+      "normalized_bytes": 11244,
+      "sha256": "3e4b8e9d88f7d09a07fe2a78febb5418c2d1bff76f3478d912b01dffa0a6ee7c"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/nachweis.json",
+      "normalized_bytes": 3403,
+      "sha256": "80af94103eb8872cb4885b84ea690730ffb75f54a45c2122b77585167a198d6b"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/prototyp.py",
+      "normalized_bytes": 5707,
+      "sha256": "1f5301e891cb74d3e924752b600bd7f2bb0ae24ca2c11464629d9d223cc82b9d"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/quellen.json",
+      "normalized_bytes": 3150,
+      "sha256": "301be9795df9e67dde7de91e14147c78738f46ff1d1c7409f629ea13171d19f2"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/README.md",
+      "normalized_bytes": 4700,
+      "sha256": "ffd9153462edeeff9c4a9c03f8b8b4067ffc0614cd685f74ab9348e25b75dc42"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/reproduzieren.py",
+      "normalized_bytes": 5683,
+      "sha256": "9352ec431698eb0e5ae415e4ec832f1ad50ee01185ed6fd49ef74d6422ce7eb6"
+    },
+    {
+      "path": "docs/pruefungen/lidar-20261021/test_prototyp.py",
+      "normalized_bytes": 7646,
+      "sha256": "94406b83fd5c4b7c0abc8e15c233a4731856c0cb7b4d4305ccb015be6fcfc145"
+    }
+  ]
+}

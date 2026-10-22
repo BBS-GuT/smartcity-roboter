@@ -985,7 +985,8 @@ def mache_handler(node, prozesse, beenden=None):
 
 def systemlast_protokollieren(alle=2.0):
     """Alle 2 s eine Zeile nach logs/system.log: CPU, Speicher, Temperatur, GPU und wer die Rechenzeit braucht.
-    Kommt die Messung deutlich zu spaet, hing der ganze Rechner ('HING x s')."""
+    Kommt die Messung deutlich zu spaet, steht 'HING x s' in der Zeile: Der Messthread lief verspaetet. Ob das am
+    Panelprozess (z. B. GIL), am Scheduler oder am ganzen Rechner lag, zeigt diese Zeile allein nicht."""
     messer = systemlast.Systemlast()
     log = protokolle.neu_oeffnen(LOGS, 'system')
     soll = time.monotonic()

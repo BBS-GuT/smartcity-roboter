@@ -1,52 +1,80 @@
 # Gemeinsame Regeln für Entwicklungsaufträge
 
-Du bearbeitest einen abgegrenzten Entwicklungsauftrag für `davidheinrich73/smartcity-roboter`. Lies zuerst deine Auftragsdatei, dieses Dokument, die [Zieldefinition](../zieldefinition-grundbetrieb.md) und die relevanten Befunde im [Prüfbericht](../pruefung-grundbetrieb-2026-10-20.md). Vorhandene `AGENTS.md` im tatsächlichen Checkout beachten.
+**BBS-Stand vom 21.10.2026.** Schreibziel ist ausschließlich [BBS-GuT/smartcity-roboter](https://github.com/BBS-GuT/smartcity-roboter). Maßgeblich sind der aktuelle kleine BBS-Issueumfang und die bestätigte Dateiübernahme durch die Orchestrierung. Alte A–E-Auftragsvorlagen erteilen keinen neuen Auftrag.
 
-## Arbeitskopie und Startbasis
+Lies den zugeteilten Issue, diese Regeln, die [Zieldefinition](../zieldefinition-grundbetrieb.md) und vorhandene `AGENTS.md` im tatsächlichen Checkout. Der Ziel-/Abnahmeabgleich für das erlaubte Wegräumen bleibt in [#8](https://github.com/BBS-GuT/smartcity-roboter/issues/8) offen; die bestätigte Fachentscheidung steht unten. Der [Prüfbericht vom 20.10.2026](../pruefung-grundbetrieb-2026-10-20.md) enthält historische Ausgangsbefunde und ersetzt keine aktuelle Abnahme.
 
-- Eine eigene Arbeitskopie oder ein eigener Worktree pro Entwickler/aktivem Agent. Keinen Branchwechsel und keine Produktänderungen im Orchestrator-Checkout `C:\SmartCity\research\review-github-20261020` oder in der alten Arbeitskopie `C:\SmartCity\smartcity-roboter` vornehmen.
-- `origin` muss auf das Team-Repository zeigen. Remote-Stand und sauberen Arbeitsbaum prüfen; bestehende Änderungen bewahren. Neue Produktbranches beginnen auf dem aktuellen `origin/main`. Den tatsächlich verwendeten Basiscommit im Bericht nennen.
-- Die Aufträge liegen zunächst auf `origin/codex/grundbetrieb`; dortige Dokumente bei Bedarf mit `git show origin/codex/grundbetrieb:docs/auftraege/<datei>` lesen. Nicht ungeprüft den gesamten Planungsbranch oder andere Entwicklerbranches zusammenführen.
-- Nur den ausdrücklich beauftragten ersten Liefergegenstand umsetzen. Folgeaufträge sind Planung und beginnen nach gesonderter Zuteilung. Ist der Hauptstand inzwischen weiter, zunächst prüfen, welche Befunde bereits behoben wurden.
+## Arbeitskopie, Startbasis und kleine Aufgaben
+
+- Eine eigene Arbeitskopie oder ein eigener Worktree pro aktivem Entwickler oder Agent. Bestehende Änderungen bewahren; fremde Arbeitskopien und den Orchestrator-Checkout nicht umschalten oder für Produktänderungen verwenden.
+- `origin` zeigt auf `https://github.com/BBS-GuT/smartcity-roboter.git`. Neue Aufgabenbranches beginnen auf aktuellem `origin/main`; tatsächlichen Basiscommit und späteren Liefercommit berichten. Keine alten Planungs- oder Entwicklerbranches ungeprüft zusammenführen.
+- Eine Aufgabe hat ein konkretes Ergebnis, wenige ausdrücklich erlaubte Dateien und einen nachvollziehbaren Prüfweg. Nur den zugeteilten Liefergegenstand umsetzen. Weitere Probleme als eigene kleine Issues mit beobachtetem Fehler, Sollverhalten und Dateigrenze melden.
+- Ist `main` inzwischen weiter, zuerst die noch offenen Punkte abgleichen. Eine historische Befundliste ist kein Beleg, dass der Fehler auf aktuellem `main` fortbesteht. Folgeaufträge beginnen nach gesonderter Zuteilung.
 
 ## Dateigrenzen und Schnittstellen
 
-Die [Reservierungstabelle](README.md) ist verbindlich für diese Aufträge. Benötigst du eine fremd reservierte Datei oder eine neue öffentliche Schnittstelle, beschreibe die benötigte Übergabe und führe unabhängige Arbeit weiter. Keine konkurrierenden Gesamtumbauten.
+Pro Datei arbeitet genau ein aktiver Besitzer. Die bestätigte Reservierung im BBS-Issue und die Orchestrierung gelten; die [Registerübersicht](README.md) unterstützt den Abgleich. Ältere Bereichszuordnungen oder Dateilisten in Vorlagen vergeben keine fremden Dateien zusätzlich.
 
-C besitzt den einzigen gemeinsamen öffentlichen Zustands-/Fahrwunschvertrag. A besitzt Motorfreigabe, STOPP-Sperre und deren verbindliches Ergebnis; B besitzt Fahrentscheidung und Navigation. Ein interner Sicherheitszustand bei A ist kein zweiter Telemetrievertrag. Neue Adapter verwenden erst einen gemeinsam akzeptierten Vertragscommit.
+Benötigst du eine reservierte Datei oder eine neue öffentliche Schnittstelle, beschreibe die Übergabe und arbeite an unabhängigen Teilen weiter. Gemeinsame Produktdateien werden nacheinander auf dem bestätigten Integrationsstand bearbeitet; keine konkurrierenden Gesamtumbauten.
 
-`config/roboter.yaml` wird durch A integriert. B/C liefern nötige Änderungen als Übergabe. D besitzt gemeinsame Attrappen und den Testrunner. Neue testspezifische Helfer können in der jeweils eigenen Prüfdatei liegen. Bestehende fehlerhafte Testannahmen dürfen fachlich begründet geändert werden; Tests nicht nur an den aktuellen Code anpassen.
+Den gemeinsamen Zustands-/Fahrwunschvertrag nicht duplizieren. Ein interner Sicherheitszustand ist kein zweiter Telemetrievertrag. Neue Adapter brauchen einen gemeinsam akzeptierten Vertragscommit. Änderungen an `config/roboter.yaml`, gemeinsamen Attrappen, Runner und Fachtests benötigen ebenfalls eine ausdrückliche Dateiübernahme. Keine Testannahmen nur an den momentanen Code anpassen oder Grenzwerte für grüne Tests lockern.
 
 ## Grundbetriebsgrenzen
 
-Spurtreue und Schutz des gesamten Aufbaus haben Vorrang. Blockade bedeutet anhalten und warten; kein ungeprüftes Ausweichen, Greifen oder Kameraschwenken. Fehlende oder ungültige Pflichtdaten führen zu Halt. Rot verschwindet nicht durch Timeout. Ein Fahrwunsch ist keine Motorfreigabe, ein ausgegebener Befehl keine gemessene Bewegung.
+Das bestehende **Wegräumen gehört nach ausdrücklicher Entscheidung des Projektinhabers zum Grundbetrieb**. Zieldefinition und erweiterte Abnahme werden über [#8](https://github.com/BBS-GuT/smartcity-roboter/issues/8) angeglichen. Diese Entscheidung ist keine neue Bewegungsfreigabe und kein Nachweis einer bereits bestandenen Geräteprüfung.
 
-Keine MQTT-Fernfahrt, Sonderrechte oder neuen Greiffunktionen in diesen Paketen aktivieren. Keine Messwerte oder Geräteabnahmen erfinden. Noch offene Infrastrukturregeln, Kalibrierwerte und Ersatzverfahren als offen führen; sie dürfen keine Bewegungsfreigabe begründen.
+Spurtreue und Schutz des gesamten Aufbaus haben Vorrang. STOPP, Personen-/Tier-/Fahrzeughalt, rote Ampel, fehlende Pflichtdaten und Sensorunsicherheit bleiben sperrend, auch während des Räumablaufs. Rot endet nicht durch Timeout. Ein Fahrwunsch ist keine Motorfreigabe, ein ausgegebener Befehl keine gemessene Bewegung. Bei nicht belegten Schutzvoraussetzungen anhalten und warten.
+
+Keine freie Umfahrung, MQTT-Fernfahrt, Sonderrechte oder zusätzlichen Greiffunktionen aus diesem Dokument ableiten. Erlaubtes Räumen erlaubt auch keinen davon unabhängigen Kameraschwenk am Überweg. Gemessene Bewegungs-/Greifbereiche, Kalibrierwerte und erforderliche Geräteabnahmen bleiben getrennte Nachweise; fehlende Werte oder Ersatzverfahren dürfen keine Freigabe begründen.
 
 ## Tests und Laufzeit
 
-- Relevante vorhandene Tests und neue zielbezogene Regressionstests ausführen. Referenz vor Auftragsbeginn: sechs Skripte, 167 ausgegebene Einzelprüfungen auf `b9f6442`; das ist kein immer gleich bleibender Sollzähler.
-- Logiktests mit künstlichen Daten, vollständige ROS-Simulation und reale Geräteabnahme getrennt berichten. Die historischen Prüfprobes in `docs/pruefungen/` reproduzieren Fehler; ihr Exitcode 0 bestätigt keine bestandene Sicherheitsprüfung.
-- Die vorhandene ROS-Simulation verwendet Domain 77, Port 8080 und feste temporäre Dateien. Bis D2 die Laufzeit isoliert, keine parallelen vorhandenen Simulationsläufe im gleichen Laufzeitumfeld starten. Worktrees allein lösen diese Kollisionen nicht.
-- Reale Motor-/Armtests sind kein Bestandteil eines reinen Softwareauftrags. Keine Installation oder Fahrbefehle auf Geräten ausführen, solange das Paket kein ausdrücklich abgestimmtes Gerätetestfenster umfasst.
+- Relevante bestehende Prüfungen und bei Verhaltensänderungen zielbezogene Regressionstests ausführen. Für reine Dokumentationskorrekturen genügen passende Markdown-/Linkprüfungen und die reguläre CI; keine künstlichen Softwaretests hinzufügen.
+- Historischer main-Beleg vom 21.10.2026 nach PR #78: [Run 39589008257](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39589008257) auf `1c07fe4fdd509532359450dc11de3fb6666a1215`, drei Pflichtchecks erfolgreich und tatsächlich 21/21 Skripte. Testanzahlen sind Ergebnisse eines konkreten Stands, kein starres Soll.
+- Main-Beleg zum Abschlussstand vom 21.10.2026 nach PR #102: [Run 39597759051](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39597759051) auf `8ee57b6cec55b5d2f4eb0c8de04d814344e9bfe8`, drei D1-Pflichtchecks erfolgreich. Auch dieser Beleg gilt nur für den genannten Commit; für eine neue Lieferung zählt deren aktuelle CI.
+- Reine Softwareprüfung mit künstlichen Daten, vollständige ROS-Simulation und reale Geräteabnahme getrennt berichten. Historische Fehlerprobes in `docs/pruefungen/` reproduzieren Befunde; ihr Exitcode 0 bestätigt keine bestandene Sicherheitsprüfung.
+- Parallele Simulationen benötigen getrennte Domains, Ports und Karten-, Log-, Lern- und temporäre Pfade. Ohne bestätigte Trennung keine parallelen vorhandenen Simulationsläufe im gleichen Laufzeitumfeld starten; Worktrees allein isolieren diese Ressourcen nicht.
+- Reale Motor-/Armtests und Installationen auf Robotern gehören nur in ein ausdrücklich abgestimmtes Gerätetestfenster. Ein reiner Softwareauftrag erteilt dafür keinen Auftrag.
 - Zugangsdaten bleiben außerhalb von Repository, PR und Logs. Für MQTT synthetische Testidentitäten verwenden; keine realen Gerätezustände überschreiben.
 
-## Lieferung und Prüfung
+## Automatischer Review und formale Freigabe
 
-Kleine verständliche Commits auf dem eigenen Aufgabenbranch, anschließend ein Draft-PR nach `main`. Nicht selbstständig nach `main` zusammenführen oder auf `main` pushen. Keine fremden Branches überschreiben und keinen gemeinsamen Stand ungeplant per Force-Push ersetzen.
+Der native Codex-Reviewer ist im BBS-Repository für alle PRs aktiviert. Bei prüfbereiten PRs läuft Code Review automatisch beim Öffnen und bei jedem neuen Push; Der zusätzliche Security Review ist dauerhaft optional und startet nicht mehr allgemein automatisch; bekannte konkrete Befunde bleiben zu beheben. Entwürfe als Draft kennzeichnen, zur Übergabe prüfbereit machen und den tatsächlichen Bot-Status des aktuellen Liefercommits prüfen.
 
-Im PR und zum Abschluss im Entwicklungs-Chat dieses Übergabeformat verwenden:
+Code-Reviews übernimmt der native Reviewer. Die Orchestrierung und ihre Entwicklungsagenten führen keine eigenen Code-Reviews durch. Sie koordinieren Dateibesitz, Abhängigkeiten, CI- und Botstatus sowie die Integration. Automatische Befunde innerhalb des beauftragten Umfangs beheben; zusätzliche Dateibesitzer oder neue Probleme über kleine Folgeaufträge koordinieren.
+
+Das aktive [main-Ruleset 25533179](https://github.com/BBS-GuT/smartcity-roboter/rules/25533179) verlangt eine formale GitHub-Freigabe, aktuelle main-Basis, erledigte Reviewgespräche und die drei unveränderten D1-Pflichtchecks von GitHub Actions, App-ID `15368`:
+
+- `D1 / Python-Syntax (3.10)`
+- `D1 / Shell-Syntax (bash)`
+- `D1 / Softwaretests (Ubuntu 22.04, Python 3.10)`
+
+Alte Freigaben verfallen bei neuen Commits. Force-Push und Löschen von main sind gesperrt; keine Bypass-Ausnahmen oder Schutzabsenkung zum Abschluss eines Auftrags. Ein weiterer Chat unter demselben PR-Autorenkonto ist kein unabhängiges GitHub-Approval.
+
+Die Codeowner-Regel und die Steuerdatei-Zuordnung aus [PR #91](https://github.com/BBS-GuT/smartcity-roboter/pull/91) sind integriert. Steuerdateien brauchen die vorgesehene unabhängige Codeowner-Freigabe und werden nicht durch die App selbst freigegeben. Die separate Freigabe-App `5409664` arbeitet; Installation [#90](https://github.com/BBS-GuT/smartcity-roboter/issues/90) und die echte, von GitHub angerechnete `APPROVED`-Abnahme [#95](https://github.com/BBS-GuT/smartcity-roboter/issues/95) sind am 21.10.2026 abgeschlossen. Die Installation hat Contents-Schreibrecht, der kurzlebige Job-Token bleibt Contents-lesend; die Environment ist auf `main` beschränkt. Für diesen Abschluss ist keine weitere App-, Ruleset- oder Secret-Konfiguration erforderlich. Schlüssel bleiben außerhalb des Repositorys. Eine native Botmeldung allein ist kein formales Approval; für jede neue Lieferung müssen CI und Code Review zum aktuellen Head passen. Produkt-PRs ohne geschützte Steuerdateien benötigen die angerechnete App-Freigabe für diesen Head; bei Steuerdateien ist stattdessen die unabhängige Codeowner-Freigabe erforderlich. Ein zusätzlicher Security Review muss nicht abgeschlossen sein; fehlende, ältere oder noch laufende optionale Security-Ergebnisse sperren die Freigabebrücke nicht. Bekannte Security-Befunde zum aktuellen Head und offene Review-Threads blockieren weiterhin. Details und datierte Nachweise stehen im [Freigabebetrieb](../entwicklung/codex-mergefreigabe.md). Auto-Merge wird nicht aktiviert.
+
+## Lieferung und Übergabe
+
+Kleine verständliche Commits auf dem eigenen Aufgabenbranch und ein eigener PR nach BBS-`main`. Keine fremden Branches überschreiben, keinen Force-Push auf gemeinsame Stände und keinen eigenständigen Merge durch den Entwickler. Ein vorbereiteter PR oder ein grüner Testlauf ist noch keine Integration oder Geräteabnahme.
+
+Im PR und zur Übergabe dieses Format verwenden:
 
 ```text
-Auftrag / verantwortlicher Mensch:
+BBS-Issue / verantwortlicher Mensch / bestätigte Dateiübernahme:
 Status: vorbereitet | in Arbeit | zur Prüfung | abhängig von ...
 Basiscommit / Branch / Liefercommit / PR:
 Geänderte und reservierte Dateien:
 Behobenes Verhalten und zugehörige GB-/A-Kennungen:
 Öffentliche Schnittstellen verändert: nein | genaue Änderung:
-Ausgeführte Prüfungen und tatsächliche Ergebnisse:
+Prüfungen, tatsächliche Ergebnisse und aktuelle CI-/Botbelege:
 Offene Fehler / Messwerte / Geräte- oder Partnerabnahmen:
-Benötigte Übergabe und vorgeschlagener nächster Auftrag:
+Benötigte Übergabe und nächster kleiner Auftrag:
 ```
 
-Die erste Lieferung braucht einen klaren Abschluss. Weitere Funktionen nicht aus Bequemlichkeit in denselben PR aufnehmen. Der Orchestrator prüft den Übergabestand und koordiniert die Folgestufe.
+Die erste Lieferung braucht einen klaren Abschluss. Keine weiteren Funktionen beiläufig aufnehmen. Issues erst nach tatsächlicher Integration als geliefert einordnen; offene Geräte- und Partnerabnahmen bleiben bis zu ihrem eigenen Nachweis offen.
+
+## Historische Quellplanung
+
+Die frühere Planung auf `codex/grundbetrieb` im [Quell-PR #11](https://github.com/davidheinrich73/smartcity-roboter/pull/11) gehört zum alten Repository und ist kein verbindlicher Startbranch für neue BBS-Aufgaben. Die ursprünglichen A–E-Pakete bleiben Vorlagen, keine zusätzliche Beauftragung.
+
+Der damalige Prüfstand [b9f6442](https://github.com/davidheinrich73/smartcity-roboter/commit/b9f6442) umfasste sechs Skripte mit 167 ausgegebenen Einzelprüfungen. Das ist eine historische Ausgangsreferenz; weder sechs/167 noch die im Beleg nach PR #78 ausgeführten 21 Skripte sind ein dauerhaftes Testsoll.

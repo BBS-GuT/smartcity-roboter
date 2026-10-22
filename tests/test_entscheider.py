@@ -33,7 +33,8 @@ class Lauf:
             self.t += 0.1
             self.nr += 1
             daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None,
-                     'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False}
+                     'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False,
+                     'lidar_hinten': 1.0}   # hinten frei (sonst faehrt er nicht rueckwaerts)
             daten.update(w)
             befehl = self.e.update(self.t, daten)
         return befehl
@@ -255,8 +256,10 @@ pruefe('Gedaechtnis: 170 Grad, Linie unter dem Roboter gerade -> fertig',
 pruefe('Schild noch sichtbar -> nicht nochmal wenden', l.schritt(5, gier=math.radians(170), einfahrt_verboten=True), 'fahren')
 
 # ---------------- Wegraeumen ----------------
-WUERFEL = {'vor': 0.31, 'seite': 0.02, 'breite': 0.045, 'hoehe': 0.045, 'quelle': 'tiefe'}
-NAH = dict(WUERFEL, vor=0.25)
+GREIF = STANDARD['greif_vor']
+# etwas weiter als die Greifweite, aber naeher als tiefe_halt (sonst haelt er gar nicht an)
+WUERFEL = {'vor': min(GREIF + 0.03, STANDARD['tiefe_halt'] - 0.01), 'seite': 0.02, 'breite': 0.045, 'hoehe': 0.045, 'quelle': 'tiefe'}
+NAH = dict(WUERFEL, vor=GREIF - 0.03)
 
 
 def wegraeumen(lauf, n, objekt_bis_greifen=WUERFEL, danach=None, **w):
@@ -291,7 +294,7 @@ pruefe('Weg frei (geprueft) -> weiter', b, 'fahren')
 ereignisse = [t for _, t, _ in l.e.ereignisse]
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(1, objekt=NAH)
-arme, b, gruende = wegraeumen(l, 600, NAH, danach=NAH)     # liegt nach dem Greifen immer noch da
+arme, b, gruende = wegraeumen(l, 1000, NAH, danach=NAH)    # liegt nach dem Greifen immer noch da
 ok = len(arme) == 9 * STANDARD['versuche'] and b['aktion'] == 'stopp'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> {STANDARD['versuche']} Versuche, dann aufgeben und warten "
@@ -423,7 +426,7 @@ print(f"{'OK  ' if ok else 'FEHLER'} Erfolg wird ans Lernen gemeldet und als Ere
 meldungen.clear()
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=lernplaner, rueckmeldung=merke)
 l.schritt(1, objekt=NAH)
-wegraeumen(l, 700, NAH, danach=NAH)
+wegraeumen(l, 1000, NAH, danach=NAH)
 ok = meldungen == [False] * STANDARD['versuche']
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} liegt danach noch da -> alle Fehlversuche ans Lernen gemeldet: {meldungen}")
@@ -548,9 +551,17 @@ print(f"{'OK  ' if ok else 'FEHLER'} bestaetigt, Tiefenbild steht (nur Farbbilde
       f"neuen Tiefenbildern ({folge[-1]['grund']} / {b['grund']})")
 # RM02 21.10.: niedriger Wuerfel (3 cm) verschwindet beim Heranfahren unter dem Blickfeld -> "aus den Augen verloren".
 # Jetzt: in Greifweite laut Radzaehler mit der letzten Messung greifen, danach zurueck und kontrollieren.
+def lauf_28():
+    """Blind-Greifen-Tests mit ihrer festen Welt-Geometrie: Greifweite 28 cm, Kamera verliert den niedrigen Wuerfel
+    unter 30 cm (wie bis 21.10.). Geprueft wird die Logik, nicht der Standardabstand."""
+    lauf = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+    lauf.e.c['greif_vor'] = 0.28
+    return lauf
+
+
 NIEDRIG = dict(WUERFEL, vor=0.34, seite=0.0, breite=0.03, hoehe=0.03)
 WEG_GERADE = [(0.05 * k, 0.0) for k in range(1, 12)]     # Linie gerade voraus (blind greifen braucht den Winkel)
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0, 'da': True}
 arme, gruende, b = [], [], None
 for _ in range(600):
@@ -577,7 +588,7 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} niedriger Wuerfel verschwindet beim Heranfahren -> greift nach Radzaehler, faehrt "
       f"zur Kontrolle zurueck ({welt['vor'] * 100:.0f} cm), weiter ({b['grund']})")
 # Codex-Review: zuletzt schon in Greifweite gesehen (kaum vorgefahren) -> trotzdem zur Kontrolle zurueck
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0, 'da': True, 'nah': 0}
 gruende, vorgefahren = [], []
 for k in range(600):
@@ -610,7 +621,7 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} blind gegriffen, kaum vorgefahren ({(vorgefahren or [0])[0] * 100:.1f} cm) "
       f"-> faehrt trotzdem zur Kontrolle zurueck ({welt['vor'] * 100:.1f} cm)")
 # Codex-Review: beim letzten Sehen noch 6 cm seitlich -> nicht blind greifen (wuerde schraeg/daneben fassen)
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0}
 for _ in range(200):
     sicht = welt['vor'] > 0.30
@@ -625,7 +636,7 @@ ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktio
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} beim letzten Sehen nicht ausgerichtet -> greift nicht blind ({b['grund']})")
 # Review PR #78: Strecke nur aus Fahrbefehlen geschaetzt (keine Odometrie) -> nicht blind greifen
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0}
 for _ in range(200):
     sicht = welt['vor'] > 0.30
@@ -641,7 +652,7 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Strecke nur geschaetzt (keine Radzaehler) -> greift nicht blind ({b['grund']})")
 # Codex-Review: Radzaehler fallen zwischen Sichtung und Greifweite kurz aus (Strecke dort aus Fahrbefehlen geschaetzt),
 # danach wieder frisch -> trotzdem nicht blind greifen
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0, 'abschnitt': 1}
 for _ in range(200):
     sicht = welt['vor'] > 0.30
@@ -658,7 +669,7 @@ ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktio
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Radzaehler-Luecke seit der Sichtung -> greift nicht blind ({b['grund']})")
 # Codex-Review: KI liefert in Greifweite 2 s keine neuen Bilder (haengt) -> kein blindes Greifen ohne frische Bilder
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0}
 for _ in range(400):
     b = l.schritt(1, objekt=dict(NIEDRIG, vor=welt['vor']), strecke=welt['strecke'], strecke_gemessen=True)
@@ -681,7 +692,7 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} KI haengt in Greifweite (keine neuen Bilder) -> greift nicht blind")
 # Codex-Review: Linie (weg) faellt waehrend des Geradedrehens aus -> nicht als "gerade" werten und planen
 SCHRAEG = [(0.05 * k * math.cos(math.radians(20)), 0.05 * k * math.sin(math.radians(20))) for k in range(1, 12)]
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=SCHRAEG)
 l.schritt(20, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=SCHRAEG)
 l.schritt(20, objekt=dict(WUERFEL, vor=0.28, seite=0.0))        # Linie weg, Roboter steht noch schraeg
@@ -690,7 +701,7 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Linie faellt beim Geradedrehen aus -> plant nicht schraeg "
       f"({l.e.ablauf.phase if l.e.ablauf else None})")
 # Codex-Review: Farbbilder kommen, Tiefenbild steht (dasselbe) -> zaehlt nur einmal als "leer", kein blindes Greifen
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0, 'tnr': 0}
 for _ in range(200):
     sicht = welt['vor'] > 0.30
@@ -708,7 +719,7 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Tiefenbild steht (nur Farbbilder neu) -> greift nicht blind ({b['grund']})")
 # Codex-Review: nach blindem Greifen steht der Tiefenstrom auf einem leeren Bild (Farbbilder laufen) -> Kontrolle
 # darf daraus kein "frei" machen (Gegenstand liegt noch da, waere von der Kontrollstelle aus sichtbar)
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0, 'tnr': 0, 'steht': False}
 aktionen = []
 for _ in range(700):
@@ -732,7 +743,7 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} nach blindem Greifen steht der Tiefenstrom -> Kontrolle meldet nicht frei "
       f"({b['grund']})")
 # Codex-Review: Strassenwinkel nie bekannt (keine Linie) -> mit Sicht greifen wie bisher, aber nicht blind
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0}
 for _ in range(200):
     sicht = welt['vor'] > 0.30
@@ -744,7 +755,7 @@ for _ in range(200):
         welt['strecke'] += m['lin'] * 0.1
 texte = [t for _, t, _ in l.e.ereignisse]
 ok = not any('greife nach der letzten Messung' in t for t in texte) and b['aktion'] != 'fahren'
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 welt = {'vor': 0.34, 'strecke': 0.0}
 for _ in range(200):
     sicht = welt['vor'] > 0.30
@@ -757,13 +768,13 @@ for _ in range(200):
 ok = ok and any('greife nach der letzten Messung' in t for _, t, _ in l.e.ereignisse)
 # sehr schraeg (40 Grad, nicht plausibel zum Drehen) gilt nicht als gerade -> plant nicht
 SEHR_SCHRAEG = [(0.05 * k * math.cos(math.radians(40)), 0.05 * k * math.sin(math.radians(40))) for k in range(1, 12)]
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 l.schritt(30, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=SEHR_SCHRAEG)
 ok = ok and l.e.ablauf is not None and l.e.ablauf.phase == 'abstand'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Winkel unbekannt -> nicht blind, mit gerader Linie blind ok, 40 Grad -> plant nicht")
 # ohne Radzaehler bleibt es beim Abbruch (blind greifen nur mit gemessener Strecke)
-l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l = lauf_28()
 l.schritt(15, objekt=dict(NIEDRIG, vor=0.29))
 b = l.schritt(40)
 ok = any('aus den Augen verloren' in t for _, t, _ in l.e.ereignisse) and b['aktion'] != 'fahren'
@@ -788,15 +799,31 @@ print(f"{'OK  ' if ok else 'FEHLER'} 3 cm seitlich -> faehrt seitlich davor, pla
 # Kurve: Strasse am Hindernis 20 Grad nach links -> dreht sich gerade, greift erst dann
 WEG_KURVE = [(0.05 * k * math.cos(math.radians(20)), 0.05 * k * math.sin(math.radians(20))) for k in range(1, 12)]
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
-l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=WEG_KURVE)
-folge = [l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=WEG_KURVE) for _ in range(40)]
+l.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.0), weg=WEG_KURVE)
+folge = [l.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.0), weg=WEG_KURVE) for _ in range(40)]
 dreht = [x for x in folge if x.get('manoever') and x['manoever']['dreh'] > 0]
-ok = (bool(dreht) and l.e.ablauf is not None and l.e.ablauf.phase == 'abstand')
-gerade = [l.schritt(1, objekt=dict(WUERFEL, vor=0.28, seite=0.0), weg=[(0.05 * k, 0.0) for k in range(1, 12)])
+# RM02 21.10.: beim Drehen nicht zugleich vorfahren (sonst ist er in Greifweite, bevor er gerade steht)
+ok = (bool(dreht) and all(x['manoever']['lin'] == 0.0 for x in dreht)
+      and l.e.ablauf is not None and l.e.ablauf.phase == 'abstand')
+l2 = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+l2.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.05), weg=WEG_KURVE)
+folge2 = [l2.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.05), weg=WEG_KURVE) for _ in range(40)]
+dreht2 = [x for x in folge2 if x.get('manoever') and x['manoever']['dreh'] > 0]
+ok = ok and bool(dreht2) and all(x['manoever']['quer'] == 0.0 for x in dreht2)   # auch seitlich: auf der Stelle
+# Review PR #101: Linie faellt beim Geradedrehen kurz aus, zuletzt schraeg -> nicht naeher heranfahren
+l3 = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
+for _ in range(60):                                   # bis er zum Geradedrehen ansetzt
+    b3 = l3.schritt(1, objekt=dict(WUERFEL, seite=0.0), weg=WEG_KURVE)
+    if (b3.get('manoever') or {}).get('dreh', 0.0) > 0:
+        break
+ohne_linie = [l3.schritt(1, objekt=dict(WUERFEL, seite=0.0)) for _ in range(10)]
+ok = ok and (b3.get('manoever') or {}).get('dreh', 0.0) > 0 and all(
+    (x.get('manoever') or {}).get('lin', 0.0) <= 0.0 for x in ohne_linie)
+gerade = [l.schritt(1, objekt=dict(WUERFEL, vor=GREIF, seite=0.0), weg=[(0.05 * k, 0.0) for k in range(1, 12)])
           for _ in range(10)]
-ok = ok and l.e.ablauf is not None and l.e.ablauf.phase in ('planen', 'ausfuehren')
+ok = ok and l.e.ablauf is not None and l.e.ablauf.phase in ('planen', 'naeher', 'ausfuehren')
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} Kurve: schraeg zur Strasse -> dreht erst gerade, dann planen "
+print(f"{'OK  ' if ok else 'FEHLER'} Kurve: schraeg zur Strasse -> dreht erst gerade (ohne vorzufahren), dann planen "
       f"({dreht[0]['grund'] if dreht else '-'})")
 l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
 l.schritt(1, zebra={'abstand': 0.6})
