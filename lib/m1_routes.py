@@ -25,5 +25,7 @@ def choose(allowed_exits, own_robot, own_section, peers, original_choice,
         collision = sum(peer.get('current_section') == own_section and
                         peer.get('next_section') == exit_id and
                         peer.get('robot', '') < own_robot for peer in fresh)
-        scores[exit_id] = (collision, occupancy, exit_id != original_choice)
+        recently_visited = sum(exit_id in peer.get('recent_sections', ())
+                               for peer in fresh if isinstance(peer.get('recent_sections', ()), (list, tuple)))
+        scores[exit_id] = (collision, occupancy, recently_visited, exit_id != original_choice)
     return min(allowed, key=lambda exit_id: scores[exit_id])

@@ -21,5 +21,35 @@
     },
     "kind": {"enum": ["position", "intention", "map_state"]},
     "data": {"type": "object"}
-  }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"const": "position"}}},
+      "then": {"properties": {"data": {
+        "type": "object", "required": ["quality"],
+        "properties": {
+          "quality": {"enum": ["verified", "approximate", "unknown"]},
+          "section": {"type": "string", "minLength": 1, "maxLength": 64},
+          "pose": {"type": "object", "required": ["x_m", "y_m", "yaw_rad"],
+                   "properties": {"x_m": {"type": "number"}, "y_m": {"type": "number"}, "yaw_rad": {"type": "number"}}}
+        }, "anyOf": [{"required": ["pose"]}, {"required": ["section"]}]
+      }}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "intention"}}},
+      "then": {"properties": {"data": {"type": "object",
+        "required": ["current_section", "next_section"],
+        "properties": {"current_section": {"type": "string", "minLength": 1, "maxLength": 64},
+                       "next_section": {"type": "string", "minLength": 1, "maxLength": 64}}
+      }}}
+    },
+    {
+      "if": {"properties": {"kind": {"const": "map_state"}}},
+      "then": {"properties": {"data": {"type": "object",
+        "required": ["quality", "manifest_sha256"],
+        "properties": {"quality": {"enum": ["verified", "unknown"]},
+                       "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+      }}}
+    }
+  ]
 }
