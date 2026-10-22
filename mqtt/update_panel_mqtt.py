@@ -189,10 +189,16 @@ def fresh_battery():
 
 def ros_command(repo, command, timeout=12):
     script='source ' + shlex.quote(str(repo/'scripts/env.sh')) + ' && ' + command
+    process=subprocess.Popen(['bash','-lc',script],text=True,stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,start_new_session=True)
     try:
-        result=subprocess.run(['bash','-lc',script],text=True,capture_output=True,timeout=timeout)
-        return result.returncode, result.stdout.strip(), result.stderr.strip()
+        stdout,stderr=process.communicate(timeout=timeout)
+        return process.returncode, stdout.strip(), stderr.strip()
     except subprocess.TimeoutExpired:
+        # Killing only bash leaves ros2 holding stdout/stderr open indefinitely.
+        os.killpg(process.pid,signal.SIGKILL)
+        try: process.communicate(timeout=2)
+        except subprocess.TimeoutExpired: pass
         return 124, '', 'Zeitlimit'
 
 
