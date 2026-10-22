@@ -305,6 +305,67 @@ auf den ausdrücklich übergebenen neuen konkreten C-Head für dessen fachlichen
 Abgleich. Keine Zustimmung zum noch unbekannten Nachfolger, keine fremde
 Dateiänderung oder Implementierung. Angenommene Fundament-/V2-Regeln bleiben bestehen.
 
+## A-Nachabgleich V3a auf dem korrigierten C-Head
+
+Gelesen wurde ausschließlich der konkrete [V3a-Datenanhang auf
+`41e46e054af3fb58e4c2e6f1695b7088e494d9d2`](https://github.com/BBS-GuT/smartcity-roboter/blob/41e46e054af3fb58e4c2e6f1695b7088e494d9d2/docs/entwicklung/C1-vertragsentscheidungen.md#v3a-zusammengeführter-datenanhang-für-auftrag-5)
+mit vier Darstellungsfällen und den neuen Frist-/Konsistenzgegenproben.
+Dieser Nachabgleich ersetzt das Warten auf einen neuen Head, nimmt aber keinen
+noch späteren Nachfolger oder implementierten Gesamtvertrag vorweg.
+
+**A nimmt die beiden Motion-Korrekturen auf diesem Head an:**
+
+- `blocked` plus vorhandene konsistent gemeldete Motion-Ausgabe verlangt
+  exakt v=w=0. Auch historisches Etikettieren repariert eine widersprüchliche
+  Nichtnull-Ausgabe nicht. Fehlende Ausgabe bleibt null mit Grund, kein
+  erfundener Haltbefehl oder gemessener Stillstand.
+- Das Pflichtobjekt `motion.package_use={mode,reason,evaluation_ref}` liegt
+  außerhalb des unveränderlichen Pakets. `current` mit `allowed` oder fahrender
+  Ausgabe verlangt frischen Wunsch bei Auswertung und Zustand, belegten Kontext
+  und nicht überholte V2-Annahme. Fahrende Ausgabe verlangt außerdem geliefert
+  `allowed`. Gleichheit mit Ablauf ist unzulässig. `historical` erhält die
+  alten Schlüssel unverändert und erscheint nicht in aktueller Runtimeprojektion;
+  eine schon damals abgelaufene Erlaubnis wird dadurch nicht gültig.
+
+Die vier C1h-Darstellungsfälle bleiben aus A-Sicht unter den ausdrücklich
+gegebenen synthetischen Kontexten angenommen. Die Ausrichtfreigabe R11 wird
+jetzt ausdrücklich auch zur Zustandserzeugung als frisch vorausgesetzt;
+die unabhängige M12/U12-Variante darf weiter keine Komponenten von M11 nutzen.
+Unbekannter Armbesitzer, fehlende Messung/Last, unveränderte Beobachtungszeit,
+kontrollierter Nullwunsch und gleichzeitige Sperren bleiben ehrlich abgebildet.
+
+**Keine uneingeschränkte Auftrag-5-Datenmodellannahme: zwei genaue
+Restergänzungen auf dem gelesenen Head bleiben an C/O.**
+
+1. Die bereits benannte Ergebnisbindung fehlt weiterhin ausdrücklich:
+   `erfolgreich/nicht_raeumbar/abgebrochen` verlangt `execution_status=beendet`;
+   `laufend/pausiert` verlangt `result=offen`. Vorhandene Erfolgsbelege ersetzen
+   diese Bindung nicht. Die bekannte Inaktivitätsausnahme `beendet/offen` bleibt.
+2. V3a definiert `package_use` und dessen Fristbindung ausschließlich für
+   Motion. Für `arm.release=allowed` fehlt noch die entsprechende ausdrücklich
+   prüfbare aktuelle Verwendung: Bei belegtem Armwunsch muss dessen Frist sowohl
+   zur Auswertung als auch zum äußeren Zustand offen sein, Kontext/CommandRef
+   dürfen nicht überholt, entwertet oder einem inaktiven Vorgang zugeordnet sein.
+   Routinevorschlag: `arm.package_use` mit derselben äußeren
+   `{mode,reason,evaluation_ref}`-Struktur, `domain=arm`, bei `current/allowed`
+   `command.generated <= evaluated <= generated_state < command.valid_until`,
+   mit vorhandener Ausgabe zusätzlich `evaluated <= issued <= generated_state`.
+   Bei Ablauf nur historische Diagnose ohne aktuelle Armfreigabe; unbekannter
+   Nachweis `unknown`, keine Umschreibung des unveränderlichen Pakets.
+   Eigenständiger belegter Armschutzauftrag ohne Wunsch bleibt gesondert
+   kontrolliert darstellbar; daraus keine physische STOPP- oder Rückfahrpolitik
+   und keine Frist für mechanisches Halten einer Last ableiten.
+
+Dokumentkontrollen: Die sieben neuen C-Gegenproben (einschließlich ihrer
+Alternativen) fachlich nachgerechnet; Ablauf 101 s schließt Zustand 101/102
+aus, Zustand 100,5 liegt davor. Historische Verwendung bei Zustand 102 ist nur
+bei bereits zur Auswertung gültiger Erlaubnis konsistent; Auswertung 101 bleibt
+auch historisch ein ungültiger damaliger Erlaubnisbeleg. Für Arm als Restfall:
+Commandablauf 101, Auswertung 100, Zustand 102 darf keine aktuelle
+Armfreigabe ergeben. Das ist ein gefordertes Datenbeispiel, keine behauptete
+Implementierung. Reale Werte/Schutzpolitik, Gesamtcommitannahme und sämtliche
+Geräte-/Broker-/STOPP-Nachweise bleiben getrennt offen. Kein Code-/PR-Diffreview.
+
 ## Tatsächliche Dokumentprüfung
 
 Windows, PowerShell 7.6.5, Git 2.55.0.windows.4, eigene Arbeitskopie:
