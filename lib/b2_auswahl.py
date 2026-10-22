@@ -45,6 +45,7 @@ class Eingabe:
     erlaubt: frozenset | None = None
     erkannt: bool = True
     ueberweg: bool = False
+    spur_bestaetigt: bool = False  # aktuelle eigene Spur UND Manoeverfortschritt
     einfahrtsfreigabe: bool | None = None
     ausgang: str | None = None
     bestaetigt: bool = False  # positives Einfahrts-/Ausfahrtereignis
@@ -155,7 +156,9 @@ class Auswahl:
             self._bezug = None
             self._ausgang = None
             return self.ergebnis
-        if e.erkannt is not True or e.ueberweg is not False:
+        if self._phase == 'raeumen' and e.spur_bestaetigt is not True:
+            return self._halt('spur_unbestaetigt')
+        if self._phase != 'raeumen' and (e.erkannt is not True or e.ueberweg is not False):
             return self._halt('erkennung_fehlt' if not e.erkannt else 'ueberweg')
         if (not isinstance(e.geometrie, frozenset)
                 or not all(_kennung(x) for x in e.geometrie)):
@@ -169,7 +172,7 @@ class Auswahl:
         if self._ausgang is not None:
             if self._ausgang not in e.erlaubt:
                 return self._halt('ausgang_verboten')
-            if self._ausgang not in e.geometrie:
+            if self._phase != 'raeumen' and self._ausgang not in e.geometrie:
                 return self._halt('ausgang_nicht_sichtbar')
         elif not kandidaten:
             return self._halt('keine_erlaubte_ausfahrt')
@@ -177,7 +180,7 @@ class Auswahl:
             return self._halt('einfahrt_gesperrt')
         if e.art == 'einfahrt':
             if (self._ausgang is None or e.bestaetigt is not True
-                    or e.ausgang != self._ausgang):
+                    or e.ausgang != self._ausgang or e.spur_bestaetigt is not True):
                 return self._halt('einfahrt_unpassend')
             self._phase = 'raeumen'
         elif self._ausgang is None:

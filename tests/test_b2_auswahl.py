@@ -15,7 +15,8 @@ B = Bezug('test-geraet', 'test-start', 'test-regel-v1', 'test-X', 'test-S',
 
 def bild(seq=1, **werte):
     basis = Eingabe(B, seq, float(seq), 1.0, geometrie=frozenset({'A', 'B', 'C'}),
-                    erlaubt=frozenset({'A', 'C'}), einfahrtsfreigabe=True)
+                    erlaubt=frozenset({'A', 'C'}), einfahrtsfreigabe=True,
+                    spur_bestaetigt=True)
     return replace(basis, **werte)
 
 
@@ -206,7 +207,8 @@ class Wegwahl(unittest.TestCase):
         a.schritt(bild(2, art='einfahrt', ausgang='A', bestaetigt=True), 2)
         self.assertEqual(a.schritt(bild(3, erlaubt=frozenset({'C'})), 3).grund,
                          'ausgang_verboten')
-        self.assertEqual(a.schritt(bild(4, erkannt=False), 4).grund, 'erkennung_fehlt')
+        self.assertEqual(a.schritt(bild(4, erkannt=False, spur_bestaetigt=False), 4).grund,
+                         'spur_unbestaetigt')
         self.assertEqual(a.schritt(bild(5, einfahrtsfreigabe=False), 5).lage, 'raeumen')
 
     def test_zufall_ungueltig_und_identitaet_pflicht(self):
@@ -269,6 +271,35 @@ class Wegwahl(unittest.TestCase):
         with self.assertRaises(FrozenInstanceError):
             r.ausgang = 'verboten'
         self.assertEqual(set(vars(r)), {'lage', 'ausgang', 'grund'})
+
+    def test_kreuzungsform_verschwindet_nach_einfahrt_spur_bleibt(self):
+        a = automat(zufall=Zufall())
+        a.schritt(bild(), 1)
+        ohne_form = dict(erkannt=False, geometrie=frozenset(), spur_bestaetigt=True)
+        self.assertEqual(a.schritt(bild(2, **ohne_form), 2).grund, 'erkennung_fehlt')
+        self.assertEqual(a.schritt(bild(3, geometrie=frozenset({'C'})), 3).grund,
+                         'ausgang_nicht_sichtbar')
+        a.schritt(bild(4, art='einfahrt', ausgang='A', bestaetigt=True), 4)
+        r = a.schritt(bild(5, einfahrtsfreigabe=False, **ohne_form), 5)
+        self.assertEqual((r.lage, r.ausgang, r.grund), ('raeumen', 'A', None))
+        self.assertEqual(a.historie, {})  # Formverlust ist keine Ausfahrt
+        self.assertEqual(a.schritt(bild(6, geometrie=frozenset({'C'})), 6).lage, 'raeumen')
+        self.assertEqual(a.schritt(bild(7, art='abschluss', ausgang='A', bestaetigt=True), 7).lage,
+                         'abgeschlossen')
+
+    def test_raeumen_braucht_echte_spur_und_schutzstopps_trotz_formverlust(self):
+        a = automat(zufall=Zufall())
+        a.schritt(bild(), 1)
+        self.assertEqual(a.schritt(bild(2, art='einfahrt', ausgang='A', bestaetigt=True,
+                                       spur_bestaetigt=False), 2).grund, 'einfahrt_unpassend')
+        a.schritt(bild(3, art='einfahrt', ausgang='A', bestaetigt=True), 3)
+        for seq, spur in ((4, False), (5, None)):
+            self.assertEqual(a.schritt(bild(seq, erkannt=False, geometrie=frozenset(),
+                                           spur_bestaetigt=spur), seq).grund, 'spur_unbestaetigt')
+        e = bild(6, erkannt=False, geometrie=frozenset(), spur_bestaetigt=True)
+        self.assertEqual(a.schritt(e, 6, haltgruende=('Hindernis',)).grund, 'schutzstopp')
+        self.assertEqual(a.schritt(replace(e, sequenz=7, aufnahme=7), 7).lage, 'raeumen')
+        self.assertEqual(a.historie, {})
 
 
 if __name__ == '__main__':
