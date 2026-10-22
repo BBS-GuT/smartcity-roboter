@@ -184,9 +184,12 @@ def baue_roboter():
 
     def ende():
         g.abbrechen()
-        ex.shutdown()
-        node.destroy_node()
-        rclpy.shutdown()
+        try:                              # beim Beenden nie haengen bleiben
+            ex.shutdown(timeout_sec=2.0)
+            node.destroy_node()
+            rclpy.shutdown()
+        except Exception:
+            pass
     return g, protokoll, node, ende
 
 

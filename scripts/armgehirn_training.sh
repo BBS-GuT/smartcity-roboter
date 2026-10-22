@@ -17,9 +17,15 @@ KAMERA=""
 if ! ros2 topic list 2>/dev/null | grep -q '^/camera/depth/image_raw$'; then
     echo "Starte die Kamera ..."
     mkdir -p "$REPO_DIR/logs"
+    # Eigene Prozessgruppe (set -m): Hintergrundprogramme eines Skripts ignorieren SIGINT (Strg+C), darum am Ende
+    # die ganze Gruppe mit SIGTERM beenden, nach 10 s hart (RM02 22.10.: Skript hing nach dem Ende)
+    set -m
     "$REPO_DIR/scripts/kamera.sh" > "$REPO_DIR/logs/armgehirn_kamera.log" 2>&1 &
     KAMERA=$!
-    trap 'kill -INT $KAMERA 2>/dev/null; wait $KAMERA 2>/dev/null' EXIT
+    set +m
+    trap 'echo "Beende die Kamera ..."; kill -TERM -- -$KAMERA 2>/dev/null
+          for _ in $(seq 20); do kill -0 $KAMERA 2>/dev/null || break; sleep 0.5; done
+          kill -KILL -- -$KAMERA 2>/dev/null' EXIT
     sleep 8
 fi
 python3 "$REPO_DIR/armgehirn/training.py" "$@"
