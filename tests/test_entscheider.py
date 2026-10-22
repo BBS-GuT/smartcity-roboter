@@ -32,7 +32,7 @@ class Lauf:
                 time.sleep(0.001)
             self.t += 0.1
             self.nr += 1
-            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None,
+            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'aufnahme': self.t, 'objekte': [], 'ampel': None,
                      'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False,
                      'lidar_hinten': 1.0}   # hinten frei (sonst faehrt er nicht rueckwaerts)
             daten.update(w)
@@ -183,28 +183,40 @@ def arm_befehle(lauf, n, **w):
     return arme, letzter
 
 
+# #70 / Scopeentscheidung #8: am Zebrastreifen kein eigenstaendiger Arm-/Kameraschwenk. Ersetzt den frueheren Test
+# "umschauen links, rechts, zurueck" (blick_links, blick_rechts, fahrstellung), der genau diesen Schwenk verlangte.
+# Freigabe nur mit gueltiger Beobachtung: neue, frische Bilder MIT LiDAR-Daten am Ueberweg (hier lidar_breit, frei).
+FREI = {'lidar_breit': 1.0}
 l = Lauf(arm_erlaubt=True, posen=POSEN)
-pruefe('Zebrastreifen 50 cm -> noch fahren', l.schritt(2, zebra={'abstand': 0.5}), 'fahren')
-pruefe('Zebrastreifen 30 cm -> anhalten', l.schritt(1, zebra={'abstand': 0.3}), 'stopp')
-arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3})
-ok = arme == ['blick_links', 'blick_rechts', 'fahrstellung']
+pruefe('Zebrastreifen 50 cm -> noch fahren', l.schritt(2, zebra={'abstand': 0.5}, **FREI), 'fahren')
+pruefe('Zebrastreifen 30 cm -> anhalten', l.schritt(1, zebra={'abstand': 0.3}, **FREI), 'stopp')
+folge = [l.schritt(1, zebra={'abstand': 0.3}, **FREI) for _ in range(80)]
+arme = [x['arm'] for x in folge if x['arm']]
+erst = next(i for i, x in enumerate(folge) if x['aktion'] == 'fahren')
+ok = arme == [] and erst >= STANDARD['anschauen_bilder'] and all(x['aktion'] == 'stopp' for x in folge[:erst])
 fehler += not ok
-print(f"{'OK  ' if ok else 'FEHLER'} umschauen links, rechts, zurueck: {arme}")
+print(f"{'OK  ' if ok else 'FEHLER'} #70: Armfreigabe + Posen -> kein Armschwenk am Zebrastreifen, haelt bis frei "
+      f"(Arm {arme}, {erst} Zyklen Halt)")
+b = folge[-1]
 pruefe('niemand da -> weiter', b, 'fahren')
 pruefe('derselbe Zebrastreifen -> kein zweiter Halt', l.schritt(20, zebra={'abstand': 0.2}), 'fahren')
 l = Lauf(arm_erlaubt=True, posen=POSEN)
-l.schritt(1, zebra={'abstand': 0.3})
-arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, objekte=[{'name': 'Person', 'im_weg': False}])
+l.schritt(1, zebra={'abstand': 0.3}, **FREI)
+arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, objekte=[{'name': 'Person', 'im_weg': False}], **FREI)
 pruefe('Person gesehen -> wartet weiter', b, 'stopp')
-arme, b = arm_befehle(l, 120, zebra={'abstand': 0.3})
+ok = arme == []
+arme, b = arm_befehle(l, 120, zebra={'abstand': 0.3}, **FREI)
 pruefe('Person weg -> weiter', b, 'fahren')
+ok = ok and arme == []
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Person am Zebrastreifen: auch beim Warten kein Armbefehl")
 l = Lauf()
 l.schritt(1, zebra={'abstand': 0.3})
 arme, b = arm_befehle(l, 30, zebra={'abstand': 0.3}, lidar_breit=0.35)
 ok = arme == [] and b['aktion'] == 'stopp'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} ohne Arm-Freigabe: kein Arm, etwas auf dem Zebrastreifen -> wartet ({b['grund']})")
-pruefe('ohne Arm, frei -> weiter', l.schritt(80, zebra={'abstand': 0.3}), 'fahren')
+pruefe('ohne Arm, frei -> weiter', l.schritt(80, zebra={'abstand': 0.3}, **FREI), 'fahren')
 # LiDAR-Punkte: nur der Bereich am Zebrastreifen zaehlt (Haus/Wand daneben nicht)
 import numpy as np  # noqa: E402
 wand = np.array([[0.3 + 0.02 * k, -0.40] for k in range(20)])       # 40 cm rechts: Wand/Haus
@@ -219,6 +231,13 @@ arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, f
 pruefe('Fussgaenger am Zebrastreifen (LiDAR) -> wartet', b, 'stopp')
 arme, b = arm_befehle(l, 120, zebra={'abstand': 0.3}, lidar_xy=wand)
 pruefe('Fussgaenger weg -> weiter', b, 'fahren')
+links = np.array([[0.36, 0.20], [0.37, 0.21]])                     # wartet links am Zebrastreifen
+l = Lauf(arm_erlaubt=True, posen=POSEN)
+l.schritt(1, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, links]))
+arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, links]))
+ok = b['aktion'] == 'stopp' and 'links' in b['grund'] and arme == []
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Fussgaenger links am Zebrastreifen (LiDAR) -> wartet, kein Arm ({b['grund']})")
 
 # Zebrastreifen waehrend eines anderen Ablaufs gesehen (Hindernis anschauen), danach zu nah fuer die Kamera
 # -> muss trotzdem am Zebrastreifen halten und umschauen (nicht einfach drueberfahren)
@@ -230,6 +249,153 @@ ok = l.e.ablauf is not None and l.e.ablauf.name == 'zebra' and b['aktion'] == 's
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Zebrastreifen waehrend Hindernis-Pruefung gesehen -> haelt danach trotzdem am "
       f"Zebrastreifen ({b['grund']})")
+
+# ---------------- #70: kein Armschwenk am Zebrastreifen, keine Freigabe ohne gueltige Beobachtung ----------------
+# Reproduktion aus dem Issue (unveraendert): globale Armfreigabe, Posen vorhanden, Zebrastreifen in 0,30 m.
+# Ausgangsstand: blick_links bei t=600,5 (rot). Nach dem Fix: kein Armbefehl.
+from ablaeufe import Zebrastreifen  # noqa: E402
+posen = {name: [90] * 6 for name in ('fahrstellung', 'blick_links', 'blick_rechts')}
+e = Entscheider(arm_erlaubt=True, posen=posen)
+befehle = []
+for i in range(6):
+    t = 600.0 + 0.1 * i
+    befehle.append(e.update(t, dict(bild_nr=i, bild_zeit=t, lidar=float('inf'), objekte=[], gier=0.0, ampel=None,
+                                    stoppschild=False, zebra={'abstand': 0.3})))
+ok = not any(b['arm'] for b in befehle) and all(b['aktion'] == 'stopp' for b in befehle[1:])
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 Reproduktion: Armfreigabe + Posen + Zebra 0,30 m -> Halt ohne Armbefehl "
+      f"({[b['arm'] for b in befehle if b['arm']]})")
+
+
+def zebra_lauf(n, **w):
+    """Zebrastreifen in 0,30 m mit Armfreigabe und Posen; n Zyklen mit Wahrnehmung w. Rueckgabe: alle Befehle."""
+    lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+    lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+    return lauf, [lauf.schritt(1, zebra={'abstand': 0.3}, **w) for _ in range(n)]
+
+
+# negativ: ohne LiDAR-Daten (nur Kamera, leere Objektliste) -> Zeit allein gibt nicht frei
+lauf, folge = zebra_lauf(200)
+ok = all(x['aktion'] == 'stopp' and not x['arm'] for x in folge) and 'keine LiDAR-Daten' in folge[-1]['grund']
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 ohne LiDAR-Daten am Ueberweg -> bleibt stehen ({folge[-1]['grund']})")
+# negativ: LiDAR nur bei jedem zweiten Bild -> keine lueckenlose Beobachtung, bleibt stehen
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+folge = [lauf.schritt(1, zebra={'abstand': 0.3}, **(FREI if k % 2 else {})) for k in range(200)]
+ok = all(x['aktion'] == 'stopp' for x in folge)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 LiDAR mit Luecken -> bleibt stehen ({folge[-1]['grund']})")
+# negativ: keine neuen Bilder (Bildnummer bleibt, Aufnahmezeit frisch) -> bleibt stehen
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+nr = lauf.nr
+folge = [lauf.schritt(1, zebra={'abstand': 0.3}, bild_nr=nr, bild_zeit=lauf.t + 0.1, **FREI) for _ in range(200)]
+ok = all(x['aktion'] == 'stopp' and not x['arm'] for x in folge) and 'zu wenige neue Kamerabilder' in folge[-1]['grund']
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 keine neuen Kamerabilder -> bleibt stehen ({folge[-1]['grund']})")
+# negativ: veraltete Bilder (neue Nummer, alte Aufnahmezeit) -> bleibt stehen
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+t0 = lauf.t
+folge = [lauf.schritt(1, zebra={'abstand': 0.3}, bild_zeit=t0, **FREI) for _ in range(200)]
+ok = all(x['aktion'] == 'stopp' and not x['arm'] for x in folge)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 veraltete Kamerabilder -> bleibt stehen ({folge[-1]['grund']})")
+# negativ (Codex-Review PR #158): frisch ausgewertet, aber alte oder fehlende AUFNAHME -> bleibt stehen
+for name, aufnahme in (('Aufnahme 3 s alt', lambda lauf: lauf.t + 0.1 - 3.0), ('Aufnahme fehlt', lambda lauf: None)):
+    lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+    lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+    folge = [lauf.schritt(1, zebra={'abstand': 0.3}, aufnahme=aufnahme(lauf), **FREI) for _ in range(200)]
+    ok = all(x['aktion'] == 'stopp' for x in folge) and 'Aufnahmezeit' in folge[-1]['grund']
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} #70 {name} (Auswertung frisch) -> bleibt stehen ({folge[-1]['grund']})")
+# negativ (Codex-Review PR #158): genug freie Bilder gezaehlt, dann stockt die Kamera (gleiche Bildnummer, noch
+# frisch) und der LiDAR sieht jemanden am Ueberweg -> keine Freigabe, er wartet (LiDAR zaehlt in jedem Zyklus)
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+lauf.schritt(17, **FREI)                                           # 0,5 s Halt + mindestens 5 freie Bilder
+nr, t_bild = lauf.nr, lauf.t
+person = np.array([[0.36, 0.20], [0.37, 0.21]])
+folge = [lauf.schritt(1, bild_nr=nr, bild_zeit=t_bild, aufnahme=t_bild, **dict(FREI, lidar_xy=person))
+         for _ in range(12)]
+ok = all(x['aktion'] == 'stopp' for x in folge) and any('LiDAR' in x['grund'] for x in folge)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 Kamera stockt, LiDAR sieht jemanden -> keine Freigabe ({folge[-1]['grund']})")
+# negativ (Codex-Review PR #158): STOPP/TEST waehrend der Beobachtung -> Ablauf endet nicht im Stillstand,
+# nach START wird der Ueberweg neu beobachtet (nicht gesperrt/uebersprungen)
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+lauf.e.fahrt_aktiv = False
+lauf.schritt(200, **FREI)
+ok = lauf.e.ablauf is not None and lauf.e.ablauf.name == 'zebra' and not lauf.e.zebra_gesperrt
+lauf.e.fahrt_aktiv = True
+nach = [lauf.schritt(1, **FREI) for _ in range(60)]
+erst = next((i for i, x in enumerate(nach) if x['aktion'] == 'fahren'), None)
+ok = ok and erst is not None and erst * 0.1 >= 0.5 + STANDARD['zebra_schauen']
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 STOPP am Zebrastreifen -> nach START neu beobachtet (frei nach {erst} Zyklen)")
+# direkt am Ablauf (ohne den Frische-Halt des Entscheiders davor): alte Bilder, Kamera nicht vorne, keine neuen
+# Bilder geben nie frei; gueltige freie Beobachtung gibt frei. Nie ein Armbefehl.
+def ablauf_lauf(n, w_von):
+    a = Zebrastreifen(0.0, STANDARD, 0.3)
+    bs = [a.schritt(0.0, {})]
+    for k in range(1, n + 1):
+        t = 0.1 * k
+        b = a.schritt(t, w_von(k, t))
+        bs.append(b)
+        if b is None:
+            break
+    return a, bs
+
+
+faelle = {'alt': lambda k, t: dict(bild_nr=k, bild_zeit=t - 2.0, objekte=[], **FREI),
+          'kamera weg': lambda k, t: dict(bild_nr=k, bild_zeit=t, aufnahme=t, objekte=[], kamera_vorne=False, **FREI),
+          'kein neues Bild': lambda k, t: dict(bild_nr=1, bild_zeit=t, objekte=[], **FREI),
+          'leer ohne LiDAR': lambda k, t: dict(bild_nr=k, bild_zeit=t, aufnahme=t, objekte=[])}
+for name, w_von in faelle.items():
+    a, bs = ablauf_lauf(300, w_von)
+    ok = bs[-1] is not None and a.ergebnis is None and not any(b['arm'] for b in bs if b)
+    ok = ok and a.braucht_arm is False and a.arm_bewegt is False
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} #70 Ablauf direkt, {name} -> keine Freigabe ({bs[-1]['grund'] if bs[-1] else 'frei!'})")
+a, bs = ablauf_lauf(300, lambda k, t: dict(bild_nr=k, bild_zeit=t, aufnahme=t, objekte=[], **FREI))
+ok = bs[-1] is None and a.ergebnis == 'ok' and a.bilder >= STANDARD['anschauen_bilder']
+ok = ok and not any(b['arm'] for b in bs if b)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 Ablauf direkt, gueltige freie Beobachtung -> frei ({a.bilder} Bilder)")
+# positiv im ganzen Entscheider: gueltige freie Beobachtung mit LiDAR-Punkten (lidar_xy) -> weiter, ohne Arm
+lauf, folge = zebra_lauf(80, lidar_xy=wand)
+ok = folge[-1]['aktion'] == 'fahren' and not any(x['arm'] for x in folge)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 gueltige freie Beobachtung (LiDAR-Punkte) -> weiter ohne Arm ({folge[-1]['grund']})")
+# Codex-Review PR #154: Ausfall WAEHREND des Beobachtens (Entscheider haelt vorher, ruft den Ablauf nicht auf) ->
+# gezaehlte Bilder verfallen; nach der Rueckkehr braucht er wieder anschauen_bilder neue gueltige Bilder
+for name, ausfall in (('LiDAR-Ausfall', lambda lauf: dict(lidar=None)),
+                      ('keine frischen Bilder', lambda lauf: dict(bild_zeit=lauf.t - 3.0)),
+                      ('Notbremse', lambda lauf: dict(lidar=0.05))):
+    lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+    lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+    lauf.schritt(9, zebra={'abstand': 0.3}, **FREI)                   # 0,5 s Halt + 4 gueltige Bilder
+    vorher = lauf.e.ablauf.bilder if lauf.e.ablauf else -1
+    for _ in range(30):
+        lauf.schritt(1, zebra={'abstand': 0.3}, **dict(FREI, **ausfall(lauf)))
+    nach = [lauf.schritt(1, zebra={'abstand': 0.3}, **FREI) for _ in range(20)]
+    erst = next((i for i, x in enumerate(nach) if x['aktion'] == 'fahren'), None)
+    ok = 0 < vorher < STANDARD['anschauen_bilder'] and erst is not None and erst + 1 >= STANDARD['anschauen_bilder']
+    ok = ok and not any(x['arm'] for x in nach)
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} #70 {name} beim Beobachten -> Zaehlung neu ({vorher} Bilder verfallen, "
+          f"frei erst im {erst + 1 if erst is not None else '-'}. neuen Zyklus)")
+# Armschalter waehrend des Halts aus: Zebrastreifen bleibt (kein Arm-Ablauf), haelt weiter bis frei
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(3, zebra={'abstand': 0.3}, **FREI)
+lauf.e.arm_freigabe = False
+b = lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+ok = b['aktion'] == 'stopp' and lauf.e.ablauf is not None and lauf.e.ablauf.name == 'zebra'
+ok = ok and lauf.schritt(80, zebra={'abstand': 0.3}, **FREI)['aktion'] == 'fahren'
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 Armschalter am Zebrastreifen aus -> haelt weiter, dann weiter wenn frei")
 
 # ---------------- Einbahnstrasse ----------------
 l = Lauf()
