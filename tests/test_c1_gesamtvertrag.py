@@ -20,10 +20,77 @@ def read(path):
     return json.loads((ROOT / path).read_text(encoding='utf-8'), parse_float=Decimal)
 
 
+def arm_bauwert():
+    d = neutralisiere(read('tests/fixtures/grundbetrieb/stillstand.json'))
+    clock = 'synthetic-device-clock-0001'
+    owner = dict(robot_id='RM02', producer_id='synthetic-arm-a', producer_boot_id='synthetic-arm-a-start')
+    command_ref = dict(robot_id='RM02', producer_id='synthetic-arm-b', producer_boot_id='synthetic-arm-b-start', command_seq=1)
+    operation = dict(robot_id='RM02', producer_id='synthetic-arm-b', producer_boot_id='synthetic-arm-b-start', operation_id='synthetic-op')
+    obj = dict(robot_id='RM02', producer_id='synthetic-objects', producer_boot_id='synthetic-objects-start', object_id='synthetic-object')
+    target = dict(coord_frame='robot', calibration_version='synthetic-cal',
+        values={'x': {'value': Decimal('.1'), 'unit': 'm'}}, status='valid', reason=None)
+    command = dict(contract_version='2.0', **command_ref, time_basis_id=clock,
+        generated_mono_s=1199, valid_until_mono_s=1201, operation_ref=operation,
+        object_ref=obj, action='greifen', target=target)
+    eref = dict(**owner, domain='arm', evaluation_seq=1)
+    output_ref = dict(robot_id='RM02', producer_id='synthetic-arm-output', producer_boot_id='synthetic-arm-output-start', output_seq=1)
+    arm = d['arm']
+    arm['request'] = copy.deepcopy(command)
+    arm['output'] = dict(**output_ref, time_basis_id=clock, issued_mono_s=1200,
+        action='greifen', target=copy.deepcopy(target), command_ref=command_ref, command_reason=None,
+        operation_ref=operation, object_ref=obj, evaluation_ref=eref, status='valid', reason=None)
+    arm['release'] = dict(owner_ref=owner, decision_seq=1, evaluation_ref=eref,
+        time_basis_id=clock, evaluated_mono_s=1200, decision='allowed', command_ref=command_ref,
+        command_reason=None, output_ref=output_ref, output_reason=None, status='valid', reason=None)
+    arm['blocks'] = dict(producer_id=owner['producer_id'], producer_boot_id=owner['producer_boot_id'],
+        seq=1, evaluation_ref=eref, time_basis_id=clock, evaluated_mono_s=1200, entries=[],
+        stop_latched=dict(value=False, status='valid', reason=None),
+        fault_latched=dict(value=False, status='valid', reason=None), status='valid', reason=None)
+    arm['package_use'] = dict(mode='current', reason=None, evaluation_ref=eref)
+    context = dict(bindings={'arm': {**owner, 'time_basis_id': clock}, 'arm_command': {'targetless_actions': []}},
+        commands=(copy.deepcopy(command),), current_command_ref=command_ref,
+        component_units={('robot', 'synthetic-cal'): {'x': 'm'}})
+    return d, context
+
+
 class Gesamtvertrag(unittest.TestCase):
     def setUp(self):
         self.context = synthetischer_raeumkontext()
         self.schema = read('schemas/grundbetrieb-v2.schema.json')
+
+    def test_aktuelle_armziele_und_ausgabeinhalt_durch_alle_einstiege(self):
+        d, context = arm_bauwert()
+        ctx = V.RaeumKontext(**context)
+        self.assertEqual(V.pruefe(d, raeum_kontext=ctx), [])
+        self.assertEqual(V.lade_json(V.als_json(d, raeum_kontext=ctx), raeum_kontext=ctx), d)
+        if jsonschema:
+            self.assertEqual(list(jsonschema.Draft202012Validator(self.schema).iter_errors(d)), [])
+        for field in ('action', 'target', 'operation_ref', 'object_ref'):
+            bad = copy.deepcopy(d)
+            if field == 'action': bad['arm']['output'][field] = 'ablegen'
+            elif field == 'target': bad['arm']['output']['target']['values']['x']['value'] = Decimal('.2')
+            else: bad['arm']['output'][field][('operation_id' if field == 'operation_ref' else 'object_id')] = 'other'
+            with self.subTest(field=field):
+                self.assertTrue(V.pruefe(bad, raeum_kontext=ctx))
+                with self.assertRaises(ValueError): V.als_json(bad, raeum_kontext=ctx)
+                with self.assertRaises(ValueError): V.lade_json(V._json_wert(bad), raeum_kontext=ctx)
+        for output in (True, False):
+            bad, context = arm_bauwert()
+            unknown = dict(coord_frame='robot', calibration_version='synthetic-cal', values=None,
+                           status='unknown', reason='TARGET_UNPROVEN')
+            bad['arm']['request']['target'] = copy.deepcopy(unknown)
+            context['commands'][0]['target'] = copy.deepcopy(unknown)
+            if output: bad['arm']['output']['target'] = unknown
+            else:
+                bad['arm']['output'] = None
+                bad['arm']['release'].update(output_ref=None, output_reason='NOT_ISSUED')
+            ctx = V.RaeumKontext(**context)
+            with self.subTest(output=output):
+                self.assertTrue(V.pruefe(bad, raeum_kontext=ctx))
+                with self.assertRaises(ValueError): V.als_json(bad, raeum_kontext=ctx)
+                with self.assertRaises(ValueError): V.lade_json(V._json_wert(bad), raeum_kontext=ctx)
+                if jsonschema:
+                    self.assertTrue(list(jsonschema.Draft202012Validator(self.schema).iter_errors(bad)))
 
     def test_aktuelle_erlaubnis_ignoriert_keine_unbrauchbare_relevante_sperre(self):
         for status in ('invalid', 'unknown', 'missing', 'stale'):

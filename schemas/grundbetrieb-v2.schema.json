@@ -2086,7 +2086,51 @@
           ]
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "valid"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "#/$defs/c1_components"
+                      },
+                      {
+                        "properties": {
+                          "status": {
+                            "const": "valid"
+                          },
+                          "values": {
+                            "type": "object",
+                            "minProperties": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "$comment": "Runtime checks action/target/operation_ref/object_ref against the full resolved command; target=null requires an explicitly supplied targetless action binding. JSON Schema cannot compare referenced values or external action bindings."
     },
     "c1_arm_command": {
       "type": "object",
@@ -2384,6 +2428,69 @@
                         }
                       }
                     }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "package_use": {
+                "properties": {
+                  "mode": {
+                    "const": "current"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "release": {
+                "properties": {
+                  "decision": {
+                    "const": "allowed"
+                  }
+                },
+                "required": [
+                  "decision"
+                ]
+              }
+            },
+            "required": [
+              "package_use",
+              "release"
+            ]
+          },
+          "then": {
+            "properties": {
+              "request": {
+                "properties": {
+                  "target": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "allOf": [
+                          {
+                            "$ref": "#/$defs/c1_components"
+                          },
+                          {
+                            "properties": {
+                              "status": {
+                                "const": "valid"
+                              },
+                              "values": {
+                                "type": "object",
+                                "minProperties": 1
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    ]
                   }
                 }
               }
