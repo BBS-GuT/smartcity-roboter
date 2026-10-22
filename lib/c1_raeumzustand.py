@@ -509,6 +509,8 @@ class _Check:
                 for k in ('v_m_s', 'w_rad_s'):
                     if ov and not _finite(out.get(k)):
                         self.fail(p + '.output.' + k, 'gueltige SI-Ausgabe erforderlich')
+                    elif ov and not (-1 if k == 'v_m_s' else -10) <= out[k] <= (1 if k == 'v_m_s' else 10):
+                        self.fail(p + '.output.' + k, 'SI-Ausgabe ausserhalb des vereinbarten Bereichs')
                     elif not ov and out.get(k) is not None:
                         self.fail(p + '.output.' + k, 'unbekannte Ausgabe ist null')
                 moving = ov and all(_finite(out.get(k)) for k in ('v_m_s', 'w_rad_s')) and (out.get('v_m_s') != 0 or out.get('w_rad_s') != 0)
@@ -555,6 +557,15 @@ class _Check:
                 self.fail(p + '.package_use', 'Erlaubnis/Ausgabe ohne belegten Verwendungsbezug')
         if moving and release.get('decision') != 'allowed':
             self.fail(p + '.output', 'fahrende Ausgabe braucht allowed')
+        if use.get('mode') == 'current' and ref is not None:
+            inline = block.get('request')
+            if not isinstance(inline, dict) or self.identity(inline, key) != ref:
+                self.fail(p + '.request', 'aktueller wunschgebundener Bezug braucht unveraenderten eingebetteten Wunsch')
+            else:
+                register = self.c.requests if domain == 'motion' else self.c.commands
+                registered = self.find(register, ref, key)
+                if registered is not None and inline != registered:
+                    self.fail(p + '.request', 'eingebetteter Wunsch weicht vom bestaetigten Inhalt ab')
         if use.get('mode') == 'current' and not rv:
             self.fail(p + '.package_use', 'aktuelles Paket braucht gueltige Ergebnisdaten')
         for known in self.c.evaluations:
@@ -647,6 +658,16 @@ def pruefe_raeumzustand(zustand, *, kontext=None):
     return _Check(zustand, kontext).run()
 
 
+def _current_request_rule(key):
+    return {
+        'if': {'properties': {
+            'package_use': {'properties': {'mode': {'const': 'current'}}, 'required': ['mode']},
+            'release': {'properties': {key + '_ref': {'type': 'object'}}, 'required': [key + '_ref']},
+        }, 'required': ['package_use', 'release']},
+        'then': {'properties': {'request': {'type': 'object'}}, 'required': ['request']},
+    }
+
+
 def _schema_defs():
     text = {'type': 'string', 'minLength': 1}
     nullable_text = {'anyOf': [text, {'type': 'null'}]}
@@ -690,13 +711,15 @@ def _schema_defs():
         props = {k: text for k in BASE}
         props.update({'output_seq': integer, 'time_basis_id': nullable_text, 'issued_mono_s': maybe(time), key + '_ref': ref(key + '_ref', True), key + '_reason': nullable_text, 'evaluation_ref': ref('evaluation_ref', True), **q})
         if domain == 'motion':
-            props.update({'v_m_s': maybe(number), 'w_rad_s': maybe(number)})
+            props.update({'v_m_s': maybe({'type': 'number', 'minimum': -1, 'maximum': 1}),
+                          'w_rad_s': maybe({'type': 'number', 'minimum': -10, 'maximum': 10})})
         else:
             props.update({'action': nullable_text, 'target': ref('components', True), 'operation_ref': ref('operation_ref', True), 'object_ref': ref('object_ref', True)})
         defs['c1_' + domain + '_output'] = obj(props)
     defs['c1_arm_command'] = obj({'contract_version': {'const': '2.0'}, **{k: text for k in BASE}, 'command_seq': integer, 'time_basis_id': text, 'generated_mono_s': time, 'valid_until_mono_s': time, 'operation_ref': ref('operation_ref'), 'object_ref': ref('object_ref'), 'action': text, 'target': ref('components', True)})
     defs['c1_arm_ack'] = obj({'output_ref': ref('output_ref', True), 'time_basis_id': nullable_text, 'received_mono_s': maybe(time), **q})
     defs['c1_arm'] = obj({'request': ref('arm_command', True), 'output': ref('arm_output', True), 'release': ref('arm_release'), 'blocks': ref('blocks'), 'package_use': ref('package_use'), 'ack': ref('arm_ack', True), 'measured': ref('measurements'), 'load': ref('measurements')})
+    defs['c1_arm']['allOf'] = [_current_request_rule('command')]
     defs['c1_observation'] = obj({'observation_ref': ref('observation_ref'), 'object_ref': ref('object_ref'), 'frame_ref': ref('frame_ref'), 'detail_ref': ref('detail_ref', True), 'time_basis_id': nullable_text, 'captured_mono_s': maybe(time), 'received_mono_s': maybe(time), 'class_value': nullable_text, 'class_status': q['status'], 'class_reason': nullable_text, 'spatial': ref('components'), **q})
     defs['c1_estimate'] = obj({'estimate_ref': ref('estimate_ref'), 'object_ref': ref('object_ref'), 'observation_ref': ref('observation_ref'), 'odometry_ref': ref('frame_ref', True), 'time_basis_id': nullable_text, 'estimated_mono_s': maybe(time), 'spatial': ref('components'), 'uncertainty': ref('components'), **q})
     defs['c1_evidence_link'] = obj({'ref': ref('evidence_ref', True), **q})
@@ -716,6 +739,7 @@ def _schema_defs():
 
 
 SCHEMA_DEFS = _schema_defs()
+SCHEMA_MOTION_REQUEST_RULE = _current_request_rule('request')
 
 
 def unbekannte_bloecke():

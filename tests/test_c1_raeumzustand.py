@@ -135,14 +135,61 @@ class Raeumdaten(unittest.TestCase):
         s = state()
         kind = 'request' if domain == 'motion' else 'command'
         r = {**ref(kind + '_seq', producer='b'), 'time_basis_id': 'clock', 'generated_mono_s': 99, 'valid_until_mono_s': 101}
+        if domain == 'motion':
+            r.update({'contract_version': '2.0', 'request_id': 'demo-request', 'v_m_s': 0,
+                      'w_rad_s': 0, 'maneuver': None, 'hold_reasons': []})
+        else:
+            r.update({'contract_version': '2.0', 'operation_ref': ref('operation_id', 'op', 'b'),
+                      'object_ref': ref('object_id', 'object', 'objects'), 'action': 'greifen', 'target': None})
         rr = {k: r[k] for k in ('robot_id', 'producer_id', 'producer_boot_id', kind + '_seq')}
         b = package(s, domain, 'allowed', output, rr)
+        s[domain]['request'] = copy.deepcopy(r)
+        if domain == 'arm':
+            b['arm_command'] = {'targetless_actions': ['greifen']}
         kw = {'bindings': b, 'requests' if domain == 'motion' else 'commands': (r,), 'current_request_ref' if domain == 'motion' else 'current_command_ref': rr}
         return s, kw
 
     def test_current_allowed_without_output_does_not_invent_issue_time(self):
         s, kw = self.allowed()
         self.assertEqual(self.check(s, **kw), [])
+
+    def test_current_request_cannot_be_omitted_despite_external_resolution(self):
+        for domain in ('motion', 'arm'):
+            s, kw = self.allowed(domain)
+            self.assertEqual(self.check(s, **kw), [])
+            s[domain]['request'] = None
+            self.assertTrue(any('eingebetteten Wunsch' in e for e in self.check(s, **kw)))
+            s[domain]['package_use'].update({'mode': 'historical', 'reason': 'DIAGNOSTIC'})
+            if domain == 'motion':
+                s['runtime'].update({'evaluation_ref': None, 'stop_latched': None, 'fault_latched': None})
+            self.assertEqual(self.check(s, **kw), [])
+
+    def test_motion_output_inclusive_bounds_and_overflows(self):
+        for field, bound in (('v_m_s', 1), ('w_rad_s', 10)):
+            for sign in (-1, 1):
+                s, kw = self.allowed(output=True)
+                s['motion']['output'][field] = sign * bound
+                self.assertEqual(self.check(s, **kw), [])
+                s['motion']['output'][field] = sign * (Decimal(bound) + Decimal('.000000001'))
+                self.assertTrue(any('Bereichs' in e for e in self.check(s, **kw)))
+            s, kw = self.allowed(output=True)
+            s['motion']['output'][field] = 999
+            self.assertTrue(any('Bereichs' in e for e in self.check(s, **kw)))
+
+    def test_motion_output_schema_bounds(self):
+        try:
+            from jsonschema import Draft202012Validator
+        except ImportError:
+            self.skipTest('optionale jsonschema-Abhaengigkeit fehlt')
+        validator = Draft202012Validator({'$defs': SCHEMA_DEFS, '$ref': '#/$defs/c1_motion_output'})
+        for field, bound in (('v_m_s', 1), ('w_rad_s', 10)):
+            s, _ = self.allowed(output=True)
+            out = s['motion']['output']
+            for sign in (-1, 1):
+                out[field] = sign * bound
+                self.assertEqual(list(validator.iter_errors(out)), [])
+                out[field] = sign * (Decimal(bound) + Decimal('.000000001'))
+                self.assertTrue(list(validator.iter_errors(out)))
 
     def test_allowed_without_explicit_acceptance_cannot_be_current(self):
         s, kw = self.allowed()
