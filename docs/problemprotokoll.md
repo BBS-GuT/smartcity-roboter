@@ -43,6 +43,46 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 - **Lösung:** Strecke bei jedem Phasenwechsel neu zählen.
 - **Status:** nur Test.
 
+## 22.10.2026, RM02: Positionieren vor dem Greifen gibt auf (v. a. in Kurven)
+
+- **Ursache (aus ki.log):** Bei 33–34 cm wechselten „schaue hin“ (STOPP) und „fahre“ im Bildtakt: jedes Bild ohne
+  KI-Treffer hielt ihn an und setzte Drehen/Seitwärts auf 0. Kleine Korrekturen (unter ca. 2 cm/s) bewegen die Motoren
+  vermutlich kaum. Ein einzelner Ausreißer setzte „ruhig“ zurück. Nach 15 s Abbruch, dann Warten.
+  Zusätzlich blockierte der Linienfolger KI-Manöver, sobald seine eigenen Bilder aussetzten.
+- **Lösung:** Median der letzten 3 Messungen; kurze Lücken (0,4 s) halten das letzte Manöver; Mindesttempo
+  (`greif_min_*`); 25 s statt 15 s; frisches KI-Manöver gilt auch ohne Linienbilder (Aufnahme des KI-Bilds laut Kamerastempel ≤ 0,5 s, Notbremse zuerst).
+- **Status:** nur Test (`tests/test_raeumen_positionieren.py`, Totzone im Test angenommen). Am Roboter prüfen: Würfel in
+  der Kurve → richtet sich aus und greift; Mindesttempo bewegt ihn wirklich.
+
+## 22.10.2026, RM02: nie abgebogen
+
+- **Ursache (Simulation):** Abzweige wurden nicht erkannt: Äste mussten 10 cm lang zu sehen sein (die Kamera sieht nur
+  ca. 20 cm Boden), die Suche begann an der erwarteten Linie hinter dem Abzweigpunkt, ein Ast zum Roboter zurück
+  beendete die Suche, und eine Linie, die 1 Pixel vor dem fernen Bildrand endete, galt nicht als Ausfahrt.
+- **Lösung:** `ast_min` 5 cm, Suche ab dem Roboter, weiter außen weitersuchen, ferner Bildrand 2 Pixel (32 mm)
+  breit (seitlich 1 Pixel).
+- **Grenze:** Eine Haltelinie, die bis an den seitlichen Bildrand reicht (ab ca. 18–20 cm je Seite), kann als
+  Ausfahrt gelten (war vorher auch so, in der Simulation etwas seltener). Maße der realen Haltelinien offen (E1).
+- **Status:** nur Test (`tests/test_kreuzung.py`). Am Roboter prüfen: Log „Kreuzung: Aeste … zufaellig gewaehlt“ an jeder
+  Kreuzung. Kamerahöhe/-neigung nachmessen (docs/linie.md).
+
+## 22.10.2026, RM02: Kamera liefert oft keine Bilder
+
+- **Ursache (vermutet):** Kamera an USB 2.0 mit Farbe 30 fps (MJPG), Tiefe und ungenutztem Infrarot.
+- **Lösung:** `scripts/kamera.sh` startet ohne Infrarot und mit 15 fps Farbe; der Linienfolger spart die Liniensuche,
+  solange der Arm die Kamera wegdreht.
+- **Status:** ungeprüft. Am Roboter prüfen: Startet die Kamera mit diesen Werten (Log „stream color … fps: 15“, kein ir)?
+  Falls nicht: `scripts/kamera.sh color_fps:=30`.
+
+## 22.10.2026, RM02: Person oder Tier irgendwo im Bild stoppt ihn weiter
+
+- **Ursache:** Trotz `akteur_nah` (1 m) hielt er beim Wegräumen bei jeder Person/jedem Tier an (Tiefe im Kasten oft
+  unsicher → zählt als nah) und fasste Hindernisse nicht an, die die KI für eine Person hielt.
+- **Lösung (Entscheidung Projektinhaber):** Sperre ganz aus, Parameter `akteure_beachten` (Standard `false`):
+  Personen/Tiere/Fahrzeuge zählen weder beim Wegräumen noch als „KI sieht im Weg“. LiDAR und Tiefenkamera erkennen
+  Hindernisse weiter. Zebrastreifen wartet weiter auf Spielfiguren.
+- **Status:** nur Test (`tests/test_akteur_nah.py`). Am Roboter prüfen: Person im Bild → räumt weiter.
+
 ## 21.10.2026, Personen im Hintergrund stoppen das Wegräumen
 
 - **Ursache:** Jede erkannte Person/jedes Tier/Fahrzeug im ganzen Bild zählte, auch weit hinten.

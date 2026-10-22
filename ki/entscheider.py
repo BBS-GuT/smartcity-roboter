@@ -80,6 +80,13 @@ STANDARD = {
                                # 6 cm waren zu grob, RM02 21.10.)
     'greif_winkel': 0.10,      # Roboter steht schraeger als das (rad, ca. 6 Grad) zur Strasse am Hindernis (Kurve)
                                # -> erst gerade drehen, dann greifen
+    # Kleine Korrekturen beim Heranfahren mindestens so schnell: darunter bewegen sich die Motoren kaum (RM02 22.10.:
+    # stand bei 33 cm, korrigierte 15 s lang ohne Wirkung). Geschaetzt, am Roboter nicht gemessen.
+    'greif_min_lin': 0.015,    # m/s
+    'greif_min_quer': 0.02,    # m/s
+    'greif_min_dreh': 0.15,    # rad/s
+    'greif_luecke': 0.4,       # so lange (s) ohne KI-Treffer das letzte Manoever weiterfahren statt anzuhalten
+    'greif_dauer': 25.0,       # in Greifweite fahren hoechstens so lange (s)
     'blind_warten': 1.0,       # Hindernis beim Heranfahren so lange (s) nicht gesehen, laut Radzaehler in Greifweite
                                # -> mit der letzten Messung greifen (niedrige Gegenstaende verschwinden frueh)
     'kontrolle_zeit': 1.5,     # nach dem Wegraeumen so lange pruefen, ob der Weg frei ist (s)

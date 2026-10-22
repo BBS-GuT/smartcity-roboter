@@ -57,7 +57,9 @@ STANDARD = {
     'such_dreh': 0.7,         # Drehgeschwindigkeit beim Suchen (rad/s)
     # Kreuzungen
     'abbiegen': True,         # an Kreuzungen zufaellig abbiegen (False = immer dem bisherigen Verlauf nach)
-    'ast_min': 0.10,          # ein Ast der Kreuzung muss mindestens so lang zu sehen sein (m), sonst Stummel
+    'ast_min': 0.05,          # ein Ast der Kreuzung muss mindestens so lang zu sehen sein (m), sonst Stummel. Kurz,
+                              # weil die Kamera nur ca. 22 cm Boden sieht (RM02 22.10.: Abzweige nie erkannt);
+                              # Haltelinien filtert die Regel "Ast muss aus dem Bild hinauslaufen"
 }
 
 
@@ -128,8 +130,12 @@ class LinienSucher:
         sicht[int(oben):] = 1
         sicht = cv2.warpPerspective(sicht, self.H, (bw, bh), flags=cv2.INTER_NEAREST)
         klein = cv2.resize(sicht, (bw // 4, bh // 4), interpolation=cv2.INTER_AREA) > 0
-        self.sicht_rand = klein & ~(cv2.erode(klein.astype(np.uint8), np.ones((3, 3), np.uint8),
-                                              borderValue=0) > 0)
+        # Am fernen Bildrand wird die Linie unscharf und endet oft knapp davor: dort 2 Pixel (32 mm) breit. Nur in
+        # Fahrtrichtung verbreitert - an den (steilen) Seitenraendern bleibt er ca. 1 Pixel, sonst gaelte eine lange
+        # Haltelinie, die kurz vor dem seitlichen Bildrand endet, als Ausfahrt (Review PR #126)
+        innen = cv2.erode(klein.astype(np.uint8), np.ones((3, 3), np.uint8), borderValue=0)
+        innen = cv2.erode(innen, np.ones((3, 1), np.uint8), borderValue=0)
+        self.sicht_rand = klein & ~(innen > 0)
 
     def _zu_raster(self, x, y):
         return ((self.SEITE - y) / self.RASTER, (self.VORNE[1] - x) / self.RASTER)
@@ -207,7 +213,7 @@ class LinienSucher:
                 aeste.append((richtung, cv2.resize((etik == j).astype(np.uint8), (w, h),
                                                     interpolation=cv2.INTER_NEAREST).astype(bool) & teil))
             if len(aeste) < 2:
-                return None
+                continue                                 # z. B. nur Stamm zurueck + ein Ast: weiter aussen suchen
             stamm = cv2.resize(((stufe >= 0) & (stufe < grenze)).astype(np.uint8), (w, h),
                                interpolation=cv2.INTER_NEAREST).astype(bool) & teil
             return stamm, aeste, bx
@@ -299,7 +305,9 @@ class LinienSucher:
         if beste is None:
             self._keine_kreuzung(kamera_ok)
             return erg
-        teil = self._abbiegen(etiketten == beste, (zx, zy), gier, erg, kamera_ok)
+        # Kreuzung von der Linie direkt vor dem Roboter aus messen (Startpunkt naechster Linienpunkt zum Roboter):
+        # von der Erwartung (30 cm) aus lag der Start oft schon hinter dem Abzweig
+        teil = self._abbiegen(etiketten == beste, self._zu_raster(0.0, 0.0), gier, erg, kamera_ok)
         a = abstand * teil
         grat = teil & (a >= 0.6 * a.max())                     # Mittellinie (Grat der Abstandskarte)
         ys, xs = np.nonzero(grat)

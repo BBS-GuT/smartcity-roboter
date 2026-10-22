@@ -62,7 +62,7 @@ import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
-from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
+from ablaeufe import LEBEWESEN, FAHRZEUGE, akteur_einordnen  # noqa: E402
 
 # Diese Dinge fuehren zum Anhalten, wenn die Kamera-KI sie im Weg sieht. Nur Verkehrsteilnehmer:
 # Moebel/Gegenstaende (Stuhl, Flasche ...) erkennt YOLO oft falsch, z. B. die schwarze Kurve als "Stuhl".
@@ -116,6 +116,10 @@ class Zentrale(Node):
         # Wegraeumen: nur Personen/Tiere/Fahrzeuge zaehlen, die so nah sind (m ab Kamera, Tiefenkamera). Weiter weg
         # (Hintergrund) halten sie das Wegraeumen nicht auf. Ohne sichere Tiefe im Kasten zaehlen sie (vorsichtig).
         dp('akteur_nah', 1.0)
+        # Projektinhaber 22.10.: Personen/Tiere/Fahrzeuge halten ihn nicht auf (es gibt noch keine auf dem Brett, der
+        # Roboter ist ungefaehrlich). False: sie zaehlen weder als 'nah' (Wegraeumen wartet nicht, faesst an) noch als
+        # 'im Weg'. Hindernisse sehen LiDAR und Tiefenkamera weiter. Zebrastreifen wartet weiter auf Spielfiguren.
+        dp('akteure_beachten', False)
         # Nur diese KI-Klassen gibt es in der SmartCity (Projektinhaber 21.10.: Spielfiguren, Ampeln, Stoppschilder;
         # Einbahnschilder erkennt schilder.py). Alles andere (Vogel, Auto, Stuhl ...) waren Fehlerkennungen oder
         # Dinge neben dem Spielfeld -> verworfen. Teddy: so erkennt das Modell Spielfiguren manchmal. Leer = alle.
@@ -490,8 +494,8 @@ class Zentrale(Node):
             if o['name'] in LEBEWESEN | FAHRZEUGE:
                 # Abstand ab Kamera (egal, wohin der Arm sie gerade richtet): nur Nahe zaehlen beim Wegraeumen.
                 # Ohne passende Tiefe: unsicher -> nah
-                o['abstand'] = abstand_im_kasten(d_akteur, o['box'], (h, w))
-                o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
+                akteur_einordnen(o, abstand_im_kasten(d_akteur, o['box'], (h, w)), self.p('akteure_beachten'),
+                                 self.p('akteur_nah'))
                 o['spielfigur'] = spielfigur(o['box'], o['abstand'], (h, w), self.p('kamera_fov'),
                                              self.p('figur_max_hoehe'))
         tiefe_hindernis, tiefe_obj, blick, pruef_tiefe = None, None, None, None
@@ -519,7 +523,10 @@ class Zentrale(Node):
         self.ki_ms = (time.time() - t0) * 1000
         with self.lock:
             nr = self.wahrnehmung['bild_nr'] + 1
-            self.wahrnehmung = {'bild_nr': nr, 'bild_zeit': time.time(), 'objekte': objekte,
+            jetzt = time.time()
+            a = stempel(msg)                    # Aufnahmezeit des Farbbilds (gleiche Uhr), nur wenn plausibel
+            aufnahme = a if a is not None and a > 0 and 0.0 <= jetzt - a < 5.0 else None
+            self.wahrnehmung = {'bild_nr': nr, 'bild_zeit': jetzt, 'aufnahme': aufnahme, 'objekte': objekte,
                                 'ampel': ampel_farbe, 'ampel_quelle': ampel_quelle,
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
@@ -623,6 +630,9 @@ class Zentrale(Node):
             'ki': self.yolo.backend if self.yolo else self.yolo_fehler, 'ki_ms': round(self.ki_ms),
             'takt_max_ms': round(self.takt_max * 1000),
             'bild_alter': round(jetzt - w['bild_zeit'], 2) if w['bild_zeit'] else None,
+            # Aufnahmezeit des zuletzt ausgewerteten Farbbilds (None: Stempel fehlt/ungueltig). Der Linienfolger laesst
+            # KI-Manoever ohne eigene Bilder nur zu, wenn diese Aufnahme frisch ist.
+            'aufnahme': w.get('aufnahme'),
             'lidar': None if w['lidar'] is None else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
             'ampel': w['ampel'], 'ampel_quelle': w.get('ampel_quelle'),
             'stoppschild': w['stoppschild'], 'schild_quelle': w.get('schild_quelle'),
