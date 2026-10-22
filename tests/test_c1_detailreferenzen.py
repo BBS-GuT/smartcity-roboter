@@ -22,8 +22,16 @@ The standalone assessment does not mutate status, candidate, or context. Strict
 state/JSON paths reject an asserted valid if the assessment cannot confirm it;
 honest unknown/missing remain representable without inventing evidence.
 
-Implementation order after permission: adopt actual #149 exact-time helpers and
-fixture loader; detail structure/null rules; contextual comparison with independent
+Read-only foundation candidate: PR #151, head
+1a90143f98c0d78c7bb7b944e5facb8a6b285de1 (not yet assigned/accepted).
+Reuse its public sekunden_aus_ns(integer_ns), zeit_ns(exact_seconds),
+alter_s(state, now), lade_json(text), als_json(state). No parallel number parser,
+ns conversion, or JSON writer. Candidate vector files are deliberately read with
+standard json.loads(parse_float=Decimal); public state acceptance/roundtrips use
+V.pruefe / V.lade_json / V.als_json. Do not call its private _json_wert.
+
+Implementation order after permission: confirm the final delivered #149 helpers
+and fixture setup; detail structure/null rules; contextual comparison with independent
 records + budget; strict context forwarding through all three public entries;
 v2 detail schema and documentation; seven active detail fixture conversions and
 only necessary existing test setup updates. Then run all C1 regressions + schema.
@@ -116,6 +124,8 @@ class DetailLaufzeit(unittest.TestCase):
         self.assertEqual(V.SCHEMA_VERSION, '2.0', '#149 foundation not delivered here')
         self.assertTrue(callable(getattr(V, 'pruefe_detailreferenz', None)),
                         '#150 contextual API not implemented yet')
+        for name in ('sekunden_aus_ns', 'zeit_ns', 'lade_json', 'als_json'):
+            self.assertTrue(callable(getattr(V, name, None)), name)
         # Freeze trusted evidence BEFORE each candidate is read or mutated.
         self.context = read_fixture('context')
         self.saved_context = copy.deepcopy(self.context)
@@ -140,7 +150,8 @@ class DetailLaufzeit(unittest.TestCase):
                             self.state['sensors']['camera']['producer_boot_id'])
         result = self.assess(d)
         self.assertEqual(result['status'], 'valid')
-        self.assertEqual(result['age_s'], Decimal('0.2'))
+        self.assertEqual(result['age_s'], V.sekunden_aus_ns(200000000))
+        self.assertEqual(V.zeit_ns(result['age_s']), 200000000)
         self.assertEqual(result['context']['context_id'], self.context['context_id'])
         for key in ('robot_id', 'state_boot_id', 'time_basis_id'):
             self.assertEqual(result['context'][key], self.context[key])
@@ -197,7 +208,7 @@ class DetailLaufzeit(unittest.TestCase):
         self.assertIsNone(result['age_s'])
         for field in ('captured_mono_s', 'received_mono_s'):
             d = copy.deepcopy(self.cases['camera'])
-            d[field] = Decimal('105.000000001')
+            d[field] = V.sekunden_aus_ns(105000000001)
             self.assertEqual(self.assess(d)['status'], 'invalid')
 
     def test_missing_budget_and_context_cannot_certify_valid(self):
@@ -213,7 +224,7 @@ class DetailLaufzeit(unittest.TestCase):
     def test_exact_budget_at_boundary_and_one_ns_below(self):
         # Same known frame: changing only explicit budget avoids inventing records.
         self.assertEqual(self.assess(self.cases['camera'])['status'], 'valid')
-        self.context['age_budgets_s']['color'] = Decimal('0.199999999')
+        self.context['age_budgets_s']['color'] = V.sekunden_aus_ns(199999999)
         self.assertEqual(self.assess(self.cases['camera'])['status'], 'stale')
 
     def test_reception_does_not_refresh_an_old_capture(self):
@@ -241,15 +252,19 @@ class DetailLaufzeit(unittest.TestCase):
         self.assertEqual(self.assess(old)['status'], 'invalid')
 
     def full_state(self, details):
-        # Revisit this setup ONLY after actual #149 loader/helper delivery.
+        # Confirm this setup against the assigned #149 delivery before runtime work.
+        # Raw base fixture construction is not public state acceptance: the tests
+        # below exercise all three validating public entries with explicit context.
         d = json.loads((ROOT / 'tests/fixtures/grundbetrieb/stillstand.json').read_text(
             encoding='utf-8'), parse_float=Decimal)
         d.update({k: v for k, v in self.state.items() if k != 'sensors'})
         # Unrelated valid fixture sources use the same synthetic local time window.
         for q in d['sensors'].values():
             if q['status'] != 'missing':
-                q.update(time_basis_id='clock-1', captured_mono_s=Decimal('104.9'),
-                         received_mono_s=Decimal('104.95'), age_s=Decimal('0.1'))
+                q.update(time_basis_id='clock-1',
+                         captured_mono_s=V.sekunden_aus_ns(104900000000),
+                         received_mono_s=V.sekunden_aus_ns(104950000000),
+                         age_s=V.sekunden_aus_ns(100000000))
         d['sensors'].update(copy.deepcopy(self.state['sensors']))
         d['details'] = [copy.deepcopy(detail) for detail in details]
         return d
