@@ -11,6 +11,7 @@
 # Feldbeschreibung: docs/schnittstellen-grundbetrieb.md. JSON-Schema (nur Struktur, fuer externe Leser):
 # schemas/grundbetrieb-v1.schema.json. Die fachlichen Regeln (R1-R11) prueft nur pruefe().
 # Alle Beispiele sind synthetisch (tests/fixtures/grundbetrieb/), keine Messwerte eines Geraets.
+from datetime import datetime
 import json
 import math
 import re
@@ -30,7 +31,7 @@ SIGNALE = ('red', 'yellow', 'green', 'off', 'unknown')
 BELEGUNG = ('free', 'occupied', 'unknown')
 BROKER = ('connected', 'disconnected', 'unknown', 'disabled')
 ZEITSYNC = ('synced', 'unsynced', 'unknown')
-_ZEIT_UTC = re.compile(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,9})?Z$')
+_ZEIT_UTC = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z\Z')
 
 
 # ------------------------------------------------------------------ Start und Sequenz
@@ -209,6 +210,12 @@ def pruefe(d):
         p.f('$.boot_id', 'zu kurz (mind. 8 Zeichen, eindeutig pro Start)')
     p.zahl(d, '$', 'seq', mini=0, ganz=True)
     p.text(d, '$', 'generated_at', muster=_ZEIT_UTC)
+    if isinstance(d.get('generated_at'), str) and _ZEIT_UTC.fullmatch(d['generated_at']):
+        try:
+            # Nur Kalender/Uhrzeit pruefen; die 1-9 Nachkommastellen bleiben unveraendert.
+            datetime.fromisoformat(d['generated_at'][:19])
+        except ValueError:
+            p.f('$.generated_at', 'ungueltiger UTC-Kalenderwert (Sekunden 00-59, keine Schaltsekunden)')
     p.zahl(d, '$', 'generated_mono_s', mini=0)
     for k in ('software_version', 'map_version', 'config_version'):
         p.text(d, '$', k, null=True)
