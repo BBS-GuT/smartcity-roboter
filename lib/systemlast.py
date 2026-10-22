@@ -2,7 +2,8 @@
 # Nur Lesen aus /proc und /sys, kein psutil noetig. Kostet ca. 1-2 ms pro Messung.
 #
 # Hintergrund (20.10.): In einer Messfahrt kamen Lagesensor, Raeder, LiDAR und KI-Befehle ueber 50-mal gleichzeitig
-# 1-2,3 s lang nicht an. Das ist kein einzelnes Programm, sondern der ganze Rechner. Diese Messung zeigt, wer schuld ist.
+# 0,6-2,3 s lang nicht an (gemessen). Eine gemeinsame Ursache liegt nahe; CPU, IO, Swap und Temperatur sind aber nur
+# Hypothesen. Diese Messung liefert Daten, um Lastspitzen zeitlich mit den Luecken abzugleichen (Ursachenmessung: #39).
 import os
 import time
 
@@ -157,7 +158,8 @@ class Systemlast:
 
 
 def zeile(m, zu_spaet=None):
-    """Eine Logzeile. zu_spaet: so viele s kam die Messung zu spaet (= der Rechner hing)."""
+    """Eine Logzeile. zu_spaet: so viele s lief der Messthread spaeter als geplant ('HING x s'). Das belegt nur eine
+    verspaetete Ausfuehrung des Loggers (Prozess, Scheduler, GIL oder Rechner), nicht dass der ganze Rechner hing."""
     teile = [time.strftime('%H:%M:%S', time.localtime(m['zeit']))]
     if zu_spaet:
         teile.append(f'HING {zu_spaet:.1f}s')
