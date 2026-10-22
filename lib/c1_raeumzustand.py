@@ -327,6 +327,8 @@ class _Check:
             self.fail(p + '.interrupted_mono_s', 'ohne Pause null')
         if x.get('result') in ('erfolgreich', 'nicht_raeumbar', 'abgebrochen') and x.get('execution_status') != 'beendet':
             self.fail(p + '.execution_status', 'abschliessendes Ergebnis verlangt beendet')
+        if active and x.get('execution_status') == 'beendet' and x.get('result') not in ('erfolgreich', 'nicht_raeumbar', 'abgebrochen'):
+            self.fail(p + '.result', 'beendeter aktiver Vorgang braucht abschliessendes Ergebnis')
         if x.get('phase') == 'beendet' and x.get('execution_status') != 'beendet':
             self.fail(p + '.execution_status', 'beendete Phase verlangt beendet')
         for name in ('observation', 'estimate'):
@@ -571,8 +573,12 @@ class _Check:
                                 self.fail('$.runtime.' + k, 'Projektion widerspricht aktuellem Sperrbild')
                         if set(rt.get('hold_reasons') or ()) != set(effective):
                             self.fail('$.runtime.hold_reasons', 'Projektion muss aktuelles Sperrbild genau wiedergeben')
-                elif rt.get('evaluation_ref') is not None:
-                    self.fail('$.runtime.evaluation_ref', 'historische/unbekannte Pakete nicht aktuell projizieren')
+                else:
+                    if rt.get('evaluation_ref') is not None:
+                        self.fail('$.runtime.evaluation_ref', 'historische/unbekannte Pakete nicht aktuell projizieren')
+                    for k in ('stop_latched', 'fault_latched'):
+                        if rt.get(k) is not None:
+                            self.fail('$.runtime.' + k, 'ohne aktuelles Paket ist aktuelle Verriegelung unbekannt/null')
 
     def run(self):
         self.clearing()
@@ -686,6 +692,10 @@ def _schema_defs():
     props.update({k: nullable_text for k in ('abort_reason', 'result_reason', 'interruption_reason')})
     props.update({'object_ref': ref('object_ref', True), 'observation': ref('observation', True), 'estimate': ref('estimate', True), 'verification_ref': ref('evidence_link', True), 'travel_pose_ref': ref('evidence_link', True)})
     defs['c1_clearing'] = obj(props)
+    defs['c1_clearing']['allOf'] = [{
+        'if': {'properties': {'phase': {'enum': [x for x in PHASES if x != 'inaktiv']}, 'execution_status': {'const': 'beendet'}}, 'required': ['phase', 'execution_status']},
+        'then': {'properties': {'result': {'enum': ['erfolgreich', 'nicht_raeumbar', 'abgebrochen']}}},
+    }]
     defs['c1_protection'] = obj({'policy_id': nullable_text, 'policy_version': nullable_text, 'evidence_ref': ref('evidence_ref', True), **q})
     defs['c1_sensor_requirements'] = obj({'matrix_id': nullable_text, 'matrix_version': nullable_text, 'evidence_ref': ref('evidence_ref', True), **q})
     return defs

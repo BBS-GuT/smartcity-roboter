@@ -90,6 +90,13 @@ class Raeumdaten(unittest.TestCase):
             s['clearing']['result'] = result
             self.assertTrue(any('beendet' in x for x in self.check(s, bindings=b)))
 
+    def test_ended_active_operation_requires_final_result(self):
+        s = state(); b = clearing(s, 'greifen')
+        s['clearing']['execution_status'] = 'beendet'
+        self.assertTrue(any('abschliessendes Ergebnis' in x for x in self.check(s, bindings=b)))
+        s['clearing'].update({'result': 'abgebrochen', 'abort_reason': 'person_hold'})
+        self.assertEqual(self.check(s, bindings=b), [])
+
     def test_pause_requires_reason_time_and_open_result(self):
         s = state(); b = clearing(s)
         s['clearing'].update({'execution_status': 'pausiert', 'interruption_reason': 'person_hold', 'interrupted_mono_s': 100})
@@ -147,7 +154,7 @@ class Raeumdaten(unittest.TestCase):
         s['generated_mono_s'] = 101
         self.assertTrue(self.check(s, **kw))
         s['motion']['package_use'].update({'mode': 'historical', 'reason': 'REQUEST_EXPIRED'})
-        s['runtime']['evaluation_ref'] = None
+        s['runtime'].update({'evaluation_ref': None, 'stop_latched': None, 'fault_latched': None})
         self.assertEqual(self.check(s, **kw), [])
 
     def test_historical_does_not_repair_expired_evaluation(self):
@@ -156,8 +163,19 @@ class Raeumdaten(unittest.TestCase):
         for k in ('release', 'blocks'):
             s['motion'][k]['evaluated_mono_s'] = 101
         s['motion']['package_use'].update({'mode': 'historical', 'reason': 'REQUEST_EXPIRED'})
-        s['runtime']['evaluation_ref'] = None
+        s['runtime'].update({'evaluation_ref': None, 'stop_latched': None, 'fault_latched': None})
         self.assertTrue(self.check(s, **kw))
+
+    def test_unknown_and_historical_cannot_project_known_latches(self):
+        for name in ('stop_latched', 'fault_latched'):
+            s = state(); s['runtime'][name] = False
+            self.assertTrue(any(name in x for x in self.check(s)))
+            s, kw = self.allowed()
+            s['motion']['package_use'].update({'mode': 'historical', 'reason': 'DIAGNOSTIC'})
+            s['runtime'].update({'evaluation_ref': None, 'stop_latched': None, 'fault_latched': None})
+            self.assertEqual(self.check(s, **kw), [])
+            s['runtime'][name] = False
+            self.assertTrue(any(name in x for x in self.check(s, **kw)))
 
     def test_allowed_with_active_block_rejected(self):
         s, kw = self.allowed()
