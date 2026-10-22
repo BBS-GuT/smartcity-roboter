@@ -29,7 +29,7 @@ Ein Roboter erzeugt **einen** Zustandsdatensatz. Panel und MQTT lesen genau dies
   „Frei“ ist **kein** Status. Ein nachgewiesen freier Fahrbereich ist `obstacles.corridor = "free"` mit gültiger Quelle. Unbekannt ist `"unknown"`.
 - **Messwert-Objekt** `{value, status, source}`: Bei `status = valid` ist `value` eine Zahl, sonst `null` (R2).
 - **Identität:** `robot_id` (RM01–RM04) + `boot_id` (neu bei jedem Programmstart) + `seq` (ab 0 pro Start). Eine Sequenz gilt nur zusammen mit Gerät und Start. Ein Neustart ist nie eine Fortsetzung (`vergleiche()` → `anderer_start`).
-- **Zeit:** `generated_at` ist UTC (RFC 3339, `Z`). `generated_mono_s` ist die monotone Uhr des Starts für lokale Altersprüfung (`alter_s()`). `time_sync.status` zeigt, ob `generated_at` mit anderen Geräten vergleichbar ist. `unsynced` bleibt sichtbar.
+- **Zeit:** `generated_at` ist UTC im Format `YYYY-MM-DDTHH:MM:SS[.Bruchteil]Z` (RFC 3339, nur abschließendes `Z`, ASCII-Ziffern). Kalenderdatum einschließlich Schaltjahr muss gültig sein (Jahr 0001–9999); Stunden 00–23, Minuten und Sekunden 00–59. Optional sind 1–9 Nachkommastellen erlaubt, Schaltsekunden nicht. `generated_mono_s` ist die monotone Uhr des Starts für lokale Altersprüfung (`alter_s()`). `time_sync.status` zeigt, ob `generated_at` mit anderen Geräten vergleichbar ist. `unsynced` bleibt sichtbar.
 - **Änderung** eines Betriebs- oder Kommunikationszustands = neuer Datensatz mit neuer `seq`.
 - **Version:** `schema_version` = `"1.0"`. Neue Pflichtfelder, entfernte Felder oder neue Aufzählungswerte (z. B. Haltegründe) erhöhen die Version.
 
