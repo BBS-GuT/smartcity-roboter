@@ -143,6 +143,12 @@ class Zebrastreifen(Ablauf):
         Zonenende frei gemessen sein. Endet sie vorher, ist der Rest der Zone in dieser Richtung unbekannt
         (fehlender Strahl, Teilscan oder etwas davor verdeckt die Sicht) - oder dort steht etwas (das meldet
         _lidar_belegung als Belegung). Beides ist nicht frei."""
+        sicht = w.get('lidar_fusionssicht')
+        if sicht is not None:
+            if w.get('lidar_xy') is None:
+                return 'Abdeckung des Ueberwegs unbekannt (keine LiDAR-Punkte)'
+            reach = self.abstand + self.c['zebra_tiefe'] + self.c['zebra_seite'] + 0.2
+            return None if sicht.flaeche_frei(self._zone, reach) else 'Ueberweg nicht gemeinsam gemessen (Roboterbezug)'
         frei = w.get('lidar_reichweite')
         if w.get('lidar_xy') is None or frei is None:
             return 'Abdeckung des Ueberwegs unbekannt (keine LiDAR-Punkte/Reichweiten)'
