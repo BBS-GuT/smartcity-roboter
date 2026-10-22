@@ -36,6 +36,8 @@ class IdentitaetUndUhr(unittest.TestCase):
     def test_c_neustart_bewahrt_aufnahme_und_sensorstart(self):
         vorher = copy.deepcopy(self.d['sensors'])
         self.d.update(boot_id='synthetic-new-c-start', seq=0)
+        for detail in self.d['details']:
+            detail['state_boot_id'] = self.d['boot_id']  # Nur Cs Detail-Ausgabekontext erneuern.
         self.d['communication'].update(last_publish_requested_seq=None, last_broker_ack_seq=None,
                                       last_broker_ack_mono_s=None)
         self.assertEqual(V.pruefe(self.d), [])

@@ -157,7 +157,114 @@ Angefordert ≠ vom Broker bestätigt ≠ extern empfangen. Externer Empfang ist
 
 ### `details` – Detaildaten
 
-Liste `{channel, data_id, format, captured_at_s, frame_id, status}`. Damit sind Bild-, Tiefen- und Scandaten (Panelansichten) über `frame_id` dem Zustand und den Quellen zuordenbar. Format, Auflösung und Rate der Detailkanäle sind **noch nicht vereinbart** (E/Broker-/Dashboardteam). Die Beispiele zeigen nur die Zuordnung.
+Die noch unveröffentlichte 2.0-Erweiterung aus [#150](https://github.com/BBS-GuT/smartcity-roboter/issues/150)
+implementiert die Detailreferenz und eine **explizit kontextuelle** Prüfung.
+Sie liefert keinen Payloadspeicher, Bildtransport oder Adapter und nimmt den
+Gesamtvertrag nicht abschließend an. Format, Auflösung, Rate und reale
+Altersbudgets bleiben mit E/Broker-/Dashboardteam zu vereinbaren.
+
+Alle folgenden Schlüssel sind in jedem `details[]`-Eintrag vorhanden:
+
+| Felder | Typ und Bedeutung |
+|---|---|
+| `robot_id`, `state_boot_id` | Nichtleere Texte, entsprechen äußerem `robot_id` / `boot_id`. `state_boot_id` ist nur Cs aktueller Ausgabekontext. |
+| `channel` | Nichtleerer Kanaltext; kein festgelegtes Topic oder Transportformat. |
+| `source` | Registrierter Schlüssel unter `sensors`, niemals technische `source_id` oder Alias. Bei unbekannter Herkunft `null`. |
+| `source_id` | Technische Quelle der damaligen Aufnahme, nicht zwingend die heutige technische Quelle des Schlüssels. |
+| `producer_id`, `producer_boot_id` | Aufnahmeproduzent und sein eigener Start; unabhängig von C-Start und Uhreninstanz. |
+| `frame_id` | Opake Aufnahmekennung; `coord_frame` bleibt räumlicher Bezug und ersetzt sie nicht. |
+| `data_id`, `format` | Opake Datenkennung und Format dieser Darstellung; mehrere Datenkennungen je Frame sind möglich. |
+| `time_basis_id` | Uhreninstanz der Aufnahme, gegen bestätigte Geräteuhr des Kontexts zu prüfen. |
+| `captured_at_s` | Endliche nichtnegative Unix-Sekunden oder `null`; UTC bleibt separat. |
+| `captured_mono_s`, `received_mono_s`, `age_s` | Exakte nichtnegative Sekunden im gemeinsamen ns-Raster/Bereich oder `null`; gemeinsame Helper `zeit_ns()` / `sekunden_aus_ns()`. Empfang meint den ursprünglichen lokalen Frameempfang, kein neuer Transportversuch. |
+| `status`, `reason` | Bestehender Qualitätsstatus; `valid` verlangt `reason = null`, jeder andere Status einen nichtleeren Grund. |
+
+Frame-Schlüssel: `(robot_id, source, producer_id, producer_boot_id, frame_id)`.
+Daten-Schlüssel: Frame-Schlüssel plus `(channel, data_id)`. Technische Quelle,
+Format, UTC-Aufnahmezeit, Uhreninstanz und monotone Aufnahme-/ursprüngliche
+Empfangszeit bleiben bei derselben Datenkennung unverändert. Identische
+Wiederholungen sind Duplikate; widersprüchliche Metadaten derselben Kennung werden
+abgelehnt. Verschiedene Darstellungen desselben Frames dürfen verschiedene Formate
+haben; gemeinsame Aufnahme-/Quellenmetadaten bleiben identisch. C-Neustart ändert
+nur `state_boot_id` und den äußeren Zustandskontext, niemals die Aufnahmeidentität.
+Bei zulässigen endlichen UTC-Floats wird der übertragene dezimale JSON-Zahlenwert
+verglichen, nicht dessen interne Binärdarstellung; lokale Zeitfloats bleiben verboten.
+
+**Null-/Qualitätsregeln:** `valid` und `stale` benötigen alle Identitäts-, Format-
+und Zeitfelder einschließlich passendem Alter. Bei `unknown` / `invalid` dürfen
+unbekannte Quellen-, Produzenten-, Frame-, Daten-, Format- und Zeitfelder `null`
+sein; Bekanntes bleibt erhalten, `age_s` ist `null`. `missing` erhält ebenfalls
+bekannte Herkunft einschließlich `source_id`, Produzentenstart und Uhrenkennung;
+`frame_id`, `data_id`, `format`, beide Aufnahmezeiten, Empfang und Alter sind
+`null`. Kein erfundener fehlender Frame. `robot_id`, `state_boot_id` und `channel`
+bleiben immer erforderlich. Ein vorhandener `source` muss auch in Diagnosen ein
+registrierter Schlüssel sein. Falsche Herkunft kann separat bewertet werden,
+ist aber keine gültige lokale Detailreferenz. Ein als `invalid` deklariertes
+unbrauchbares Detail wird durch passende Identität/Frische nicht repariert.
+
+### Öffentlicher Detailkontext und strikte Einstiege
+
+`pruefe_detailreferenz(detail, *, zustand, detail_kontext=None)` bewertet ohne
+Mutation von Kandidat, Zustand oder Kontext. `zustand` enthält mindestens
+`robot_id`, `boot_id`, `time_basis_id`, `generated_mono_s` und `sensors`.
+Die Antwort ist `{status, reason, age_s, context}`. `context` nennt die tatsächlich
+benutzte Bindung (`context_id`, `robot_id`, `state_boot_id`, `time_basis_id`), nach
+Auflösung zusätzlich `registration`, `frame_key`, `data_key` und das verwendete
+`age_budget_s`. Fehlender Kontext ergibt ein leeres Kontextobjekt; keine erfundene
+Bindung. Diese Prüfung ist keine vollständige Zustands-Strukturprüfung.
+
+Der Aufrufer liefert **unabhängig vom zu prüfenden Kandidaten** genau diese
+Kontextschlüssel; es gibt keinen Standardkontext und keine globale Registrierung:
+
+| Kontextschlüssel | Inhalt |
+|---|---|
+| `context_id` | Nichtleere Kennung des gegebenen Nachweiskontexts. Kein automatischer Vertrauensbeweis durch einen Text. |
+| `robot_id`, `state_boot_id`, `time_basis_id` | Explizit bestätigte Geräte-/C-Start-/Uhrbindung, muss zum betrachteten Zustand passen. |
+| `registrations` | Liste historischer Einträge mit genau `robot_id`, `source`, `source_id`, `producer_id`, `producer_boot_id`, `time_basis_id`; alle nichtleere Texte. Frühere Produzentenstarts dürfen enthalten sein. |
+| `records` | Liste unabhängig bekannter Datenreferenzen mit genau allen Frame-/Datenschlüsselfeldern plus `source_id`, `format`, `captured_at_s`, `time_basis_id`, `captured_mono_s`, `received_mono_s`. Alle Metadaten vorhanden; keine Status-/Alters-/C-Startfelder. |
+| `age_budgets_s` | Kanal → explizites exaktes Altersbudget in Sekunden, im selben ns-Raster/Bereich; keine Floats, bool oder Standardfrist. Fehlende Kanäle sind erlaubt, bestätigen aber keine Frische. |
+
+Die Listen sind gegebene historische Belege, kein laufender Speicher. Der Prüfer
+fügt nichts hinzu und verschiebt keine Startbindung. Widersprüchliche doppelte
+Registereinträge werden abgelehnt, statt den ersten passenden Eintrag auszuwählen.
+Verdrängte/verlorene Metadaten dürfen nicht aus Kandidaten rekonstruiert werden;
+Kennungen dürfen nicht wiederverwendet werden. Aufbewahrung und reale Uhrenbindung
+einschließlich Sensorzeitabbildung bleiben gesondert zu belegen.
+
+Für ein vollständiges Detail gilt: damaligen Registereintrag auflösen, unveränderte
+Metadaten vergleichen, gemeinsame Uhr bestätigen, dann exakt
+`captured_mono_s <= received_mono_s <= generated_mono_s` prüfen. Aufnahmealter
+entsteht aus ganzzahligen ns-Differenzen, unabhängig vom Decimal-Kontext.
+Innerhalb des gegebenen Kanalbudgets einschließlich Gleichheit ist die Aufnahme
+`valid`, darüber `stale`. **Keine Gleichheit zum neuesten Sensorframe**: Ein
+historisch belegter älterer Frame kann gültig bleiben, auch bei inzwischen neuem
+Sensorproduzentenstart oder aktuellem Quellenfehler. Er beweist keine aktuelle
+Sensorverfügbarkeit. Wiederempfang und UTC-Synchronisation verjüngen nichts.
+
+Ohne Kontext: `unknown/detail_context_unknown`. Ohne damaligen Framebeleg:
+`unknown/historical_record_unknown`. Ohne bestätigten Start oder Uhrnachweis:
+`unknown` mit entsprechendem Grund und ohne Alter. Ohne Kanalbudget:
+`unknown/age_budget_unknown`, ebenfalls ohne Alter. Fremdes Gerät/Quelle, falscher
+C-Kontext, Uhrwechsel, Zukunft, Metadatenwiderspruch oder ungültige Zahl sind
+`invalid`. Unvollständige oder widersprüchliche explizite Kontexte ergeben
+`invalid/detail_context_invalid`. Fehlende Daten mit ehrlichen Nullfeldern bleiben
+`missing`; Diagnose ist keine aktuelle Schutzinformation.
+
+Die aktiven Einstiege heißen jetzt einheitlich
+`pruefe(d, *, detail_kontext=None)`, `als_json(d, *, detail_kontext=None)` und
+`lade_json(text, *, detail_kontext=None)`. Sie reichen denselben gegebenen Kontext
+weiter. Behauptetes `valid` oder `stale` muss mit der kontextuellen Bewertung und
+dem exakten Alter übereinstimmen; sonst Fehlerliste bzw. `ValueError`. Auch ein
+strukturell/schemaformal korrektes `valid` wird ohne Kontext **nicht** vollständig
+gültig akzeptiert. Ehrliche `unknown`-/`missing`-/`invalid`-Diagnosen bleiben ohne
+erfundene Registrierung schreib-/lesbar. Die Zustandsfixtures zeigen deshalb die
+bekannten Detailmetadaten als `unknown/detail_context_unknown`, Alter `null`.
+
+Synthetische unabhängige Register, Bindungen, Budgets und sechs Kandidaten stehen
+unter `tests/fixtures/c1_details/`. Deren Tests prüfen zusätzlich den aktiven
+Python-/JSON-Pfad und das v2-Schema. Schema beschreibt nur Struktur und Nullregeln;
+es beweist weder Registrierung noch reale Frische. Die kontextuelle Antwort und
+ihre externen Belege sind kein zweiter Zustand und erzeugen keine Motorfreigabe.
 
 ## Fachliche Regeln (prüft `pruefe()`)
 

@@ -224,7 +224,18 @@
       "format": "image/jpeg",
       "captured_at_s": 1792484499.92,
       "frame_id": "rgb-000120",
-      "status": "valid"
+      "status": "unknown",
+      "robot_id": "RM02",
+      "source": "camera",
+      "source_id": "camera/color",
+      "producer_id": "synthetic-camera",
+      "producer_boot_id": "sensor-start-0001",
+      "state_boot_id": "beispiel-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1208.32,
+      "received_mono_s": 1208.32,
+      "reason": "detail_context_unknown",
+      "age_s": null
     },
     {
       "channel": "details/scan",
@@ -232,7 +243,18 @@
       "format": "application/json",
       "captured_at_s": 1792484499.97,
       "frame_id": "scan0-004410",
-      "status": "valid"
+      "status": "unknown",
+      "robot_id": "RM02",
+      "source": "lidar_0",
+      "source_id": "scan0",
+      "producer_id": "synthetic-lidar_0",
+      "producer_boot_id": "sensor-start-0001",
+      "state_boot_id": "beispiel-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1208.37,
+      "received_mono_s": 1208.37,
+      "reason": "detail_context_unknown",
+      "age_s": null
     }
   ],
   "time_basis_id": "synthetic-device-clock-0001"

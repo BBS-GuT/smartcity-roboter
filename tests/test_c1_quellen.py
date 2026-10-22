@@ -103,6 +103,9 @@ class Messwertquellen(unittest.TestCase):
                 for b, f, q, _ in MESSWERTE:
                     if q == quelle:
                         d[b][f]['source'] = neu
+                for detail in d['details']:
+                    if detail['source'] == quelle:
+                        detail['source'] = neu  # Auch Diagnose-Details benutzen sensors-Schluessel.
                 self.assertEqual(V.pruefe(d), [])
 
     def test_technische_id_umbenennen_aendert_keine_referenz(self):

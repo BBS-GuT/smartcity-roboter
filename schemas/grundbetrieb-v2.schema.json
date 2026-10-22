@@ -4,6 +4,338 @@
   "title": "SmartCity Grundbetrieb Zustandsdatensatz",
   "description": "Version 2.0, unveroeffentlichtes Fundament; keine vollstaendige Gesamtannahme. Raster, Endlichkeit, Uhrenbezug und Altersgleichheit prueft Python. Nur die STRUKTUR. Die fachlichen Regeln R1-R11 (z. B. keine Bewegung bei STOPP-Sperre, valid <=> Wert vorhanden) prueft lib/grundbetrieb_vertrag.py; siehe docs/schnittstellen-grundbetrieb.md. Zahlen in SI-Einheiten laut Feldname (_m, _s, _m_s, _rad, _rad_s, _hz, _v).",
   "$defs": {
+    "detailreferenz": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "robot_id",
+        "source",
+        "producer_id",
+        "producer_boot_id",
+        "frame_id",
+        "channel",
+        "data_id",
+        "source_id",
+        "format",
+        "time_basis_id",
+        "state_boot_id",
+        "captured_at_s",
+        "captured_mono_s",
+        "received_mono_s",
+        "age_s",
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "robot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "producer_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "producer_boot_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "frame_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "format": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "time_basis_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "state_boot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "captured_at_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "captured_mono_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "received_mono_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "age_s": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "valid",
+                  "stale"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "robot_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "source": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "producer_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "producer_boot_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "frame_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "channel": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "data_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "source_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "format": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "time_basis_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "state_boot_id": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "captured_at_s": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "captured_mono_s": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "received_mono_s": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "age_s": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "valid"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "stale",
+                  "invalid",
+                  "unknown",
+                  "missing"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "missing",
+                  "unknown",
+                  "invalid"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "age_s": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "missing"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "frame_id": {
+                "type": "null"
+              },
+              "data_id": {
+                "type": "null"
+              },
+              "format": {
+                "type": "null"
+              },
+              "captured_at_s": {
+                "type": "null"
+              },
+              "captured_mono_s": {
+                "type": "null"
+              },
+              "received_mono_s": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
     "status": {
       "enum": [
         "valid",
@@ -897,49 +1229,7 @@
     },
     "details": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "channel",
-          "data_id",
-          "format",
-          "captured_at_s",
-          "frame_id",
-          "status"
-        ],
-        "properties": {
-          "channel": {
-            "type": "string",
-            "minLength": 1
-          },
-          "data_id": {
-            "type": "string",
-            "minLength": 1
-          },
-          "format": {
-            "type": "string",
-            "minLength": 1
-          },
-          "captured_at_s": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "minimum": 0
-          },
-          "frame_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "minLength": 1
-          },
-          "status": {
-            "$ref": "#/$defs/status"
-          }
-        }
-      }
+      "items": {"$ref": "#/$defs/detailreferenz"}
     },
     "time_basis_id": {
       "type": "string",

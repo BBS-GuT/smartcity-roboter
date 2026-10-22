@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""#150, PREPARATION ONLY; no 2.0 implementation or accepted public API yet.
+"""#150: explicit historical detail context; no ROS, broker, or payload storage.
 
 Run preparation checks: python tests/test_c1_detailreferenzen.py Vorbereitung -v
-Run all future acceptance cases after #149 + second write permission:
+Run all acceptance cases:
     python tests/test_c1_detailreferenzen.py -v
-The full suite deliberately fails on the current 1.0 baseline, without skips.
+The preparation originally failed on 1.0; runtime now uses assigned #149 + #150.
 
-Proposed API (to implement only after the exact #149 delivery is assigned):
+Public API:
   pruefe_detailreferenz(detail, *, zustand, detail_kontext=None)
     -> {status, reason, age_s, context}
   pruefe(state, *, detail_kontext=None) -> existing error list
@@ -22,25 +22,21 @@ The standalone assessment does not mutate status, candidate, or context. Strict
 state/JSON paths reject an asserted valid if the assessment cannot confirm it;
 honest unknown/missing remain representable without inventing evidence.
 
-Read-only foundation candidate: PR #151, head
-1a90143f98c0d78c7bb7b944e5facb8a6b285de1 (not yet assigned/accepted).
+Assigned foundation: PR #151, head
+1a90143f98c0d78c7bb7b944e5facb8a6b285de1 (not a full C1 acceptance).
 Reuse its public sekunden_aus_ns(integer_ns), zeit_ns(exact_seconds),
 alter_s(state, now), lade_json(text), als_json(state). No parallel number parser,
 ns conversion, or JSON writer. Candidate vector files are deliberately read with
 standard json.loads(parse_float=Decimal); public state acceptance/roundtrips use
 V.pruefe / V.lade_json / V.als_json. Do not call its private _json_wert.
 
-Implementation order after permission: confirm the final delivered #149 helpers
-and fixture setup; detail structure/null rules; contextual comparison with independent
-records + budget; strict context forwarding through all three public entries;
-v2 detail schema and documentation; seven active detail fixture conversions and
-only necessary existing test setup updates. Then run all C1 regressions + schema.
-No changes to shared product files in this preparation. Fixture formats/budgets
-are synthetic. Schema checks below are future full-state checks, not a substitute
+Detail structure/null rules and contextual records/budgets are separate; strict
+context forwarding covers all three public entries. Fixture formats/budgets are
+synthetic. Schema checks below are full-state checks, not a substitute
 for contextual evidence. No payload store, global registration, or adapter.
 """
 import copy
-from decimal import Decimal
+from decimal import Decimal, localcontext, Inexact, Rounded
 import json
 from pathlib import Path
 import sys
@@ -118,7 +114,7 @@ class Vorbereitung(unittest.TestCase):
 
 
 class DetailLaufzeit(unittest.TestCase):
-    """Acceptance tests for the proposed API; pending actual #149 foundation."""
+    """All negative candidates are mutated after context setup; no implicit trust."""
 
     def setUp(self):
         self.assertEqual(V.SCHEMA_VERSION, '2.0', '#149 foundation not delivered here')
@@ -221,6 +217,78 @@ class DetailLaufzeit(unittest.TestCase):
         self.assertEqual(result['status'], 'unknown')
         self.assertIsNone(result['age_s'])
 
+    def test_public_entries_require_each_piece_of_positive_context(self):
+        original = self.full_state([self.cases['camera']])
+        text = V.als_json(original, detail_kontext=self.context)
+        for absent in ('registrations', 'records', 'age_budgets_s'):
+            ctx = copy.deepcopy(self.context)
+            ctx[absent] = {} if absent == 'age_budgets_s' else []
+            with self.subTest(absent=absent):
+                self.assertTrue(V.pruefe(original, detail_kontext=ctx))
+                with self.assertRaises(ValueError):
+                    V.als_json(original, detail_kontext=ctx)
+                with self.assertRaises(ValueError):
+                    V.lade_json(text, detail_kontext=ctx)
+
+    def test_free_frame_original_error_is_rejected_in_all_public_entries(self):
+        d = self.full_state([self.cases['camera']])
+        text = V.als_json(d, detail_kontext=self.context)
+        d['details'][0]['frame_id'] = 'freely-claimed-frame'
+        self.assertEqual(self.assess(d['details'][0])['status'], 'unknown')
+        for ctx in (self.context, None):
+            with self.subTest(context=ctx is not None):
+                self.assertTrue(V.pruefe(d, detail_kontext=ctx))
+                with self.assertRaises(ValueError):
+                    V.als_json(d, detail_kontext=ctx)
+                with self.assertRaises(ValueError):
+                    V.lade_json(text.replace('rgb-10', 'freely-claimed-frame'),
+                                detail_kontext=ctx)
+
+    def test_invalid_payload_quality_is_not_upgraded_by_identity(self):
+        d = copy.deepcopy(self.cases['camera'])
+        d.update(status='invalid', reason='payload_unusable', age_s=None)
+        self.assertEqual(self.assess(d)['status'], 'invalid')
+        self.assertEqual(V.pruefe(self.full_state([d])), [])
+
+    def test_confirmed_contradiction_cannot_be_hidden_as_unknown(self):
+        detail = copy.deepcopy(self.cases['old_clock'])
+        detail.update(status='unknown', reason='claimed_unknown')
+        self.assertEqual(self.assess(detail)['status'], 'invalid')
+        self.assertTrue(V.pruefe(self.full_state([detail]), detail_kontext=self.context))
+
+    def test_wrong_context_binding_and_missing_time_basis(self):
+        for field, value in (('robot_id', 'RM03'), ('state_boot_id', 'state-foreign'),
+                             ('time_basis_id', 'clock-foreign')):
+            ctx = copy.deepcopy(self.context)
+            ctx[field] = value
+            with self.subTest(field=field):
+                result = self.assess(self.cases['camera'], context=ctx)
+                self.assertEqual(result['status'], 'invalid')
+                self.assertIsNone(result['age_s'])
+        d = copy.deepcopy(self.cases['unknown'])
+        d.update({k: v for k, v in self.cases['camera'].items()
+                  if k not in ('time_basis_id', 'status', 'reason', 'age_s')})
+        self.assertEqual(self.assess(d)['status'], 'unknown')
+
+    def test_context_and_direct_time_inputs_fail_cleanly_without_repair(self):
+        for value in (True, 0.2, '0.2', Decimal('NaN'), Decimal('sNaN'),
+                      Decimal('Infinity'), Decimal('-Infinity'), Decimal('0.0000000001')):
+            with self.subTest(value=repr(value)):
+                ctx = copy.deepcopy(self.context)
+                ctx['age_budgets_s']['color'] = value
+                self.assertEqual(self.assess(self.cases['camera'], context=ctx)['status'], 'invalid')
+                d = copy.deepcopy(self.cases['camera'])
+                d['captured_mono_s'] = value
+                self.assertEqual(self.assess(d)['status'], 'invalid')
+
+    def test_conflicting_explicit_registry_is_not_resolved_by_first_match(self):
+        for collection, field in (('records', 'format'), ('registrations', 'source_id')):
+            ctx = copy.deepcopy(self.context)
+            conflicting = copy.deepcopy(ctx[collection][0])
+            conflicting[field] = 'conflicting-metadata'
+            ctx[collection].append(conflicting)
+            with self.subTest(collection=collection):
+                self.assertEqual(self.assess(self.cases['camera'], context=ctx)['status'], 'invalid')
     def test_exact_budget_at_boundary_and_one_ns_below(self):
         # Same known frame: changing only explicit budget avoids inventing records.
         self.assertEqual(self.assess(self.cases['camera'])['status'], 'valid')
@@ -232,6 +300,25 @@ class DetailLaufzeit(unittest.TestCase):
         d['received_mono_s'] = 105
         # A changed immutable record may be invalid; it must never become fresh.
         self.assertNotEqual(self.assess(d)['status'], 'valid')
+
+    def test_small_decimal_context_does_not_change_exact_detail_boundary(self):
+        d = self.full_state([self.cases['camera']])
+        with localcontext() as ctx:
+            ctx.prec = 2
+            ctx.traps[Inexact] = ctx.traps[Rounded] = True
+            self.assertEqual(self.assess(self.cases['camera'])['age_s'], Decimal('0.2'))
+            self.assertEqual(V.pruefe(d, detail_kontext=self.context), [])
+            text = V.als_json(d, detail_kontext=self.context)
+            self.assertEqual(V.lade_json(text, detail_kontext=self.context), d)
+
+    def test_nonlocal_utc_float_metadata_uses_its_json_value(self):
+        # Independently prepared known record and candidate; no local time floats.
+        self.context['records'][0]['captured_at_s'] = 1792653604.8
+        d = self.full_state([self.cases['camera']])
+        d['details'][0]['captured_at_s'] = 1792653604.8
+        text = V.als_json(d, detail_kontext=self.context)
+        result = V.lade_json(text, detail_kontext=self.context)
+        self.assertEqual(result['details'][0]['captured_at_s'], Decimal('1792653604.8'))
 
     def test_missing_and_unknown_preserve_nulls_without_registration(self):
         for name in ('missing', 'unknown'):
@@ -252,7 +339,6 @@ class DetailLaufzeit(unittest.TestCase):
         self.assertEqual(self.assess(old)['status'], 'invalid')
 
     def full_state(self, details):
-        # Confirm this setup against the assigned #149 delivery before runtime work.
         # Raw base fixture construction is not public state acceptance: the tests
         # below exercise all three validating public entries with explicit context.
         d = json.loads((ROOT / 'tests/fixtures/grundbetrieb/stillstand.json').read_text(
@@ -301,6 +387,21 @@ class DetailLaufzeit(unittest.TestCase):
         self.assertEqual(V.pruefe(d, detail_kontext=self.context), [])
         d['details'][1]['format'] = 'example/other'
         self.assertTrue(V.pruefe(d, detail_kontext=self.context))
+
+    def test_diagnostics_keep_outer_identity_and_null_rules(self):
+        for name in ('missing', 'unknown', 'old_clock'):
+            for field, value in (('state_boot_id', 'other-c-start'),
+                                 ('robot_id', 'RM03'), ('source', 'rgb-test'),
+                                 ('age_s', Decimal('0.1'))):
+                d = self.full_state([self.cases[name]])
+                d['details'][0][field] = value
+                with self.subTest(case=name, field=field):
+                    self.assertTrue(V.pruefe(d))
+        for field in ('data_id', 'frame_id', 'format', 'captured_mono_s'):
+            d = self.full_state([self.cases['missing']])
+            d['details'][0][field] = 0 if field.endswith('_s') else 'fake-missing-id'
+            with self.subTest(field=field):
+                self.assertTrue(V.pruefe(d))
 
     def test_v2_schema_really_validates_new_detail_fixtures(self):
         import jsonschema  # Required at implementation delivery; no silent skip.

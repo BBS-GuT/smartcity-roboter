@@ -220,7 +220,18 @@
       "format": "image/jpeg",
       "captured_at_s": 1792484497.6,
       "frame_id": "rgb-000088",
-      "status": "stale"
+      "status": "unknown",
+      "robot_id": "RM02",
+      "source": "camera",
+      "source_id": "camera/color",
+      "producer_id": "synthetic-camera",
+      "producer_boot_id": "sensor-start-0001",
+      "state_boot_id": "beispiel-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1215.6,
+      "received_mono_s": 1217.875,
+      "reason": "detail_context_unknown",
+      "age_s": null
     }
   ],
   "time_basis_id": "synthetic-device-clock-0001"

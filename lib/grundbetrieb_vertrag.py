@@ -145,18 +145,18 @@ def _json_wert(v):
     raise ValueError('nicht unterstuetzter JSON-Typ')
 
 
-def als_json(d):
+def als_json(d, *, detail_kontext=None):
     """Strenges JSON. Wirft ValueError, wenn der Datensatz ungueltig ist oder NaN/Unendlich enthaelt."""
-    fehler = pruefe(d)
+    fehler = pruefe(d, detail_kontext=detail_kontext)
     if fehler:
         raise ValueError('ungueltiger Zustandsdatensatz: ' + '; '.join(fehler))
     return _json_wert(d)
 
 
-def lade_json(text):
+def lade_json(text, *, detail_kontext=None):
     """JSON lesen und pruefen. Wirft ValueError bei NaN/Infinity oder ungueltigem Datensatz."""
     d = json.loads(text, parse_float=Decimal, parse_constant=_kein_nan)
-    fehler = pruefe(d)
+    fehler = pruefe(d, detail_kontext=detail_kontext)
     if fehler:
         raise ValueError('ungueltiger Zustandsdatensatz: ' + '; '.join(fehler))
     return d
@@ -263,7 +263,7 @@ FELDER = ('schema_version', 'robot_id', 'boot_id', 'seq', 'generated_at', 'gener
           'obstacles', 'sensors', 'diagnostics', 'communication', 'details')
 
 
-def pruefe(d):
+def pruefe(d, *, detail_kontext=None):
     """Alle Fehler des Datensatzes (leer = gueltig). Struktur wie im JSON-Schema plus fachliche Regeln R1-R11
     (siehe docs/schnittstellen-grundbetrieb.md)."""
     p = _Pruefer()
@@ -429,16 +429,33 @@ def pruefe(d):
     if not isinstance(de, list):
         p.f('$.details', 'muss eine Liste sein')
     else:
+        gesehen = {}
         for i, x in enumerate(de):
             q = f'$.details[{i}]'
-            if p.obj(x, q, ('channel', 'data_id', 'format', 'captured_at_s', 'frame_id', 'status')):
-                for k in ('channel', 'data_id', 'format'):
-                    p.text(x, q, k)
-                p.zahl(x, q, 'captured_at_s', null=True, mini=0)
-                p.text(x, q, 'frame_id', null=True)
-                p.text(x, q, 'status', auswahl=STATUS)
-                if x.get('status') == 'valid' and (x.get('captured_at_s') is None or x.get('frame_id') is None):
-                    p.f(q, 'gueltige Detaildaten brauchen captured_at_s und frame_id')
+            anfang = len(p.fehler)
+            _detail_struktur(p, x, q)
+            if len(p.fehler) != anfang:
+                continue
+            if x['state_boot_id'] != d.get('boot_id'):
+                p.f(q + '.state_boot_id', 'muss zum aeusseren boot_id passen')
+            if x['robot_id'] != d.get('robot_id'):
+                p.f(q + '.robot_id', 'muss zum aeusseren robot_id passen')
+            if x['source'] is not None and (not isinstance(se, dict) or x['source'] not in se):
+                p.f(q + '.source', 'muss ein registrierter sensors-Schluessel sein')
+            bewertung = pruefe_detailreferenz(x, zustand=d, detail_kontext=detail_kontext)
+            if x['status'] != 'invalid' and bewertung['status'] == 'invalid':
+                p.f(q, 'Detailwiderspruch verlangt invalid: ' + bewertung['reason'])
+            if x['status'] in ('valid', 'stale'):
+                if bewertung['status'] != x['status'] or bewertung['age_s'] != x['age_s']:
+                    p.f(q, 'Detailstatus/Alter nicht kontextuell bestaetigt: ' +
+                        (bewertung['reason'] or 'age_mismatch'))
+            # Diagnose darf Widersprueche darstellen; niemals als bestaetigt gueltig ausgeben.
+            if all(isinstance(x[k], str) for k in _DETAIL_DATENSCHLUESSEL):
+                key = tuple(x[k] for k in _DETAIL_DATENSCHLUESSEL)
+                meta = _detail_metadatenwerte(x, _DETAIL_METADATEN)
+                if key in gesehen and gesehen[key] != meta:
+                    p.f(q, 'widerspruechliche Metadaten derselben Detailkennung')
+                gesehen[key] = meta
 
     # Messwert-source bezeichnet ausschliesslich einen sensors-Schluessel.
     # source_id ist technische Metadaten, kein zweiter Referenz-Namensraum.
@@ -458,6 +475,189 @@ def pruefe(d):
     if not p.fehler:
         _betrieb(p, rt, out)
     return p.fehler
+
+
+_DETAIL_FRAMESCHLUESSEL = ('robot_id', 'source', 'producer_id', 'producer_boot_id', 'frame_id')
+_DETAIL_DATENSCHLUESSEL = _DETAIL_FRAMESCHLUESSEL + ('channel', 'data_id')
+_DETAIL_METADATEN = ('source_id', 'format', 'captured_at_s', 'time_basis_id',
+                     'captured_mono_s', 'received_mono_s')
+_DETAIL_REGISTERFELDER = _DETAIL_DATENSCHLUESSEL + _DETAIL_METADATEN
+_DETAIL_BINDUNG = ('robot_id', 'source', 'source_id', 'producer_id', 'producer_boot_id', 'time_basis_id')
+_DETAIL_FELDER = _DETAIL_REGISTERFELDER + ('state_boot_id', 'status', 'reason', 'age_s')
+
+
+def _detail_metadatenwerte(eintrag, felder):
+    # UTC ist kein lokales Zeitfeld. Bei dort erlaubten endlichen Floats den
+    # tatsaechlich ausgegebenen JSON-Zahlenwert vergleichen, nicht dessen Binaerbruch.
+    return tuple(Decimal(str(eintrag[k])) if k == 'captured_at_s' and
+                 isinstance(eintrag[k], float) else eintrag[k] for k in felder)
+
+
+def _detail_struktur(p, x, pfad):
+    """Nur Struktur/Qualitaetsdeklaration; keine behauptete reale Registrierung."""
+    if not p.obj(x, pfad, _DETAIL_FELDER):
+        return
+    st = x.get('status')
+    vollstaendig = st in ('valid', 'stale')
+    for k in ('robot_id', 'state_boot_id', 'channel'):
+        p.text(x, pfad, k)
+    p.text(x, pfad, 'status', auswahl=STATUS)
+    p.text(x, pfad, 'reason', null=st == 'valid')
+    if st == 'valid' and x.get('reason') is not None:
+        p.f(pfad + '.reason', 'valid hat keinen Fehlergrund, also null')
+    for k in ('source', 'source_id', 'producer_id', 'producer_boot_id', 'frame_id',
+              'data_id', 'format', 'time_basis_id'):
+        p.text(x, pfad, k, null=not vollstaendig)
+    for k in ('captured_at_s', 'captured_mono_s', 'received_mono_s', 'age_s'):
+        p.zahl(x, pfad, k, null=not vollstaendig, mini=0)
+    if st in ('missing', 'unknown', 'invalid') and x.get('age_s') is not None:
+        p.f(pfad + '.age_s', 'ohne bestaetigte Frische null')
+    if st == 'missing':
+        for k in ('frame_id', 'data_id', 'format', 'captured_at_s',
+                  'captured_mono_s', 'received_mono_s'):
+            if x.get(k) is not None:
+                p.f(pfad + '.' + k, 'missing: keine Detaildaten, also null')
+
+
+def _detail_kontext_fehler(kontext):
+    """Expliziten Eingabekontext pruefen, keine Registrierung anlegen/fortschreiben."""
+    p = _Pruefer()
+    if not p.obj(kontext, 'detail_kontext', ('context_id', 'robot_id', 'state_boot_id',
+                                           'time_basis_id', 'registrations', 'records', 'age_budgets_s')):
+        return p.fehler
+    for k in ('context_id', 'robot_id', 'state_boot_id', 'time_basis_id'):
+        p.text(kontext, 'detail_kontext', k)
+    for feld, felder in (('registrations', _DETAIL_BINDUNG), ('records', _DETAIL_REGISTERFELDER)):
+        items = kontext.get(feld)
+        if not isinstance(items, list):
+            p.f('detail_kontext.' + feld, 'muss eine Liste sein')
+            continue
+        for i, item in enumerate(items):
+            pfad = f'detail_kontext.{feld}[{i}]'
+            if not p.obj(item, pfad, felder):
+                continue
+            for k in felder:
+                if k in ('captured_at_s', 'captured_mono_s', 'received_mono_s'):
+                    p.zahl(item, pfad, k, mini=0)
+                else:
+                    p.text(item, pfad, k)
+    budgets = kontext.get('age_budgets_s')
+    if not isinstance(budgets, dict):
+        p.f('detail_kontext.age_budgets_s', 'muss ein Kanal-Budget-Objekt sein')
+    else:
+        for kanal, budget in budgets.items():
+            if not isinstance(kanal, str) or not kanal:
+                p.f('detail_kontext.age_budgets_s', 'Kanal muss nichtleerer Text sein')
+            try:
+                zeit_ns(budget)
+            except ValueError as e:
+                p.f('detail_kontext.age_budgets_s', str(e))
+    if not p.fehler:
+        # Widersprueche auch bei mehrfach gegebenem Register nicht durch Auswahl
+        # des ersten passenden Eintrags verdecken. Frame-Metadaten sind kanalunabhaengig.
+        for items, schluessel, metadata in (
+                (kontext['records'], _DETAIL_DATENSCHLUESSEL, _DETAIL_METADATEN),
+                (kontext['records'], _DETAIL_FRAMESCHLUESSEL,
+                 ('source_id', 'time_basis_id', 'captured_at_s', 'captured_mono_s')),
+                (kontext['registrations'], ('robot_id', 'source', 'producer_id', 'producer_boot_id'),
+                 ('source_id', 'time_basis_id'))):
+            gesehen = {}
+            for item in items:
+                key = tuple(item[k] for k in schluessel)
+                meta = _detail_metadatenwerte(item, metadata)
+                if key in gesehen and gesehen[key] != meta:
+                    p.f('detail_kontext', 'widerspruechliches historisches Register')
+                gesehen[key] = meta
+    return p.fehler
+
+
+def pruefe_detailreferenz(detail, *, zustand, detail_kontext=None):
+    """Reine kontextuelle Bewertung; keine Motorentscheidung, Mutation oder globale Datenbank.
+
+    Antwort: status/reason/age_s/context. context benennt nur tatsaechlich
+    benutzte gegebene Bindungen/Registerdaten/Budgets, niemals daraus erzeugtes Vertrauen.
+    Gleiche Kennungstexte sind kein physischer Nachweis; Kontext liefert der Aufrufer.
+    """
+    benutzt = {}
+
+    def antwort(status, reason, alter=None):
+        return dict(status=status, reason=reason, age_s=alter, context=benutzt)
+
+    p = _Pruefer()
+    _detail_struktur(p, detail, 'detail')
+    if p.fehler:
+        return antwort('invalid', 'detail_structure_invalid')
+    if not isinstance(zustand, dict) or not all(isinstance(zustand.get(k), str) and zustand[k]
+            for k in ('robot_id', 'boot_id', 'time_basis_id')):
+        return antwort('unknown', 'state_context_unknown')
+    if detail['robot_id'] != zustand['robot_id']:
+        return antwort('invalid', 'robot_mismatch')
+    if detail['state_boot_id'] != zustand['boot_id']:
+        return antwort('invalid', 'state_boot_mismatch')
+    sensors = zustand.get('sensors')
+    source = detail['source']
+    if source is not None and (not isinstance(sensors, dict) or source not in sensors):
+        return antwort('invalid', 'source_not_registered')
+    if detail['status'] == 'missing':
+        return antwort('missing', detail['reason'])
+    if detail_kontext is None:
+        return antwort('unknown', 'detail_context_unknown')
+    if _detail_kontext_fehler(detail_kontext):
+        return antwort('invalid', 'detail_context_invalid')
+    for k in ('context_id', 'robot_id', 'state_boot_id', 'time_basis_id'):
+        benutzt[k] = detail_kontext[k]
+    if (detail_kontext['robot_id'] != zustand['robot_id'] or
+            detail_kontext['state_boot_id'] != zustand['boot_id']):
+        return antwort('invalid', 'context_binding_mismatch')
+    if detail_kontext['time_basis_id'] != zustand['time_basis_id']:
+        return antwort('invalid', 'time_basis_mismatch')
+    if any(detail[k] is None for k in _DETAIL_REGISTERFELDER):
+        return antwort('unknown', 'detail_identity_unknown')
+    regs = [r for r in detail_kontext['registrations']
+            if r['robot_id'] == detail['robot_id'] and r['source'] == source]
+    if not regs:
+        return antwort('unknown', 'source_binding_unknown')
+    if not any(r['producer_id'] == detail['producer_id'] for r in regs):
+        return antwort('invalid', 'producer_mismatch')
+    regs = [r for r in regs if r['producer_id'] == detail['producer_id'] and
+            r['producer_boot_id'] == detail['producer_boot_id']]
+    if not regs:
+        return antwort('unknown', 'producer_start_unknown')
+    reg = regs[0]  # Kontextpruefung hat widerspruechliche Mehrfacheintraege abgewiesen.
+    benutzt['registration'] = dict(reg)
+    if any(detail[k] != reg[k] for k in _DETAIL_BINDUNG):
+        return antwort('invalid', 'source_metadata_mismatch')
+    key = tuple(detail[k] for k in _DETAIL_DATENSCHLUESSEL)
+    records = [r for r in detail_kontext['records']
+               if tuple(r[k] for k in _DETAIL_DATENSCHLUESSEL) == key]
+    if not records:
+        return antwort('unknown', 'historical_record_unknown')
+    record = records[0]
+    benutzt['frame_key'] = [record[k] for k in _DETAIL_FRAMESCHLUESSEL]
+    benutzt['data_key'] = [record[k] for k in _DETAIL_DATENSCHLUESSEL]
+    if _detail_metadatenwerte(detail, _DETAIL_METADATEN) != _detail_metadatenwerte(record, _DETAIL_METADATEN):
+        return antwort('invalid', 'detail_metadata_mismatch')
+    if detail['time_basis_id'] != detail_kontext['time_basis_id']:
+        return antwort('invalid', 'time_basis_mismatch')
+    try:
+        aufnahme, empfang, erzeugung = (zeit_ns(v) for v in (
+            detail['captured_mono_s'], detail['received_mono_s'], zustand.get('generated_mono_s')))
+    except ValueError:
+        return antwort('invalid', 'detail_time_invalid')
+    if not aufnahme <= empfang <= erzeugung:
+        return antwort('invalid', 'detail_time_order_invalid')
+    if detail['status'] == 'invalid':
+        return antwort('invalid', detail['reason'])  # Frische repariert keine unbrauchbaren Daten.
+    budgets = detail_kontext['age_budgets_s']
+    if detail['channel'] not in budgets:
+        return antwort('unknown', 'age_budget_unknown')
+    budget = budgets[detail['channel']]
+    benutzt['age_budget_s'] = budget
+    alter_ns = erzeugung - aufnahme
+    alter = sekunden_aus_ns(alter_ns)
+    if alter_ns > zeit_ns(budget):
+        return antwort('stale', 'age_limit_exceeded', alter)
+    return antwort('valid', None, alter)
 
 
 def _wert_passt_zu_status(p, d, pfad, felder):
