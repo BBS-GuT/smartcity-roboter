@@ -9,7 +9,7 @@ import karte as K
 import kartierer as KR
 
 
-def bogen(ausfall, v=0.15, omega=0.5):
+def bogen(ausfall, v=0.15, omega=0.5, nur_twist=False):
     kr = KR.Kartierer(K.Karte('/nicht/benutzt'), {'selbst_kalibrieren': False})
     start = 1000.0
     events = [(start + i / 50, 'imu') for i in range(300)]
@@ -22,8 +22,10 @@ def bogen(ausfall, v=0.15, omega=0.5):
             kr.imu(t, {'stamp': t, 'g': [0., 0., omega], 'a': [0., 0., 9.8]})
         else:
             x, y, w = referenz(elapsed, v, omega)
-            kr.odom(t, {'stamp': t, 'vx': v, 'vy': 0., 'wz': omega,
-                        'x': x, 'y': y, 'w': w})
+            daten = {'stamp': t, 'vx': v, 'vy': 0., 'wz': omega}
+            if not nur_twist:
+                daten.update(x=x, y=y, w=w)
+            kr.odom(t, daten)
     return kr, kr.verlauf[-1][0] - start
 
 
@@ -72,6 +74,22 @@ class OdomLueckeTest(unittest.TestCase):
         for ausfall in (set(), {'odom'}, {'odom', 'imu'}):
             with self.subTest(ausfall=ausfall):
                 self.pruefe(ausfall, 0., 0.)
+
+    def test_twist_fallback_bleibt_unveraendert(self):
+        # Enge Bereichskontrolle, keine Genauigkeitsbehauptung fuer Twist:
+        # gemessene Software-Ausgaben der f188a00-Basis mit denselben Eingaben.
+        # Ein begrenztes vx*dt ist kein Pose-Delta im alten Odombezug und darf
+        # durch die neue Pose-Bezugskorrektur nicht zusaetzlich gedreht werden.
+        basis = ((set(), (0.05867850377384914, 0.5950472340684612, 2.97)),
+                 ({'odom'}, (-0.004915212962879483, 0.4477489316481933, 2.97)),
+                 ({'odom', 'imu'}, (0.20047801177020416, 0.5233866367543205, 2.46)))
+        for ausfall, erwartet in basis:
+            for richtung in (-1, 1):
+                with self.subTest(ausfall=ausfall, richtung=richtung):
+                    kr, _ = bogen(ausfall, omega=richtung * 0.5, nur_twist=True)
+                    for ist, soll in zip(kr.roboter, (erwartet[0], richtung * erwartet[1],
+                                                    richtung * erwartet[2])):
+                        self.assertAlmostEqual(ist, soll, delta=1e-10)
 
 
 if __name__ == '__main__':

@@ -450,6 +450,12 @@ class Kartierer:
             # Positions-Unterschied der Odometrie: geht auch ueber verlorene Nachrichten nichts verloren
             # (Geschwindigkeit x Zeit verliert bei Luecken die Strecke - 20.10.: bis 2,3 s Luecken)
             dx, dy, dw_odom = delta
+            # Das Pose-Delta beginnt im Bezug der vorherigen Odometrie.
+            # Die IMU kann diesen Bezug waehrend des Ausfalls schon gedreht haben.
+            # Nur diese Translation zurueckdrehen; Twist-Fallback bleibt im
+            # bisherigen Bezug und dw enthaelt weiterhin nur offene Drehung.
+            c, sn = math.cos(self.odom_vorausdrehung), math.sin(self.odom_vorausdrehung)
+            dx, dy = c * dx + sn * dy, -sn * dx + c * dy
             if not (empfang - self.twist_gesehen > 1.0 or not stempel_ok) and dt > 0:
                 pass                       # Geschwindigkeiten sind da und gelten weiter fuer self.v / steht
             else:
@@ -470,11 +476,6 @@ class Kartierer:
             dw = 0.0 if self.steht else dw_odom
             self.dreh = wz
         s = 1.0 / self.kal.odom_skala if self.c['selbst_kalibrieren'] else 1.0
-        # Das Positionsdelta beginnt im Bezug der vorherigen Odometrie.
-        # Die IMU kann diesen Bezug waehrend des Ausfalls schon gedreht haben.
-        # Nur die Translation zurueckdrehen; dw enthaelt nur noch offene Drehung.
-        c, sn = math.cos(self.odom_vorausdrehung), math.sin(self.odom_vorausdrehung)
-        dx, dy = c * dx + sn * dy, -sn * dx + c * dy
         self._schritt(dx * s, dy * s, dw, t)
         self.odom_vorausdrehung = 0.0
 
