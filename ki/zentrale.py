@@ -170,6 +170,7 @@ class Zentrale(Node):
         self.gier, self.gier_zeit, self.imu_zeit = 0.0, time.time(), 0.0
         self.linie_status = {}
         self.lidar_d, self.lidar_xy = None, None
+        self.lidar_luecken = np.zeros(0)  # Winkel der Strahlen ohne Messung (alle Pflicht-LiDARs, fuer hinten)
 
         self.bridge = CvBridge()
         self.lock = threading.Lock()
@@ -178,6 +179,7 @@ class Zentrale(Node):
         self.tiefe_ausgewertet, self.tiefe_nr = None, 0   # zuletzt ausgewertetes Tiefenbild, Zaehler
         self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scans = {}
+        self.scan_stempel = {}          # Kanal -> neueste akzeptierte Aufnahmezeit (muss vorwaerts laufen)
         self.wahrnehmung = {'bild_nr': 0, 'bild_zeit': 0.0, 'objekte': [], 'ampel': None,
                             'stoppschild': False, 'tiefe_hindernis': None}
         self.befehl = {'aktion': 'stopp', 'faktor': 0.0, 'grund': 'KI startet ...', 'arm': None}
@@ -294,6 +296,10 @@ class Zentrale(Node):
     def p(self, name):
         return self.get_parameter(name).value
 
+    def ros_jetzt(self):
+        """ROS-Zeit dieses Knotens (s) - dieselbe Uhr wie header.stamp, auch mit use_sim_time."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
     # ---------------- Eingaenge ----------------
     def _bild(self, msg):
         with self.lock:
@@ -306,10 +312,20 @@ class Zentrale(Node):
     def _scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
         front = fronts[i] if i < len(fronts) else 0.0
-        xy = lidar.punkte_xy(msg, front, self.p('obstacle_min_range'))
-        breit = lidar.naechster_vorne(msg, front, 60.0, self.p('obstacle_min_range'))   # fuer Zebrastreifen
+        # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
+        if grund == 'doppelt':
+            return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
+        if grund is None:
+            self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
+        grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt, nie "frei"
+        xy = breit = luecken = None
+        if grund is None:
+            xy = lidar.punkte_xy(msg, front, self.p('obstacle_min_range'))
+            breit = lidar.naechster_vorne(msg, front, 60.0, self.p('obstacle_min_range'))   # fuer Zebrastreifen
+            luecken = lidar.ungueltige_winkel(msg, front)   # Strahlen ohne Messung: dort ist nichts bekannt
         with self.lock:
-            self.scans[topic] = (time.time(), xy, breit)
+            self.scans[topic] = (time.monotonic(), xy, breit, grund, aufnahme, luecken)   # Empfang monoton
 
     def _imu(self, msg):
         # Drehung um die Hochachse aufsummieren (fuer das Wenden)
@@ -384,7 +400,10 @@ class Zentrale(Node):
             return None
         xy = self.lidar_xy
         hinten = xy[(xy[:, 0] < -0.05) & (np.abs(xy[:, 1]) < self.p('fahrschlauch_breite') / 2)]
-        return float(-hinten[:, 0].max()) if len(hinten) else 5.0
+        frei = float(-hinten[:, 0].max()) if len(hinten) else 5.0
+        # nur so weit frei, wie gemessen: ein Strahl ohne Messung im Streifen begrenzt den freien Rueckraum
+        luecke = lidar.hinten_luecke(self.lidar_luecken, self.p('fahrschlauch_breite') / 2)
+        return frei if luecke is None else min(frei, luecke)
 
     def weg_voraus(self):
         """Linie vor dem Roboter vom Linienfolger (fuer den Fahrschlauch) oder None = geradeaus."""
@@ -396,17 +415,39 @@ class Zentrale(Node):
     def lidar_pruefen(self):
         """(Abstand im Fahrschlauch: m, inf = frei, None = keine LiDAR-Daten; Objekt oder None;
         Abstand im breiten Bereich vorne fuer den Zebrastreifen)."""
-        jetzt = time.time()
+        topics = self.p('scan_topics')
         with self.lock:
-            frisch = [(xy, b) for z, xy, b in self.scans.values() if jetzt - z < 1.0]
-        if not frisch:
+            # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
+            frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
+        jetzt = self.ros_jetzt()     # Aufnahmealter jetzt nochmal: der Scan kann seit dem Empfang gealtert sein
+        ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt)}' for t, (_, _, _, g, a, _) in zip(topics, frisch)
+                     if g or lidar.aufnahme_alter(a, jetzt)]
+        if grund or ungueltig:
+            # Fehlender/alter Pflichtkanal oder unbrauchbarer Scan: wie keine LiDAR-Daten (Entscheider haelt)
+            self.lidar_xy = None
+            self.get_logger().warn('LiDAR unbekannt: ' + (grund or '; '.join(ungueltig)), throttle_duration_sec=2.0)
             return None, None, None
+        topics_frisch = list(zip(topics, frisch))
+        frisch = [(xy, b) for _, xy, b, _, _, _ in frisch]
         self.lidar_xy = np.vstack([xy for xy, _ in frisch])   # alle Punkte (fuer den Zebrastreifen)
+        self.lidar_luecken = np.concatenate([e[5] for _, e in topics_frisch])
         weg = self.weg_voraus()
-        objekte = [lidar.fahrschlauch(xy, weg, self.p('fahrschlauch_breite') / 2, self.p('fahrschlauch_laenge'),
-                                      nah_halb_deg=self.p('obstacle_half_deg')) for xy, _ in frisch]
+        schlauch = dict(halbe_breite=self.p('fahrschlauch_breite') / 2, laenge=self.p('fahrschlauch_laenge'),
+                        nah_halb_deg=self.p('obstacle_half_deg'))
+        objekte = [lidar.fahrschlauch(xy, weg, **schlauch) for xy, _ in frisch]
         objekte = [o for o in objekte if o]
         breit = min(b for _, b in frisch)
+        # Abdeckung: Strahlen ohne Messung, die durch den Fahrschlauch gehen -> dort ist der Weg unbekannt, nicht
+        # frei (gueltige Punkte daneben aendern daran nichts). Ein naeheres echtes Hindernis bleibt Haltgrund.
+        luecken = [(lidar.fahrschlauch_luecke(e[5], weg, **schlauch), t) for t, e in topics_frisch]
+        luecken = [(d, t) for d, t in luecken if d is not None]
+        naechstes = min((o['abstand'] for o in objekte), default=float('inf'))
+        if luecken and min(luecken)[0] <= naechstes:
+            d, t = min(luecken)
+            self.lidar_xy = None
+            self.get_logger().warn(f'LiDAR unbekannt: {t} misst den Fahrweg ab {d * 100:.0f} cm nicht '
+                                   '(Strahlen ohne Messung)', throttle_duration_sec=2.0)
+            return None, None, None
         if not objekte:
             return float('inf'), None, breit
         o = dict(min(objekte, key=lambda o: o['abstand']))

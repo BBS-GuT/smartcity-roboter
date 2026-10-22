@@ -6,8 +6,19 @@
     # LiDAR. "Vorne" je LiDAR ist NOCH NICHT GEPRUEFT:
     # Panel -> LiDAR-Radar, Gegenstand vor die Kamera-Seite stellen und mit den Pfeilen drehen,
     # bis er oben im Bild erscheint, dann "Speichern".
+    # Jeder Eintrag in scan_topics ist PFLICHT (KI-Zentrale und Notbremse): fehlt einer oder ist sein letzter
+    # Scan aelter als 1 s, haelt der Roboter - auch wenn der andere LiDAR frische Daten liefert (#61).
     scan_topics: ['/scan0', '/scan1']
     scan_front_deg: [0.0, 0.0]
+    # Einbaupose je LiDAR (lib/lidar.py einbau_aus_parametern, #63) - NOCH NICHT VERMESSEN, daher nicht gesetzt
+    # (= unbekannt) und noch von keinem Programm benutzt (Verwendung #64, Messung am Geraet #66).
+    # Roboterbezug base_link: x vorne, y links, Meter; Reihenfolge wie scan_topics. Die Drehung kommt allein aus
+    # scan_front_deg, hier nur der Sensorursprung: p_basis = R(-scan_front_deg) * p_sensor + (x, y).
+    # Erst mit am Geraet gemessenen Werten (Datum/Pruefer in docs/geraete/) eintragen, z. B.:
+    #   scan_frames: ['laser0_frame', 'laser1_frame']     # erwarteter header.frame_id
+    #   scan_einbau_xy: [x0, y0, x1, y1]                  # m
+    #   scan_einbau_quelle: ['gemessen', 'gemessen']      # gemessen | werksmodell | unbekannt
+    # Werks-URDF-Werte sind keine Vermessung des Roboters (hoechstens Quelle 'werksmodell').
     obstacle_half_deg: 30.0
     obstacle_min_range: 0.08
 kartograf:
