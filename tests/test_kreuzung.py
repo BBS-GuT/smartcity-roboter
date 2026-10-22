@@ -82,14 +82,30 @@ class Kreuzung(unittest.TestCase):
                     self.assertEqual(erg['boden'], [])
                 self.assertAlmostEqual(s.wahl, math.pi / 2, delta=0.2)
 
-    def test_passende_querlinie_bei_offener_wahl_bleibt_nutzbar(self):
+    def test_gegenrichtung_der_wahl_wird_nicht_uebernommen(self):
+        """Nativer Review P1: links gewaehlt, rechts eingelenkt (und Spiegelung)."""
+        for seite in (-1, 1):
+            s = linie.LinienSucher()
+            with patch.object(s.zufall, 'choice', side_effect=lambda a: max(a, key=lambda p: seite * p[0])):
+                s.suche(T, 0.0)
+            for _ in range(25):
+                erg = s.suche(GERADE, -seite * math.pi / 2, pos=(0.36, -seite * 0.30))
+                self.assertFalse(erg['gefunden'])
+                self.assertEqual(erg['boden'], [])
+            self.assertAlmostEqual(s.wahl, seite * math.pi / 2, delta=0.2)
+            # Richtige Drehung: normale Linie wieder aufnehmen.
+            self.assertTrue(s.suche(GERADE, seite * math.pi / 2)['gefunden'])
+
+    def test_ungerichtete_querlinie_bestaetigt_keinen_ast(self):
         for seite in (-1, 1):
             s = linie.LinienSucher()
             with patch.object(s.zufall, 'choice', side_effect=lambda a: max(a, key=lambda p: seite * p[0])):
                 s.suche(T, 0.0)
             img = bild([((0.36, -0.5), (0.36, 0.5))])
-            erg = s.suche(img, 0.0)
-            self.assertTrue(erg['gefunden'])
+            # Pruefe den Pfad OHNE erkannte Verzweigung: die Querachse allein reicht nicht.
+            with patch.object(s, 'aeste', return_value=None):
+                erg = s.suche(img, 0.0)
+            self.assertFalse(erg['gefunden'])
             self.assertIsNotNone(s.wahl)
 
     def test_ast_im_nahen_blindbereich_gerade_ueberschreibt_nicht(self):

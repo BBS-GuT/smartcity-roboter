@@ -257,15 +257,10 @@ class LinienSucher:
             if self._wahl_offen(gier):
                 # Im nahen Blindbereich kann nur die NICHT gewaehlte Gerade sichtbar bleiben.
                 # Sie darf den bereits gesehenen Seitenast im Gedaechtnis nicht ersetzen.
-                # Eine zur Wahl passende Querlinie darf dagegen weiter beobachtet werden.
-                py, px = np.nonzero(teil)
-                if gier is None or not math.isfinite(gier) or len(px) < 3:
-                    return np.zeros_like(teil)
-                punkte = np.column_stack((px, py)).astype(float)
-                _, _, vt = np.linalg.svd(punkte - punkte.mean(axis=0), full_matrices=False)
-                richtung = math.atan2(-vt[0, 0], -vt[0, 1])
-                if abs(math.remainder(gier + richtung - self.wahl, math.pi)) > math.radians(45):
-                    return np.zeros_like(teil)
+                # Eine einzelne Linienachse bestaetigt keine gerichtete Ausfahrt: insbesondere
+                # sind links und rechts dieselbe Achse. Erst die zur Wahl passende lokale
+                # Richtung erlaubt wieder neue Punkte; das vorhandene Gedaechtnis altert weiter.
+                return np.zeros_like(teil)
             return teil
         self.ohne_kreuzung = 0
         self.kreuzung_pos = self.pos
