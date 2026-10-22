@@ -44,8 +44,8 @@ def pruefe_fahrwunsch(wunsch):
     p.zahl(wunsch, '$', 'request_seq', ganz=True, mini=0)
     for feld in ('generated_mono_s', 'valid_until_mono_s'):
         p.zahl(wunsch, '$', feld, mini=0)
-    for feld in ('v_m_s', 'w_rad_s'):
-        p.zahl(wunsch, '$', feld)
+    p.zahl(wunsch, '$', 'v_m_s', mini=-1, maxi=1)
+    p.zahl(wunsch, '$', 'w_rad_s', mini=-10, maxi=10)
     p.text(wunsch, '$', 'maneuver', null=True)
     p.liste(wunsch, '$', 'hold_reasons', auswahl=v.HALTEGRUENDE)
     if not p.fehler:

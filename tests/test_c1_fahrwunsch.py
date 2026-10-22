@@ -112,6 +112,21 @@ class RequestStruktur(unittest.TestCase):
             self.assertEqual(R.lade_fahrwunsch_json(text), d)
             self.assertIsInstance(R.lade_fahrwunsch_json(text)['generated_mono_s'], Decimal)
 
+    def test_geschwindigkeitsgrenzen_beidseitig_inklusiv(self):
+        for field, minimum, maximum in (('v_m_s', -1, 1), ('w_rad_s', -10, 10)):
+            for value in (minimum, maximum):
+                with self.subTest(field=field, value=value):
+                    d = request(**{field: value})
+                    self.assertEqual(R.pruefe_fahrwunsch(d), [])
+                    self.assertEqual(R.lade_fahrwunsch_json(R.fahrwunsch_als_json(d)), d)
+            for value in (Decimal(str(minimum)) - Decimal('.0001'),
+                          Decimal(str(maximum)) + Decimal('.0001'), -999, 999):
+                with self.subTest(field=field, value=value):
+                    d = request(**{field: value})
+                    self.assertTrue(R.pruefe_fahrwunsch(d))
+                    with self.assertRaises(ValueError):
+                        R.fahrwunsch_als_json(d)
+
     def test_json_exponent_und_raster_ohne_floatvorstufe(self):
         text = (FIXTURES / 'frist120.json').read_text(encoding='utf-8')
         d = R.lade_fahrwunsch_json(text.replace('120.20', '1.202e2'))
@@ -222,6 +237,23 @@ class Annahme(unittest.TestCase):
                 self.assertEqual(bad['hoechststand'], before['hoechststand'])
                 self.assertEqual(bad['angenommen'], before['angenommen'])
                 self.assert_result(self.take(fixture('frisch9')), 'accepted')
+
+    def test_geschwindigkeit_ausserhalb_grenze_vergiftet_keinen_hwm(self):
+        for field, minimum, maximum in (('v_m_s', -1, 1), ('w_rad_s', -10, 10)):
+            for value in (minimum, maximum):
+                with self.subTest(field=field, value=value):
+                    self.ctx = R.FahrwunschAnnahme(**BINDUNG)
+                    self.assert_result(self.take(request(**{field: value})), 'accepted')
+            for value in (Decimal(str(minimum)) - Decimal('.0001'),
+                          Decimal(str(maximum)) + Decimal('.0001'), -999, 999):
+                with self.subTest(field=field, value=value):
+                    self.ctx = R.FahrwunschAnnahme(**BINDUNG)
+                    before = self.take()
+                    invalid = self.take(request(request_seq=999, **{field: value}))
+                    self.assert_result(invalid, 'invalid')
+                    self.assertEqual(invalid['hoechststand'], before['hoechststand'])
+                    self.assertEqual(invalid['angenommen'], before['angenommen'])
+                    self.assert_result(self.take(fixture('frisch9')), 'accepted')
 
     def test_regression_gegen_hwm_statt_nur_annahmepaar(self):
         self.take()
