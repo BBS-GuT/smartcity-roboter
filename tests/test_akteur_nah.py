@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'lib'))
 from raeum_lauf import AKTEURE, Lauf, bewegt  # noqa: E402
 from tiefe import abstand_im_kasten, tiefe_passt  # noqa: E402
 from entscheider import STANDARD  # noqa: E402
+from ablaeufe import akteur_einordnen  # noqa: E402
 
 GREIF = STANDARD['greif_vor']   # Gegenstand liegt in Greifweite
 
@@ -78,6 +79,46 @@ class AkteurNah(unittest.TestCase):
                                  lidar=GREIF, objekt=dict(OBJ), tiefe_hindernis=True)
                 gehalten = 'Arm haelt still' in b['grund']
                 self.assertEqual(gehalten, nah, b['grund'])
+
+
+class SperreAus(unittest.TestCase):
+    """Projektinhaber 22.10.: Personen/Tiere halten ihn nicht auf (akteure_beachten False, Standard der Zentrale)."""
+
+    def eingeordnet(self, beachten, abstand=None):
+        o = {'name': 'Person', 'im_weg': True}         # so nah und mittig, dass die KI "im Weg" meldet
+        akteur_einordnen(o, abstand, beachten, 1.0)       # akteur_nah der Zentrale
+        return o
+
+    def test_aus_zaehlt_nie(self):
+        for abstand in (None, 0.3, 3.0):              # auch ohne sichere Tiefe (fiel bisher als "nah" an)
+            with self.subTest(abstand=abstand):
+                o = self.eingeordnet(False, abstand)
+                self.assertFalse(o['nah'])
+                self.assertFalse(o['im_weg'])
+
+    def test_an_wie_bisher(self):
+        self.assertTrue(self.eingeordnet(True)['nah'])
+        self.assertTrue(self.eingeordnet(True, 0.3)['nah'])
+        self.assertFalse(self.eingeordnet(True, 3.0)['nah'])
+        self.assertTrue(self.eingeordnet(True)['im_weg'])
+
+    def test_aus_raeumt_weg_trotz_person(self):
+        o = self.eingeordnet(False)
+        lauf = Lauf()
+        arme, b = [], None
+        weg = False
+        for _ in range(400):
+            w = {} if weg else {'lidar': GREIF, 'objekt': dict(OBJ), 'tiefe_hindernis': True}
+            b = lauf.schritt(objekte=[dict(o)], **w)
+            if b['arm'] is not None:
+                arme.append(b['arm'])
+            weg = weg or weggeraeumt(arme)
+            if b['aktion'] == 'fahren':
+                break
+        self.assertTrue(weggeraeumt(arme))
+        self.assertEqual(b['aktion'], 'fahren', b['grund'])
+        texte = [t for _, t, _ in lauf.e.ereignisse]
+        self.assertFalse(any('Person' in t for t in texte), texte)
 
 
 def weggeraeumt(arme):

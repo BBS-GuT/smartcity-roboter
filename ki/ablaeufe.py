@@ -29,6 +29,16 @@ def akteure_nah(w):
     return [o['name'] for o in w.get('objekte', []) if o['name'] in LEBEWESEN | FAHRZEUGE and o.get('nah', True)]
 
 
+def akteur_einordnen(o, abstand, beachten, grenze):
+    """Setzt bei einer Person/einem Tier/Fahrzeug der Kamera-KI 'abstand', 'nah' und 'im_weg' (ki/zentrale.py).
+    beachten False (Projektinhaber 22.10., Parameter akteure_beachten): halten ihn nie auf - weder beim Wegraeumen
+    ('nah') noch als 'KI sieht im Weg'. Sonst zaehlt nah, was naeher als grenze (m) ist oder ohne sichere Tiefe."""
+    o['abstand'] = abstand
+    o['nah'] = bool(beachten) and (abstand is None or abstand < grenze)
+    if not beachten:
+        o['im_weg'] = False
+
+
 def befehl(aktion, grund, arm=None, manoever=None):
     return {'aktion': aktion, 'faktor': 0.0 if aktion == 'stopp' else 1.0, 'grund': grund,
             'arm': arm, 'manoever': manoever}
@@ -453,6 +463,7 @@ class Wegraeumen(Ablauf):
             self.plan = None
             self._phase(jetzt, 'abstand')
             self.ruhig, self.zuletzt_gesehen = 0, jetzt
+            self.messungen, self.schraeg_werte, self.abstand_letzt = [], [], None   # nur Messungen von hier an
             self.objekt_strecke = None        # Radstrecke der letzten Sichtung: nur aus DIESEM Heranfahren
             return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
@@ -738,20 +749,27 @@ class Wegraeumen(Ablauf):
             self.objekt, self.zuletzt_gesehen = dict(obj), jetzt
             self.objekt_strecke, self.objekt_abschnitt = strecke, abschnitt
             self.leer_bilder = 0          # frische Bilder seit dieser Sichtung, in denen es fehlt
-            fehler_vor = obj['vor'] - c['greif_vor']
-            seitlich = abs(obj['seite']) > c['greif_seite']
+            self.messungen.append(obj)
+            self.messungen = self.messungen[-5:]
+            # Ruhig/ausgerichtet nach dem Median der letzten 3 Messungen: ein verrauschtes Tiefenbild setzt nicht
+            # alles zurueck (RM02 22.10.: bei 33 cm 15 s lang nie 3x hintereinander in Toleranz)
+            m3 = self.messungen[-3:]
+            fehler_vor = float(np.median([x['vor'] for x in m3])) - c['greif_vor']
+            self.seite_median = float(np.median([x['seite'] for x in m3]))
+            seitlich = abs(self.seite_median) > c['greif_seite']
             # Kurve: Roboter steht schraeg zur Strasse (und damit zum Gegenstand) -> erst gerade drehen
             schraeg = self._schraeg(weg, obj['vor'])
             if schraeg is not None:
                 self.schraeg_zuletzt = schraeg
+                self.schraeg_werte = (getattr(self, 'schraeg_werte', []) + [schraeg])[-3:]
             # Linie gerade unbekannt: zuletzt gemessene Schraeglage gilt weiter (nicht einfach "gerade")
-            bekannt = schraeg if schraeg is not None else getattr(self, 'schraeg_zuletzt', None)
+            werte = getattr(self, 'schraeg_werte', [])
+            bekannt = float(np.median(werte)) if werte else getattr(self, 'schraeg_zuletzt', None)
             # Winkel nie bekannt: Greifen mit Sicht wie bisher erlaubt (sonst ohne Linie nie), blind aber nicht
             gerade = bekannt is None or abs(bekannt) < c['greif_winkel']
-            self.ruhig = (self.ruhig + 1 if abs(fehler_vor) < c['greif_toleranz'] and not seitlich and gerade else 0)
+            self.ruhig = (self.ruhig + 1 if len(m3) >= 3 and abs(fehler_vor) < c['greif_toleranz'] and not seitlich
+                          and gerade else 0)
             self.ausgerichtet = not seitlich and bekannt is not None and abs(bekannt) < c['greif_winkel']
-            self.messungen.append(obj)
-            self.messungen = self.messungen[-5:]
         else:
             s0 = getattr(self, 'objekt_strecke', None)
             # blind nur mit echten Radzaehlern: aus Fahrbefehlen geschaetzte Strecke ist kein Nachweis
@@ -779,23 +797,37 @@ class Wegraeumen(Ablauf):
             self.seite = seite = self._ablage_seite(self.letztes_w_xy)
             threading.Thread(target=self._planen, args=(o, seite), daemon=True).start()
             return befehl('stopp', 'Hindernis: rechne aus, wie der Arm greifen muss ...')
-        if self.dauer(jetzt) > 15:
+        if self.dauer(jetzt) > c['greif_dauer']:
             return self._ende('fehler', 'Wegraeumen: in Greifweite fahren dauert zu lange', 'stopp')
         o = self.objekt
         vor = o['vor']
         s0 = getattr(self, 'objekt_strecke', None)
+        # Einzelne Bilder ohne Treffer (verrauschte Tiefe) sind kein Grund anzuhalten: Drehen und Seitwaerts kurz
+        # weiter wie zuletzt. Vorher wechselten STOPP und Manoever im Bildtakt, er kam nicht voran (RM02 22.10.)
+        halten = getattr(self, 'abstand_letzt', None) or (0.0, 0.0)
+        luecke = not obj and jetzt - self.zuletzt_gesehen < c['greif_luecke'] and any(halten)
         if not obj and s0 is not None and strecke is not None:
             # gerade nicht gesehen: mit den Radzaehlern weiterrechnen, sonst faehrt er mit der alten Messung ueber
             # die Greifweite hinaus (blind)
             vor -= strecke - s0
-            if abs(vor - c['greif_vor']) < c['greif_toleranz'] / 2:
+            if abs(vor - c['greif_vor']) < c['greif_toleranz'] / 2 and not luecke:
                 return befehl('stopp', f"Hindernis: in Greifweite? schaue hin ({vor * 100:.0f} cm)")
-        lin = max(-0.03, min(0.03, 0.6 * (vor - c['greif_vor'])))
+        fehler = vor - c['greif_vor']
+        lin = max(-0.03, min(0.03, 0.6 * fehler))
+        if abs(fehler) >= c['greif_toleranz'] / 2:
+            lin = math.copysign(max(abs(lin), c['greif_min_lin']), lin)
         quer = dreh = 0.0
-        if obj and abs(o['seite']) > c['greif_seite'] * 0.6:     # seitlich nur nach frischer Messung (kein Zaehler)
-            quer = max(-0.03, min(0.03, 0.6 * o['seite']))
+        seite = self.seite_median if obj else 0.0             # seitlich nur nach frischer Messung (kein Zaehler)
+        if abs(seite) > c['greif_seite'] * 0.6:
+            quer = max(-0.03, min(0.03, 0.6 * seite))
+            quer = math.copysign(max(abs(quer), c['greif_min_quer']), quer)
         if schraeg is not None and c['greif_winkel'] * 0.5 < abs(schraeg) < math.radians(35):   # sonst unplausibel
             dreh = max(-0.25, min(0.25, 0.8 * schraeg))        # auf der Stelle gerade zur Strasse drehen
+            dreh = math.copysign(max(abs(dreh), c['greif_min_dreh']), dreh)
+        if luecke:
+            quer, dreh = halten
+        if obj:
+            self.abstand_letzt = (quer, dreh)
         if dreh:
             # erst auf der Stelle gerade drehen, dann heranfahren: beides zugleich brachte ihn in Greifweite, bevor er
             # gerade stand - dort sah die Kamera den Gegenstand nicht mehr (RM02 21.10.: "drehe +27 Grad", verloren).
@@ -811,8 +843,10 @@ class Wegraeumen(Ablauf):
         if lin < 0 and (hinten is None or hinten < c['hinten_frei']):
             lin = 0.0                                          # rueckwaerts nur, wenn hinten frei
         text = f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm"
+        if quer and obj:
+            text += f", {seite * 100:+.0f} cm seitlich"
         if dreh:
-            text += f", drehe {math.degrees(schraeg):+.0f} Grad gerade"
+            text += f", drehe {math.degrees(schraeg):+.0f} Grad gerade" if schraeg is not None else ", drehe weiter"
         return befehl('manoever', text + ')',
                       manoever={'lin': lin, 'quer': quer, 'dreh': dreh, 'text': 'in Greifweite'})
 

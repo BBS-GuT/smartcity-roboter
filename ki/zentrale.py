@@ -62,7 +62,7 @@ import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
-from ablaeufe import LEBEWESEN, FAHRZEUGE  # noqa: E402
+from ablaeufe import LEBEWESEN, FAHRZEUGE, akteur_einordnen  # noqa: E402
 
 # Diese Dinge fuehren zum Anhalten, wenn die Kamera-KI sie im Weg sieht. Nur Verkehrsteilnehmer:
 # Moebel/Gegenstaende (Stuhl, Flasche ...) erkennt YOLO oft falsch, z. B. die schwarze Kurve als "Stuhl".
@@ -116,6 +116,10 @@ class Zentrale(Node):
         # Wegraeumen: nur Personen/Tiere/Fahrzeuge zaehlen, die so nah sind (m ab Kamera, Tiefenkamera). Weiter weg
         # (Hintergrund) halten sie das Wegraeumen nicht auf. Ohne sichere Tiefe im Kasten zaehlen sie (vorsichtig).
         dp('akteur_nah', 1.0)
+        # Projektinhaber 22.10.: Personen/Tiere/Fahrzeuge halten ihn nicht auf (es gibt noch keine auf dem Brett, der
+        # Roboter ist ungefaehrlich). False: sie zaehlen weder als 'nah' (Wegraeumen wartet nicht, faesst an) noch als
+        # 'im Weg'. Hindernisse sehen LiDAR und Tiefenkamera weiter. Zebrastreifen wartet weiter auf Spielfiguren.
+        dp('akteure_beachten', False)
         # Nur diese KI-Klassen gibt es in der SmartCity (Projektinhaber 21.10.: Spielfiguren, Ampeln, Stoppschilder;
         # Einbahnschilder erkennt schilder.py). Alles andere (Vogel, Auto, Stuhl ...) waren Fehlerkennungen oder
         # Dinge neben dem Spielfeld -> verworfen. Teddy: so erkennt das Modell Spielfiguren manchmal. Leer = alle.
@@ -490,8 +494,8 @@ class Zentrale(Node):
             if o['name'] in LEBEWESEN | FAHRZEUGE:
                 # Abstand ab Kamera (egal, wohin der Arm sie gerade richtet): nur Nahe zaehlen beim Wegraeumen.
                 # Ohne passende Tiefe: unsicher -> nah
-                o['abstand'] = abstand_im_kasten(d_akteur, o['box'], (h, w))
-                o['nah'] = o['abstand'] is None or o['abstand'] < self.p('akteur_nah')
+                akteur_einordnen(o, abstand_im_kasten(d_akteur, o['box'], (h, w)), self.p('akteure_beachten'),
+                                 self.p('akteur_nah'))
                 o['spielfigur'] = spielfigur(o['box'], o['abstand'], (h, w), self.p('kamera_fov'),
                                              self.p('figur_max_hoehe'))
         tiefe_hindernis, tiefe_obj, blick, pruef_tiefe = None, None, None, None

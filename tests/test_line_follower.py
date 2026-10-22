@@ -108,6 +108,19 @@ print(f"{'OK  ' if ok else 'FEHLER'} Einstellung im Betrieb aendern (ros2 param 
 n = neu()
 n.bild_zeit = time.time() - 1
 check('keine Kamerabilder -> Stopp', n.entscheide(), False)
+# RM02 22.10.: Linienbilder setzen aus, die KI hat aber frische Bilder -> ihr Manoever (Greifen ausrichten) gilt
+for ki_alter, faehrt in ((0.2, True), (1.5, False), (None, False)):
+    n = neu()
+    n.bild_zeit = time.time() - 1
+    n.ki = (time.time(), {'aktion': 'manoever', 'grund': 'ausrichten', 'bild_alter': ki_alter,
+                          'manoever': {'lin': 0.03, 'quer': 0.0, 'dreh': 0.0, 'text': 'vor'}})
+    check(f'keine Linienbilder, KI-Manoever mit KI-Bild {ki_alter} s alt', n.entscheide(), faehrt)
+n = neu()
+n.bild_zeit = time.time() - 1
+n.on_scan(scan(0.10), '/scan0', 0)
+n.ki = (time.time(), {'aktion': 'manoever', 'grund': 'ausrichten', 'bild_alter': 0.1,
+                      'manoever': {'lin': 0.03, 'quer': 0.0, 'dreh': 0.0, 'text': 'vor'}})
+check('keine Linienbilder: Notbremse sperrt KI-Manoever weiter', n.entscheide(), False)
 n = neu()
 n._p['ki_pflicht'] = False
 n.ki = (0.0, None)
