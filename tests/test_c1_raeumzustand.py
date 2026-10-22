@@ -409,6 +409,29 @@ class Raeumdaten(unittest.TestCase):
         self.assertEqual(s, before)
         self.assertEqual(c, old)
 
+    def test_malformed_register_containers_return_context_errors(self):
+        for field in ('frames', 'details', 'evidences', 'policy_evidences', 'requests', 'commands', 'evaluations'):
+            for invalid in (None, True, 'bad', {}, [None], [False], ['bad'], [[]]):
+                with self.subTest(field=field, invalid=invalid):
+                    errors = self.check(state(), **{field: invalid})
+                    self.assertTrue(errors)
+                    self.assertTrue(all('kontext.' + field in error for error in errors))
+        self.assertEqual(pruefe_raeumzustand(state(), kontext=None), [])
+        self.assertEqual(self.check(state(), evaluations=(), frames=[]), [])
+
+    def test_malformed_context_mappings_return_context_errors(self):
+        for field in ('bindings', 'component_units'):
+            for invalid in (None, True, 'bad', [], {'arm': None}, {'arm': False}, {'arm': []}):
+                with self.subTest(field=field, invalid=invalid):
+                    self.assertTrue(self.check(state(), **{field: invalid}))
+        for field in ('current_request_ref', 'current_command_ref', 'previous_state'):
+            for invalid in (True, 'bad', []):
+                self.assertTrue(self.check(state(), **{field: invalid}))
+        for actions in (None, True, 'bad', [None], [[]]):
+            self.assertTrue(self.check(state(), bindings={'arm_command': {'targetless_actions': actions}}))
+        s, kw = self.allowed('arm', output=True)
+        self.assertEqual(self.check(s, **kw), [])
+
     def test_schema_definitions_resolve_and_unknown_fits(self):
         try:
             from jsonschema import Draft202012Validator

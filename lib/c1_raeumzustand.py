@@ -679,7 +679,42 @@ def pruefe_raeumzustand(zustand, *, kontext=None):
         kontext = RaeumKontext()
     if not isinstance(kontext, RaeumKontext):
         return ['$: kontext muss RaeumKontext sein']
+    context_errors = _kontextfehler(kontext)
+    if context_errors:
+        return context_errors
     return _Check(zustand, kontext).run()
+
+
+def _kontextfehler(context):
+    """Container vor Zugriffen pruefen; ein fehlerhaftes Register ist nicht leer."""
+    errors = []
+    for name in ('frames', 'details', 'evidences', 'policy_evidences', 'requests', 'commands', 'evaluations'):
+        entries = getattr(context, name)
+        if not isinstance(entries, (list, tuple)):
+            errors.append(f'$.kontext.{name}: muss Liste/Tupel von Objekten sein')
+        else:
+            for index, entry in enumerate(entries):
+                if not isinstance(entry, dict):
+                    errors.append(f'$.kontext.{name}[{index}]: muss Objekt sein')
+    for name in ('bindings', 'component_units'):
+        mapping = getattr(context, name)
+        if not isinstance(mapping, dict):
+            errors.append(f'$.kontext.{name}: muss Objekt sein')
+        else:
+            for key, value in mapping.items():
+                if not isinstance(value, dict):
+                    errors.append(f'$.kontext.{name}[{key!r}]: muss Objekt sein')
+    if isinstance(context.bindings, dict):
+        arm = context.bindings.get('arm_command')
+        if isinstance(arm, dict) and 'targetless_actions' in arm:
+            actions = arm['targetless_actions']
+            if not isinstance(actions, (list, tuple)) or not all(isinstance(x, str) for x in actions):
+                errors.append('$.kontext.bindings.arm_command.targetless_actions: muss Liste/Tupel von Texten sein')
+    for name in ('current_request_ref', 'current_command_ref', 'previous_state'):
+        value = getattr(context, name)
+        if value is not None and not isinstance(value, dict):
+            errors.append(f'$.kontext.{name}: muss Objekt oder null sein')
+    return errors
 
 
 def _current_request_rule(key):
