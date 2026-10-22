@@ -24,6 +24,7 @@ from fahrplan import Fahrplan, richtung_aus_ast
 ZUSTAENDE = ('gestoppt', 'faehrt', 'pausiert')
 DREHBEGINN_GRAD = 15.0     # ab so viel Drehung seit der Wahl gilt: er biegt ab (fuer den Blink-Vorlauf)
 HILFE_NACH = 10.0          # so lange (s) ohne Linie stehen -> 'hilfe_noetig' im Zustand (er faehrt nie blind los)
+HILFE_HINDERNIS = 60.0     # so lange (s) vor einem Hindernis warten -> 'hilfe_noetig' (er wartet trotzdem weiter)
 
 
 class FahrGehirn:
@@ -45,7 +46,7 @@ class FahrGehirn:
         self.meldung = ''               # letzte wichtige Meldung (Lernen) fuer die Anzeige
         self.parameter_neu = True       # Knoten soll die Parameter (neu) uebernehmen
         self._gier = 0.0                # letzte bekannte eigene Drehung (rad)
-        self.ohne_linie_seit = None     # seit wann steht er ohne Linie (Suche vorbei)
+        self.ohne_linie_seit = None     # seit wann steht er ohne Linie (Suche vorbei) bzw. vor einem Hindernis
         self.hilfe_noetig = False
 
     # ---------------- Schnittstelle nach aussen ----------------
@@ -168,6 +169,14 @@ class FahrGehirn:
                     self.hilfe_noetig = True
                     self.log(f'Fahr-Gehirn: steht seit {HILFE_NACH:.0f} s ohne Linie -> HILFE NOETIG: Roboter auf '
                              'die Linie setzen (dann faehrt er allein weiter) oder pause + fahrplan <nr>')
+            elif steht_absichtlich and self.zustand == 'faehrt':
+                # Hindernis (oder Sensor unbekannt): warten ist richtig. Steht er sehr lange, soll jemand nachsehen
+                if self.ohne_linie_seit is None:
+                    self.ohne_linie_seit = jetzt
+                elif jetzt - self.ohne_linie_seit > HILFE_HINDERNIS and not self.hilfe_noetig:
+                    self.hilfe_noetig = True
+                    self.log(f'Fahr-Gehirn: haelt seit {HILFE_HINDERNIS:.0f} s ({status}) -> HILFE NOETIG: '
+                             'nachsehen, was im Weg ist (er wartet weiter und faehrt allein los, wenn frei)')
             else:
                 self.ohne_linie_seit, self.hilfe_noetig = None, False
             if self.zustand != 'faehrt':

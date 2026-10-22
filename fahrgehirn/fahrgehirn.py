@@ -43,6 +43,7 @@ from tiefe import Bodenmodell  # noqa: E402
 import lernen as lernmodul  # noqa: E402
 import messung  # noqa: E402
 from blinker import BlinkerAttrappe  # noqa: E402
+from fahrplan import ZIEL_GRAD  # noqa: E402
 from gehirn import FahrGehirn  # noqa: E402
 from sicherheit import HindernisRegel, im_pfad_schlauch, kreuzungs_pfad  # noqa: E402
 
@@ -199,17 +200,24 @@ class FahrGehirnKnoten(lf.LineFollower):
     def kreuzungs_weg(self):
         """Waehrend einer Kreuzung: geplanter Weg (Roboter-System) bis zum Abzweig und in den gewaehlten Ast, sonst
         None (dann gilt die Linie aus dem Gedaechtnis). Siehe fahrgehirn/sicherheit.py."""
-        wahl = self.sucher.wahl
-        if not self.gehirn.kreuzung_aktiv():
+        k = self.gehirn.kreuzung
+        if k is None:
             self.abzweig = None
             return None
-        if wahl is None or self.abzweig is None:
+        if not k.d['gewaehlt'] or self.abzweig is None:
             return None
         with self.lock:
             x, y, w = self.gedaechtnis.pose
         dx, dy = self.abzweig[0] - x, self.abzweig[1] - y
         abzweig = (math.cos(w) * dx + math.sin(w) * dy, -math.sin(w) * dx + math.cos(w) * dy)
-        return kreuzungs_pfad(abzweig, math.remainder(wahl - w, 2 * math.pi))
+        # Richtung: eigene Richtung bei der Wahl + genau 0 / +-90 Grad. Die geschaetzte Astrichtung schwankt um bis
+        # zu 35 Grad; ein schraeger Weg zielte im Sim auf ein Haus neben der Strasse -> Dauerhalt
+        richtung = math.remainder(k.gier0 + math.radians(ZIEL_GRAD[k.d['gewaehlt']]) - w, 2 * math.pi)
+        if abs(richtung) < math.radians(30):
+            # eingelenkt (oder geradeaus): das Gedaechtnis kennt die neue Linie genauer als der geschaetzte Abzweig
+            # (Sim: Abzweig ca. 10 cm daneben geschaetzt -> Haus 20 cm neben dem Steg lag im Weg)
+            return None
+        return kreuzungs_pfad(abzweig, richtung)
 
     def lidar_abstand(self):
         """Naechstes Hindernis im Fahrschlauch (m, inf = frei), None = unbekannt, 'aus' = abgeschaltet."""

@@ -72,9 +72,13 @@ Reihenfolge in jedem Fahrbefehl (20× pro Sekunde), das Erste gewinnt:
    näher als **30 cm** (LiDAR) oder Tiefenkamera meldet Hindernis → **STOPP**. LiDAR/Tiefenkamera fehlt, ist zu alt
    oder misst den Fahrweg nicht → ebenfalls STOPP. Weiter erst, wenn der Weg **1 s ununterbrochen** frei war.
    Nie wegräumen, nie den Arm bewegen.
-   **An Kreuzungen** gilt als Fahrschlauch der geplante Weg (bis zum Abzweig, dann in die gewählte Richtung). Grund
-   (Simulator): An einem T mittelt das Linien-Gedächtnis beide Arme zu „geradeaus“; ein Haus 22 cm hinter der
-   Kreuzung lag dann scheinbar im Weg, der Abstand flackerte um die 30 cm, und er stand für immer.
+   **Beim Abbiegen** gilt als Fahrschlauch der geplante Weg: bis zum geschätzten Abzweig, dann genau 90° in die
+   gewählte Richtung, nur bis er eingelenkt hat (danach wieder die Linie aus dem Gedächtnis). Grund (Simulator): An
+   einem T mittelt das Linien-Gedächtnis beide Arme zu „geradeaus“; ein Haus 22 cm hinter der Kreuzung lag dann
+   scheinbar im Weg, der Abstand flackerte um die 30 cm, und er stand für immer. Erste Versuche mit der geschätzten
+   Astrichtung (schwankt bis 35°) und dem Pfad auch nach dem Einlenken führten ebenfalls zu Dauerhalten vor Häusern
+   neben der Straße. **Annahme: rechtwinklige Kreuzungen** (am Brett prüfen). Steht er länger als 60 s vor einem
+   Hindernis, meldet er `hilfe_noetig` und wartet weiter.
 2. Zustand: pausiert/gestoppt → steht.
 3. Linienfolger mit seiner eigenen **LiDAR-Notbremse (12 cm)**, Kamera-Prüfungen (Bilder zu alt → Stopp).
 

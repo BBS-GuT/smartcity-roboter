@@ -281,6 +281,9 @@ class GehirnTest(unittest.TestCase):
             self.assertTrue(g.zustand_info()['hilfe_noetig'])
             g.takt(13.0, 0.05, 0.1, 0.0, None, 'Linie: +0.5 cm', 0.0)   # wieder auf die Linie gesetzt
             self.assertFalse(g.zustand_info()['hilfe_noetig'])
+            for i in range(1300):                                # 65 s vor einem Hindernis
+                g.takt(14.0 + i * 0.05, 0.05, 0.0, 0.0, None, 'HINDERNIS 25 cm (LiDAR) -> STOPP, warte', 0.0, True)
+            self.assertTrue(g.zustand_info()['hilfe_noetig'])
 
     def test_diagnose(self):
         basis = {'kreuzungen': 6, 'kreuzungen_ok': 6, 'nicht_erkannt': 0, 'richtung_fehlt': 0, 'falsch_abgebogen': 0,
