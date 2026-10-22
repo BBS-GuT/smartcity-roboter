@@ -384,11 +384,12 @@ C erfindet keinen Besitzer und mischt keine jeweils neuesten Teilwerte.
 | Teil | Pflichtfelder und Bindung |
 |---|---|
 | `motion.release` / `arm.release` | `owner_ref` = `{robot_id, producer_id, producer_boot_id}` oder unbekannt `null`; `decision_seq` eigene Sequenz oder unbekannt `null`; `evaluation_ref` vollständiger Schlüssel oder ohne Auswertung `null`; `time_basis_id, evaluated_mono_s`; `decision=allowed/blocked/unknown`; `request_ref, request_reason` bei motion bzw. `command_ref, command_reason` bei arm; `output_ref` voller Ausgabeschlüssel oder fehlend `null`; `output_reason` nichtleer genau bei fehlender Ausgabe, sonst `null`; `Q`. Wunschreferenz vollständig oder bei fehlendem Wunsch/eigenständigem Schutzauftrag `null`, zugehöriger Wunschgrund dann nichtleer, sonst `null`. Bei vorhandener Ausgabe müssen Referenz **und Wunschgrund** mit deren Belegung übereinstimmen; Qualitäts-`reason` ist davon getrennt. Nicht bekannte Zeit/Referenzfelder dürfen `null` sein; ein fehlender Besitzer verlangt `decision=unknown` und `Q=unknown/missing`, kein `allowed`. |
+| Aktueller Verwendungsbezug | `motion.package_use`: Pflichtobjekt `{mode, reason, evaluation_ref}` außerhalb des unveränderlichen Auswertungspakets. `mode=current/historical/unknown`; bei `current` Grund `null`, sonst nichtleerer Grundcode. Vollständige Auswertungsreferenz muss auf das dargestellte Motion-Paket zeigen; unbekanntes Paket erlaubt `evaluation_ref=null` nur mit `mode=unknown` und Grund. Das Feld bewertet die Verwendung im konkreten äußeren Zustand, nicht rückwirkend die damals gemeldete Entscheidung. |
 | `motion.blocks` / `arm.blocks` | `producer_id, producer_boot_id, seq, evaluation_ref, time_basis_id, evaluated_mono_s, entries, stop_latched, fault_latched` und `Q`. Sperrbildproduzent = Freigabebesitzer, eigene `seq`; Auswertungsreferenz identisch zum Ergebnis. Beide Latches sind `{value: bool oder null, status, reason}`. `entries` nur bei geliefertem gültigem vollständigem Bild Liste, sonst `null`. `[]` bedeutet nur dann keine gemeldete Sperre. Unbekannter Besitzer lässt Herkunft/Auswertung unbekannt, kein erfundenes leeres Bild. |
 | Eintrag in `entries` | `block_ref, code, effect, frame_ref, time_basis_id, reported_mono_s, status, reason`. `block_ref` vollständige Herkunft; `code` nichtleer; `effect=motion/arm/both`; `frame_ref` vollständige Quelle oder bei Bedien-/Prozessursache bzw. unbelegtem Sensorbezug `null`. Berichtqualität getrennt von der Qualität seines Belegs; ein gültig gemeldeter Sensorfehler darf sich auf eine alte/fehlende Aufnahme beziehen. Fehlende Berichtzeit/Uhr bleibt unbekannt `null`. |
 | `protection` | `{policy_id, policy_version, evidence_ref, status, reason}`; unbekannte Texte/Referenz `null`, `Q=unknown/missing` mit Grund. `evidence_ref` ist ein vollständiger `EvidenceRef` auf Politik-/Abnahmenachweis im getrennten gegebenen Kontext; diese Nachweisart ist kein Räumerfolgsbeleg. |
 | `sensor_requirements` | Separater Qualitätsblock `{matrix_id, matrix_version, evidence_ref, status, reason}`; unbekannte Werte `null`; Nachweis ebenfalls getrennt von Räumerfolgsbelegen. Keine feste Quellen-/Grenzwertmatrix in C1 berechnen. |
-| Bestehende Laufzeitprojektion | `runtime.evaluation_ref`: dieselbe vollständige motion-Auswertung oder unbekannt `null`. `runtime.stop_latched/fault_latched` und die motion-bezogenen zusammenfassenden Gründe müssen genau deren Sperrbild wiedergeben; kein drittes unabhängig zusammengesetztes Sperrbild. Unbekannte Latches dürfen nicht als bestätigtes `false` erscheinen. `motor_enabled` bleibt grundsätzliche Bereitschaft, keine aus C berechnete konkrete Fahrt-/Armfreigabe. |
+| Bestehende Laufzeitprojektion | `runtime.evaluation_ref`: dieselbe vollständige aktuelle motion-Auswertung oder ohne belegtes aktuelles Paket `null`. `runtime.stop_latched/fault_latched` und die motion-bezogenen zusammenfassenden Gründe müssen genau deren aktuelles Sperrbild wiedergeben; kein drittes unabhängig zusammengesetztes Sperrbild und keine Projektion nur historischer Pakete als aktuelle Daten. Unbekannte Latches dürfen nicht als bestätigtes `false` erscheinen. `motor_enabled` bleibt grundsätzliche Bereitschaft, keine aus C berechnete konkrete Fahrt-/Armfreigabe. |
 
 Für ein bekanntes Paket müssen Ergebnis, Sperrbild und vorhandene Ausgabe
 **dieselbe vollständige `evaluation_ref`** tragen. Ergebnis-`owner_ref` stimmt
@@ -399,6 +400,53 @@ und Sequenz; Ausgabeproduzent darf vom Freigabebesitzer verschieden sein.
 Wunschreferenz des Ergebnisses und der Ausgabe muss identisch sein.
 Fehlende Ausgabe wird ausdrücklich im Ergebnis begründet; aus fehlender
 Bestätigung wird kein ausgegebener Nullbefehl.
+
+**Gesperrte Motion-Ausgabe:** Bei `motion.release.decision=blocked` verlangt
+eine vorhandene als gültig/konsistent gemeldete endgültige Fahrtausgabe
+**`v_m_s=0` und `w_rad_s=0`**, ohne Toleranz. Bereits eine einzelne von null
+verschiedene Komponente ist ein Datenwiderspruch, auch bei passenden
+Referenzen/Zeiten. Historische Kennzeichnung macht diese widersprüchliche
+Kombination nicht zu einem konsistenten Paket. Bei fehlender Ausgabe bleiben
+`motion.output=null`, `output_ref=null` und ein `output_reason` erhalten;
+der Validator erzeugt keinen Nullbefehl und bestätigt keinen Stillstand.
+
+**Fristbindung aktueller Erlaubnis:** Bei `package_use.mode=current` gilt:
+Sobald `decision=allowed` oder eine vorhandene Fahrtausgabe von null
+verschieden ist, ist ein vollständig auflösbarer `RequestRef` mit positiv bestätigtem
+Bindungs-/Zeit-/Annahmekontext erforderlich. Die Verwendung darf nicht durch
+einen Anti-Replay-Höchststand oder bestätigten Kontextwechsel überholt sein.
+Alle Vergleiche erfolgen exakt nach V1a in belegter gemeinsamer Uhr:
+
+`request.generated_mono_s <= evaluated_mono_s <= generated_mono_s < request.valid_until_mono_s`.
+
+Bei vorhandener Ausgabe gilt zusätzlich
+`evaluated_mono_s <= issued_mono_s <= generated_mono_s`; damit ist auch die
+Ausgabe vor Ablauf. Eine aktuelle von null verschiedene Ausgabe verlangt
+ein geliefertes `allowed`, keine unbekannte oder gesperrte Entscheidung.
+An der Ablaufgrenze ist `current` bereits unzulässig. Fehlende Bindung,
+Zeitbasis oder fehlender Fristnachweis erlauben keinen aktuellen
+Verwendungsbezug: `mode=unknown` mit entsprechendem Grund statt Freigabe.
+Das sind Beziehungen gelieferter Daten, keine Berechnung einer Motorfreigabe.
+
+Ein früher erlaubtes Paket darf nach Ablauf unverändert als Diagnose mit
+`package_use.mode=historical`, `reason=REQUEST_EXPIRED` und derselben
+`evaluation_ref` erhalten bleiben. Es erscheint dann weder als aktuelle
+Freigabe noch als aktuell ausgegebene Fahrbewegung, auch wenn seine historischen
+Ausgabewerte ungleich null waren; keine Projektion in aktuelle Laufzeitfelder.
+Die damalige Erlaubnis muss bereits zum Auswertungs-/Ausgabezeitpunkt einen
+frischen Wunsch und passenden Kontext gehabt haben. Historisch etikettieren
+repariert keine schon damals ungültige Erlaubnis. Alte Aufnahmen/Pakete werden
+nicht umdatiert und Fristen nicht erneuert. Der Wechsel von `current` zu
+`historical` gehört ausschließlich zum äußeren Verwendungsbezug; er ändert
+nicht den unveränderlichen Inhalt einer `evaluation_ref` und braucht keinen
+erfundenen neuen A-Auswertungsdatensatz. Eine tatsächlich neu gemeldete
+Haltentscheidung benötigt dagegen ein neues atomares Paket.
+
+Kontrollierte Nullwünsche für eigenständige aktuelle Halt-/Schutzpakete
+bleiben nach der folgenden Regel zulässig. Ohne Wunsch darf daraus keine
+aktuelle Fahrterlaubnis oder von null verschiedene Fahrtausgabe entstehen.
+Ein `blocked`-Paket kann einen abgelaufenen Wunsch als Ablehnungsbezug nennen;
+das behauptet keine erneute Verwendbarkeit dieses Wunsches.
 
 **Kontrollierter Nullwunsch:** Vollständig belegter Sicherheitshalt ohne
 Fahrwunsch: Ausgabe und Ergebnis jeweils `request_ref=null`, beide
@@ -467,6 +515,9 @@ Un/Vn; `output_ref` und Request-/Commandbezug stimmen überein. Alle übrigen
 Pflichtfelder/Nullregeln gelten nach obigen Tabellen, werden hier zur Kürze
 nicht wiederholt. `blocked` mit bestätigtem Fahr-Nullbefehl ist kein gemessener
 Stillstand. Arm-`blocked` ohne neue Ausgabe hat `output_ref=null` und Grund.
+Als aktuell bezeichnete Motion-Pakete besitzen `package_use.mode=current`
+und den dazu benötigten gegebenen Kontext; insbesondere ist R11 im
+synthetischen Ausrichtfall am Auswertungs- und Zustandszeitpunkt noch frisch.
 
 | Fall / Vorgang | Beobachtung, Wunsch und tatsächliche Daten | Gelieferte Pakete, Sperren und Aussage |
 |---|---|---|
@@ -480,6 +531,22 @@ nicht in die folgende Sequenz hineingemischt. Objekt-/Nachweisschlüssel bleiben
 in allen vier Fällen unabhängig vom äußeren Zustand. Kein Beispiel setzt
 erfolgreiches Räumen voraus; dafür wären die zwei getrennten bestätigten
 Erfolgsbelege zu O erforderlich.
+
+**Gezielte Konsistenz-/Fristgegenproben zu den nativen P1-Befunden:**
+Unabhängige rein synthetische Tabellenfälle, sonst passende unveränderte
+Schlüssel/Uhr/Kontexte; keine realen Grenzwerte. Ein Testwunsch wurde vor
+100 erzeugt und läuft exakt bei 101 ab, das Testpaket wird bei 100 ausgewertet
+und ausgegeben. Eine eventuell andere Zustandszeit steht in der Tabelle.
+
+| Fall | Gelieferter Verwendungsbezug / Ausgabe | Erwartete Datenbewertung |
+|---|---|---|
+| `blocked`, Zustand 100 | `current`, tatsächliche Ausgabe `(0, 0)` | Positiv: konsistente Nullausgabe; kein gemessener Stillstand behauptet. |
+| `blocked`, Zustand 100 | `current`, `(0.1, 0)` oder `(0, 0.2)` | Zwei negative Varianten: jeweils Datenwiderspruch, trotz passender Referenzen. |
+| `allowed`, Zustand 100.5 | `current`, tatsächliche Ausgabe `(0.1, 0)` | Positiv bei belegtem Annahmekontext: Auswertung und Zustand vor Ablauf. |
+| `allowed`, Zustand 101 bzw. 102 | `current`, dasselbe unveränderte Paket mit `(0.1, 0)` | Negativ an und nach Ablauf; keine aktuelle Freigabe/fahrende Ausgabe. |
+| Dasselbe bei 100 erlaubte Paket, Zustand 102 | `historical`, `reason=REQUEST_EXPIRED`, gleiche Auswertungs-/Ausgabeschlüssel | Positiv ausschließlich historische Diagnose; keine aktuelle Laufzeitprojektion oder erneute Verwendung. |
+| Erst bei 101 ausgewertetes `allowed` | Auch `historical` im Zustand 102 | Negativ als gültige Erlaubnis: Wunsch war bereits bei Auswertung abgelaufen. |
+| Eigenständiger Halt ohne Wunsch | `current`, `blocked`, tatsächliche Ausgabe `(0, 0)`, beide `request_ref=null`, beide `request_reason=NO_REQUEST` | Positiv bei ansonsten vollständigem Paket; kein erfundener Frist-/Wunschbezug. |
 
 ## Abhängigkeit #8: begrenztes C1-Tor, offenes Schutztor
 
@@ -665,6 +732,12 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    Atomare Paketbindung positiv bei gleicher Requestkennung/neuer Auswertung;
    negativ gemischte evaluation_ref, fremder Ausgabestart/output_seq,
    unpassende output_ref, fremdes Sperrbild und scope/drive statt effect/motion.
+   Zusätzlich `blocked` mit linearer oder drehender Nichtnullausgabe negativ;
+   erlaubtes Paket bei 100/Wunschablauf 101 als `current` im Zustand 101/102
+   negativ, als ausdrücklich `historical` im Zustand 102 positiv. Bei schon
+   zur Auswertung abgelaufenem Wunsch keine gültige historische Erlaubnis.
+   Historischer Verwendungsbezug verändert weder Paketidentität noch Frist;
+   kontrollierter Nullwunsch-Halt und fehlende Ausgabe bleiben darstellbar.
    Unbekannter Armbesitzer bleibt unbekannt, beide Sperrwirkungen behalten
    ihre vollständigen Quellenbezüge. Keine Freigabe aus Phase ableiten; keine physische
    Pflichtmatrix erzwingen. Blockiert nur durch fehlende Datenentscheidung,
