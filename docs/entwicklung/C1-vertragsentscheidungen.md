@@ -123,6 +123,16 @@ Format; sie dienen nicht dem lokalen Fristvergleich.
 | JSON-Schreiben (`als_json`) | `Decimal` feldtreu als unquotiertes JSON-Zahlentoken ausgeben; `int` unverändert als Sekundenzahl. Standard-`json.dumps` unterstützt diesen Decimal-Pfad bislang nicht. Eigene begrenzte Zahlenausgabe im bestehenden Modul vorsehen; keine Umwandlung in Float, kein `default=str`, kein nachträgliches Ersetzen von Text. Andere JSON-Typen weiterhin korrekt escapen. |
 | Nichtzeitliche Zahlen / externe Leser | Der Leser liefert auch für andere Dezimalzahlen `Decimal`; deren Zahlenprüfung muss diesen endlichen Typ unterstützen, ohne SI-Bedeutung zu ändern. Endliche direkte Floats bleiben für Nichtzeitfelder möglich. Schema beschreibt Zahlen/Struktur; ein Leser mit Binärfloats kann die exakte Fristsemantik nicht garantieren und darf daraus keine lokale Verwendbarkeit ableiten. |
 
+Für **alle** Decimal-Zahlen, auch in Nichtzeitfeldern, ist vor Arithmetik,
+Raster-, Bereichs- oder Ordnungsvergleichen die Endlichkeit mittels
+`is_finite()` zu prüfen. Direkte Bauwerte `Decimal("NaN")`, `Decimal("sNaN")`,
+`Decimal("Infinity")` und `Decimal("-Infinity")` sind ungültig. Die Prüfung
+darf weder durch naive Vergleiche `decimal.InvalidOperation` auslösen noch
+Sonderwerte an die JSON-Ausgabe weiterreichen. `pruefe()` liefert dafür
+Fehlertexte; die validierenden JSON-/Altersfunktionen melden den dokumentierten
+`ValueError`, keine unkontrollierte Decimal-Ausnahme. JSON-`parse_constant`
+allein deckt diesen direkten Python-Eingang nicht ab.
+
 Damit sind Bau-, Lese-, Prüf- und Schreibpfad gemeinsam zu ändern. Ein isolierter
 `parse_float`-Zusatz genügt nicht: Die heutige Zahlenprüfung akzeptiert nur
 `int`/`float`, der Writer nutzt Standard-`json.dumps`, `alter_s` rechnet direkt
@@ -183,6 +193,10 @@ verwendbaren Wunsch; ein abgelaufener neuerer Eingang hinterlässt eine Sperre
 gegen ältere Sequenzen und entfernt deren Verwendbarkeit. Identische Wiederholung
 am Höchststand ändert nichts. Beide Vergleichspaare bleiben nach Fristende
 erhalten und werden bei bestätigtem Kontextwechsel neu initialisiert.
+Der Kontext besteht aus lokal bestätigtem Gerät, B-Produzent, B-Start und
+Zeitbasis samt A-Bindung, **nicht** aus Cs äußerer `boot_id`. Ein reiner
+C-Neustart erhält Annahmepaar und Anti-Replay-Höchststand einschließlich
+Duplikatbezug unverändert; neue C-Zustandssequenz ist keine Neubindung.
 
 Synthetischer Umordnungsfall bei `now=101` s, Budget 2 s: Nach angenommenem
 Wunsch 8 (Erzeugung 100, Ablauf 102) trifft Wunsch 10 (100.4, 100.6) bereits
@@ -307,9 +321,14 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    und Altersrechnung nach V1a; neue `schemas/grundbetrieb-v2.schema.json`;
    `docs/schnittstellen-grundbetrieb.md` nur Version/Kopf/Quellen;
    sieben bestehende `tests/fixtures/grundbetrieb/*.json`;
-   `tests/test_zustandsvertrag.py` nur Version/Schemapfad/Fixtureannahmen sowie
-   alle betroffenen Ladepfade und zeitbezogenen Bauwerte/Assertions, ausdrücklich
-   `StartUndSequenz.test_alter_nach_monotoner_uhr` (exaktes 0.25 statt Floataddition);
+   **ausdrückliche Dateiübernahme für `tests/test_zustandsvertrag.py`:**
+   Version/Schemapfad/Fixtureannahmen **und bestehende Test-Loader sowie alle
+   betroffenen zeitbezogenen Bauwerte, Rechenoperationen und Assertions**.
+   Den Fixturehelper und weitere Ladepfade auf exaktes Lesen umstellen;
+   beim Prüfen gültiger Zustände `lade_json()` statt Standard-`json.load()`
+   verwenden. Ausdrücklich `StartUndSequenz.test_alter_nach_monotoner_uhr`:
+   Addition `+0.25` und erwarteten Alterswert auf `Decimal("0.25")` umstellen,
+   ebenso weitere Float-Zeitliterale; Fehlererwartungen bleiben erhalten.
    neue `tests/test_c1_identitaet_zeitbasis.py`.
    Positive/negative Kontrollen: C-Neustart bei gleichem Sensorstart/Uhr,
    unabhängiger Sensorstart, falsche Uhr, fehlende Kennung, Quellenalias,
@@ -321,7 +340,13 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    vorhandene negativen Zeitfälle beibehalten. In der neuen Testdatei zusätzlich
    Dezimal-/Exponententokens, Raster-/Bereichsgrenze, direkte Float-/Bool-Ablehnung,
    kein Fristgewinn durch Lesen/Schreiben und numerischen Decimal-Rundlauf
-   prüfen. Keine neue Abhängigkeit oder pauschale Testumschreibung.
+   prüfen. Zusätzlich alle vier nichtendlichen Decimal-Bauwerte aus V1a je
+   einmal in einem Zeitfeld und einem Nichtzeitfeld prüfen (acht Negativfälle,
+   etwa `generated_mono_s` und `motion.measured_v_m_s.value`). Erwartung:
+   gezielter Validierungsfehler und verweigerte Ausgabe, kein
+   `decimal.InvalidOperation`. Endliche passende Decimals bleiben als positive
+   Kontrolle gültig; vorhandene NaN-/Unendlich-Floatfälle beibehalten.
+   Keine neue Abhängigkeit oder pauschale Testumschreibung.
    Noch kein vollständiger 2.0-Annahmestand.
 2. **Eindeutige Details (#15, C/O).**
    Dateien: dieselbe Bibliothek nur Details/gegebenes historisches Register;
@@ -343,6 +368,14 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    A-Neubindung und Zeitregression trotz höherer Sequenz. Den Umordnungsfall
    8 → abgelaufene 10 → noch frische 9 sowie eine danach zulässige 11 prüfen;
    ansonsten ungültige hohe Sequenzen dürfen den Höchststand nicht erhöhen.
+   **C-Neustart positiv/negativ:** Im Umordnungsfall nach beobachteter 10 nur
+   äußeres C-`boot_id` wechseln und Zustands-`seq` bei 0 beginnen lassen;
+   A-Bindung, B-Tupel, Uhr und Prüfzeit bleiben gleich. Wunsch 9 bleibt danach
+   Replay, Höchststand/Erzeugungszeit/Inhaltsbezug bleiben unverändert.
+   Wunsch 11 (Erzeugung 100.5, Ablauf 101.6, jetzt 101, Budget 2 s) ist
+   danach als neuer Wunsch zuordenbar. Ergänzend bleibt eine identische
+   Wiederholung eines noch frischen Wunsches über den C-Wechsel ein Duplikat,
+   ohne Fristverlängerung oder neuen Manöverbeginn. Kein A-Neustart simulieren.
    Nach Ablauf bleiben Annahmepaar und Anti-Replay-Höchststand erhalten;
    lediglich abgelaufene, ansonsten gültige Eingänge erhöhen nur den Höchststand
    und sperren überholte Wünsche, niemals verlängern sie eine Frist.
