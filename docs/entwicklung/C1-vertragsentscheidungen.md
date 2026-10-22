@@ -150,13 +150,35 @@ Standardwert; C1 kann seine Semantik mit synthetisch vorgegebenem Budget prüfen
 | Eingang im bestätigten lokalen Kontext | Vorgeschlagene Datensemantik |
 |---|---|
 | Neuer Wunsch | Gerät, zugelassener Produzent, aktiver Start und Zeitbasis müssen gebunden sein; `generated <= now < valid_until`, `0 < valid_until - generated <= max_duration`. Keine Bindung durch erste Nachricht oder Topic. |
-| Höhere `request_seq` im selben Start | Erzeugungszeit mindestens zuletzt angenommene Erzeugungszeit; Gleichheit zulässig. Rücklauf wird verworfen, auch wenn Frist offen ist. Sequenz und Erzeugungszeit nur gemeinsam nach vollständiger Annahme aktualisieren. |
+| Höhere `request_seq` im selben Start | Sequenz muss über dem gesonderten Anti-Replay-Höchststand liegen; Erzeugungszeit mindestens die des dort gespeicherten jüngsten ansonsten gültigen Eingangs. Gleichheit zulässig. Rücklauf wird verworfen, auch bei offener Frist. Angenommenen Wunsch und beobachteten Höchststand getrennt führen. |
 | Gleiches Tupel, gleicher Inhalt | Duplikat; keine erneute Ausführung, Fristerneuerung oder neuer Manöverbeginn. |
-| Gleiches Tupel, anderer Inhalt / kleinere Sequenz | Widerspruch / Replay, verwerfen. Ein verworfener Eingang verändert weder gültigen Wunsch noch Vergleichswerte oder dessen Frist. |
-| `now >= valid_until` | Abgelaufen. Vergleichswerte bleiben erhalten; ein verspätetes Paket wird nicht wieder aktuell. Ohne gültigen Wunsch liegt kein verwendbarer Fahrwunsch vor. A setzt das Haltverfahren separat durch. |
+| Gleiches Tupel, anderer Inhalt / Sequenz unter Anti-Replay-Höchststand | Widerspruch / Replay, verwerfen. Solche Eingänge verändern weder Vergleichswerte noch Fristen. |
+| `now >= valid_until`, Eingang ansonsten vollständig gültig und identitätsgebunden | Nicht ausführen, aber neuen Anti-Replay-Höchststand samt Erzeugungszeit/Inhaltsbezug speichern. Ältere Wünsche sind damit überholt, auch wenn deren eigene Frist noch offen ist; es gibt keinen Rückfall auf sie. Annahmepaar des letzten ausgeführten/verwendbaren Wunsches bleibt als Diagnose erhalten. |
 | Fremdes Gerät, unbestätigter Start/Uhrenbezug, Zukunft, ungültige Zahl | Nicht übernehmen; keine scheinbare Frische und kein impliziter Startwechsel. |
 | Bestätigter B-Startwechsel | Alten Wunsch verwerfen/alten Start sperren; Vergleich im neuen Start neu beginnen. Wechsel selbst gibt keine Bewegung frei. |
 | A-Neustart / verlorener Annahmekontext | Neu binden, Puffer verwerfen; erster Wunsch muss nach Bindung erzeugt sein (`generated > bind_mono_s`). C-Neustart allein verändert diese Bindung nicht. |
+
+**Präzisierung gegenüber C1f zur Annahme:** Der Anti-Replay-Höchststand ist
+das Paar aus höchster beobachteter ansonsten gültiger Sequenz und deren
+Erzeugungszeit im bestätigten Kontext, ergänzt um den unveränderlichen
+Inhaltsbezug für Duplikat-/Widerspruchserkennung. Er steigt sowohl bei frischen
+als auch bei lediglich abgelaufenen Eingängen. Vorher müssen Struktur,
+Gerät/Produzent/Start/Uhr, Bindungszeit, Zahlenraster, nicht zukünftige Erzeugung,
+positive erlaubte Dauer und nicht rückläufige Erzeugungszeit geprüft sein.
+Fremde, widersprüchliche, zukünftige, überlange oder zeitregressive Eingänge
+dürfen diesen Stand nicht vergiften. Erst danach wird Frische geprüft.
+Ein frischer neuer Wunsch aktualisiert zusätzlich das Annahmepaar und den
+verwendbaren Wunsch; ein abgelaufener neuerer Eingang hinterlässt eine Sperre
+gegen ältere Sequenzen und entfernt deren Verwendbarkeit. Identische Wiederholung
+am Höchststand ändert nichts. Beide Vergleichspaare bleiben nach Fristende
+erhalten und werden bei bestätigtem Kontextwechsel neu initialisiert.
+
+Synthetischer Umordnungsfall bei `now=101` s, Budget 2 s: Nach angenommenem
+Wunsch 8 (Erzeugung 100, Ablauf 102) trifft Wunsch 10 (100.4, 100.6) bereits
+abgelaufen ein. Höchststand wird 10; Wunsch 8 ist überholt. Wunsch 9
+(100.2, 101.5) bleibt trotz offener eigener Frist gesperrt. Erst ein neuer
+ansonsten gültiger Wunsch über 10 mit nicht rückläufiger Erzeugungszeit kann
+wieder verwendbar sein. Das ist Datensemantik, kein hier implementierter Haltweg.
 
 Das sind darstellbare Zuordnungs-/Validierungsregeln. C1 liefert dafür eine
 ROS-unabhängige Prüfung mit explizitem Kontext und gegebenem `now`, keine
@@ -264,7 +286,9 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    und Altersrechnung nach V1a; neue `schemas/grundbetrieb-v2.schema.json`;
    `docs/schnittstellen-grundbetrieb.md` nur Version/Kopf/Quellen;
    sieben bestehende `tests/fixtures/grundbetrieb/*.json`;
-   `tests/test_zustandsvertrag.py` nur Version/Schemapfad/Fixtureannahmen;
+   `tests/test_zustandsvertrag.py` nur Version/Schemapfad/Fixtureannahmen sowie
+   alle betroffenen Ladepfade und zeitbezogenen Bauwerte/Assertions, ausdrücklich
+   `StartUndSequenz.test_alter_nach_monotoner_uhr` (exaktes 0.25 statt Floataddition);
    neue `tests/test_c1_identitaet_zeitbasis.py`.
    Positive/negative Kontrollen: C-Neustart bei gleichem Sensorstart/Uhr,
    unabhängiger Sensorstart, falsche Uhr, fehlende Kennung, Quellenalias,
@@ -295,8 +319,12 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    Prüfen: eingebetteter/separater Wunsch identisch, Duplikat/Mutationsversuch,
    Replay, exakte ns-Maximaldauer und Fristgrenze über den öffentlichen
    JSON- und direkten Baupfad, Zukunft, falsches Gerät/Start/Uhr,
-   A-Neubindung und Zeitregression trotz höherer Sequenz. Nach Ablauf bleiben
-   Vergleichswerte erhalten, ungültiger Eingang verändert sie nicht.
+   A-Neubindung und Zeitregression trotz höherer Sequenz. Den Umordnungsfall
+   8 → abgelaufene 10 → noch frische 9 sowie eine danach zulässige 11 prüfen;
+   ansonsten ungültige hohe Sequenzen dürfen den Höchststand nicht erhöhen.
+   Nach Ablauf bleiben Annahmepaar und Anti-Replay-Höchststand erhalten;
+   lediglich abgelaufene, ansonsten gültige Eingänge erhöhen nur den Höchststand
+   und sperren überholte Wünsche, niemals verlängern sie eine Frist.
    Kontext/Budget werden im Test übergeben; keine Motorentscheidung.
 4. **Begrenzte Historie (#17, C mit B/O).**
    Bibliothek nur Historienvalidierung; v2-Schema/Doku nur `route.history`;
