@@ -64,8 +64,8 @@ MANOEVER_MAX = {'lin': 0.10, 'quer': 0.08, 'dreh': 1.2}
 
 
 class LineFollower(Node):
-    def __init__(self):
-        super().__init__('line_follower')
+    def __init__(self, name='line_follower'):
+        super().__init__(name)   # anderer Name: eigener Modus auf derselben Grundlage (fahrgehirn/fahrgehirn.py)
         dp = self.declare_parameter
         # ---- Allgemein ----
         dp('drive', False)          # False = nur anschauen, nicht fahren
@@ -350,7 +350,8 @@ class LineFollower(Node):
         if erg.get('kreuzung_neu'):
             k = erg['kreuzung']
             seite = 'links' if k['wahl'] > 30 else 'rechts' if k['wahl'] < -30 else 'geradeaus'
-            self.get_logger().info(f"Kreuzung: Aeste {k['aeste']} Grad -> zufaellig gewaehlt: {seite} "
+            wie = 'zufaellig' if self.sucher.waehler is None else 'nach Fahrplan'
+            self.get_logger().info(f"Kreuzung: Aeste {k['aeste']} Grad -> {wie} gewaehlt: {seite} "
                                    f"({k['wahl']:+d} Grad)")
         with self.lock:
             # Punkte dort eintragen, wo der Roboter bei der AUFNAHME stand (Bild kommt verspaetet an)
@@ -501,11 +502,11 @@ class LineFollower(Node):
         self.get_logger().info(status, throttle_duration_sec=1.0)
 
 
-def laeuft_schon(name):
-    """Gibt es schon ein Programm mit diesem ROS-Namen? (zwei Linienfolger = zwei Fahrbefehle)"""
-    pruefer = rclpy.create_node('pruefe_' + name + f'_{os.getpid()}')
+def laeuft_schon(*namen):
+    """Gibt es schon ein Programm mit einem dieser ROS-Namen? (zwei Linienfolger = zwei Fahrbefehle)"""
+    pruefer = rclpy.create_node('pruefe_' + namen[0] + f'_{os.getpid()}')
     time.sleep(1.5)  # ROS braucht kurz, bis es die anderen kennt
-    gefunden = name in pruefer.get_node_names()
+    gefunden = any(n in pruefer.get_node_names() for n in namen)
     pruefer.destroy_node()
     return gefunden
 
@@ -522,8 +523,9 @@ def signale_abfangen():
 def main():
     signale_abfangen()
     rclpy.init()
-    if laeuft_schon('line_follower'):
-        print('FEHLER: Es laeuft schon ein Linienfolger (scripts/stopp.sh beendet ihn) -> Abbruch.')
+    if laeuft_schon('line_follower', 'fahrgehirn'):
+        print('FEHLER: Es laeuft schon ein Linienfolger oder das Fahr-Gehirn (scripts/stopp.sh beendet beide) '
+              '-> Abbruch.')
         rclpy.shutdown()
         sys.exit(1)
     node = LineFollower()

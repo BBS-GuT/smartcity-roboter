@@ -52,6 +52,7 @@ Vor der ersten Fahrt die Einrichtungsschritte 1–5 der [Ersten Inbetriebnahme](
 | [Zieldefinition](docs/zieldefinition-grundbetrieb.md) | verbindliches Ziel des Grundbetriebs (GB-01 … GB-18, Abnahmen A01 … A16) |
 | [Schnittstelle Grundbetrieb](docs/schnittstellen-grundbetrieb.md) | gemeinsamer Zustandsdatensatz für Panel und MQTT (Entwurf) |
 | [KI](docs/ki.md), [Linie](docs/linie.md), [Karte](docs/karte.md), [Greifarm](docs/greifarm.md) | wie die Programme arbeiten, alle Einstellungen |
+| [Fahr-Gehirn](docs/fahrgehirn.md) | eigener Trainingsmodus: nur fahren, Kreuzungen nach Fahrplan, messen und Fahrparameter lernen |
 | [CONTRIBUTING](CONTRIBUTING.md), [Aufträge](docs/auftraege/README.md), [Entwicklungsplan](docs/zusammenarbeit-und-entwicklung.md) | Mitarbeit, Dateizuständigkeiten, Arbeitspakete |
 | [CI-Betrieb](docs/entwicklung/D1-ci-betrieb.md) | automatische Prüfungen und `main`-Schutz |
 | [Geräte](docs/geraete/), [Infrastruktur](docs/infrastruktur/), [Abnahme](docs/abnahme/) | Inventar, Messpläne, Nachweise |
@@ -65,6 +66,7 @@ python -m pip install -r requirements-test.txt
 python scripts/pruefen.py --test-timeout test_karte.py=600   # alle Softwaretests
 python3 tests/panel_demo.py                                    # Panel mit Beispieldaten, http://localhost:8099
 scripts/simulation.sh pruefen                                  # komplette ROS-Simulation (Ubuntu 22.04 + ROS 2)
+python3 sim/fahrgehirn_sim.py --runden 30                      # Fahr-Gehirn: viele Runden mit Kreuzungen (ohne ROS)
 ```
 
 Die Softwaretests laufen bei jedem Pull Request automatisch (GitHub Actions). Grüne Tests sind **keine** Fahrfreigabe.
