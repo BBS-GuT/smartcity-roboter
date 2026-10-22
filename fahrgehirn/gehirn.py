@@ -133,6 +133,7 @@ class FahrGehirn:
                     self._blinken(self.plan.aktuell, jetzt)   # so frueh wie moeglich: beim ersten Sehen
             k = self.kreuzung
             ast = self.plan.ast_waehlen(richtungen)
+            richtung = self.plan.aktuell
             if ast is None:
                 k.wartet += 1
                 if k.wartet < self.wahl_warten:
@@ -140,7 +141,7 @@ class FahrGehirn:
                 ast = Fahrplan.naechster_ast(richtungen, self.plan.aktuell)
                 self.log(f'Fahr-Gehirn: "{self.plan.aktuell}" gibt es hier nicht '
                          f'(Aeste {[round(math.degrees(r)) for r in richtungen]} Grad) -> naechstbester Ast')
-            richtung = richtung_aus_ast(math.degrees(ast))
+                richtung = richtung_aus_ast(math.degrees(ast))
             k.gewaehlt(jetzt, [math.degrees(r) for r in richtungen], richtung, gier, self.weg)
             self._blinken(richtung if richtung != 'geradeaus' else 'aus', jetzt)
             return ast

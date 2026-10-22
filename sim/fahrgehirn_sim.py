@@ -17,6 +17,7 @@
 # Aufruf:  python3 sim/fahrgehirn_sim.py --runden 40                 (Lernstand + Logs in /tmp/fahrgehirn_sim)
 #          python3 sim/fahrgehirn_sim.py --runden 20 --nicht_lernen  (Vergleich: feste Startwerte)
 #          python3 sim/fahrgehirn_sim.py --runden 3 --hindernis       (Figur steht kurz im Weg: Stopp + Weiterfahrt)
+#          python3 sim/fahrgehirn_sim.py --runden 30 --start speed=0.25 kreuzung_tempo=1.0   (verstimmter Start)
 #          --ordner DIR (eigener Speicherort), --weiter (vorhandenen Lernstand weiterverwenden), --antrieb schwer
 import argparse
 import json
@@ -180,6 +181,11 @@ def lauf(a):
     node.set_parameters(einst)
     node.gehirn.plan = gehirn.Fahrplan(PLAN, node.lern.stand.get('fahrplan_index', 0) if a.weiter else 0)
     node.gehirn.lernen_an = not a.nicht_lernen
+    if a.start and not a.weiter:     # verstimmter Start: zeigt, ob das Lernen von schlechten Werten wegkommt
+        import lernen
+        for eintrag in a.start:
+            name, wert = eintrag.split('=', 1)
+            node.lern.stand['champion'][name] = lernen.begrenzen(name, float(wert))
     node.tiefe = (0.0, 'aus')
     node.parameter_uebernehmen()
     if node.gehirn.plan.index:
@@ -383,6 +389,7 @@ def main():
     ap.add_argument('--nicht_lernen', action='store_true', help='nur messen, Parameter fest')
     ap.add_argument('--hindernis', action='store_true', help='je Runde einmal eine Figur in den Weg stellen')
     ap.add_argument('--hindernis_dauer', type=float, default=6.0)
+    ap.add_argument('--start', nargs='*', default=[], help='Startwerte statt Standard, z. B. speed=0.25')
     ap.add_argument('--antrieb', default='echt')
     ap.add_argument('--saat', type=int, default=0)
     a = ap.parse_args()

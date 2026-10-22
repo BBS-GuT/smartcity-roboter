@@ -108,6 +108,13 @@ class FahrplanTest(unittest.TestCase):
             seiten.add(math.degrees(s.wahl) > 0)
         self.assertEqual(seiten, {True, False})
 
+    def test_geschaetzter_ast_schwankt(self):
+        """Sim-Fund: geradeaus wurde bei +35 Grad geschaetzt -> trotzdem als geradeaus genommen (nicht 'links')."""
+        p = Fahrplan(['geradeaus'])
+        self.assertAlmostEqual(math.degrees(p.ast_waehlen([math.radians(-91), math.radians(35)])), 35)
+        p = Fahrplan(['links'])
+        self.assertIsNone(p.ast_waehlen([math.radians(-91), math.radians(35)]))
+
     def test_wunsch_ast_fehlt(self):
         """Gewuenschte Richtung nicht im Bild: erst warten (None), nach wahl_warten Bildern der naechstbeste Ast."""
         with tempfile.TemporaryDirectory() as d:

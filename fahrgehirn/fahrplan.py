@@ -11,6 +11,8 @@ RICHTUNGEN = ('links', 'geradeaus', 'rechts')
 ZIEL_GRAD = {'links': 90.0, 'geradeaus': 0.0, 'rechts': -90.0}
 GERADEAUS_GRAD = 30.0     # Ast innerhalb +-30 Grad = geradeaus, sonst links/rechts (wie line_follower.py)
 ABBIEGE_GRAD = 45.0       # gefahrene Richtung: Drehung ueber die Kreuzung mehr als 45 Grad = abgebogen
+PASST_GRAD = 50.0         # Wunsch-Ast: hoechstens so weit (Grad) neben der Zielrichtung (0 / +90 / -90). Die
+                          # geschaetzte Astrichtung schwankt: im Sim lag "geradeaus" bei +35 Grad (mit +-30 verfehlt)
 
 
 def richtung_aus_ast(grad):
@@ -59,11 +61,11 @@ class Fahrplan:
     def ast_waehlen(self, richtungen):
         """richtungen: Aeste dieser Kreuzung (rad). Rueckgabe: der Ast, der am besten zur Wunschrichtung passt,
         oder None, wenn kein Ast in diese Richtung fuehrt (z. B. noch nicht im Bild)."""
-        wunsch = self.aktuell
-        passend = [r for r in richtungen if richtung_aus_ast(math.degrees(r)) == wunsch]
+        ziel = ZIEL_GRAD[self.aktuell]
+        passend = [r for r in richtungen if abs(math.degrees(r) - ziel) <= PASST_GRAD]
         if not passend:
             return None
-        return min(passend, key=lambda r: abs(math.degrees(r) - ZIEL_GRAD[wunsch]))
+        return min(passend, key=lambda r: abs(math.degrees(r) - ziel))
 
     @staticmethod
     def naechster_ast(richtungen, wunsch):
