@@ -26,10 +26,21 @@ import zentrale  # noqa: E402
 KANAELE = (('/scan0', 0), ('/scan1', 1))
 
 
+_scan_nr = [0]
+
+
+def kopf(aufnahme=None):
+    """header mit Aufnahmezeit (Standard 50 ms vor jetzt, je Scan etwas spaeter = jeder Scan ist neu)."""
+    _scan_nr[0] += 1
+    t = time.time() - 0.05 + _scan_nr[0] * 1e-6 if aufnahme is None else aufnahme
+    return types.SimpleNamespace(stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
+
+
 def scan(werte=3.0, n=360, **meta):
     """LaserScan-Attrappe: 'werte' = Zahl fuer alle Strahlen oder Liste. Index n/2 = vorne."""
     m = types.SimpleNamespace(ranges=list(werte) if isinstance(werte, (list, tuple)) else [werte] * n,
-                              angle_min=-math.pi, angle_increment=2 * math.pi / n, range_min=0.05, range_max=12.0)
+                              angle_min=-math.pi, angle_increment=2 * math.pi / n, range_min=0.05, range_max=12.0,
+                              header=kopf())
     m.__dict__.update(meta)
     return m
 
@@ -47,23 +58,25 @@ def hindernis_vorne(abstand, rest=3.0, n=360):
     return scan(r)
 
 
-UNGUELTIG = {
-    'alle 0 unter range_min': scan(0.0),
-    'leer': scan([]),
-    'nur NaN': scan(float('nan')),
-    'nur inf': scan(float('inf')),
-    'alle ueber range_max': scan(20.0),
-    'range_max <= range_min': scan(3.0, range_min=1.0, range_max=0.5),
-    'range_min NaN': scan(3.0, range_min=float('nan')),
-    'angle_increment 0': scan(3.0, angle_increment=0.0),
-    'range_min negativ': scan(3.0, range_min=-1.0),
-    'Messwerte keine Zahlen': scan(['x'] * 10),
-}
+def ungueltige():
+    """Jedes Mal neue Nachrichten (frische Aufnahmezeit): getestet wird der Inhalt, nicht das Alter."""
+    return {
+        'alle 0 unter range_min': scan(0.0),
+        'leer': scan([]),
+        'nur NaN': scan(float('nan')),
+        'nur inf': scan(float('inf')),
+        'alle ueber range_max': scan(20.0),
+        'range_max <= range_min': scan(3.0, range_min=1.0, range_max=0.5),
+        'range_min NaN': scan(3.0, range_min=float('nan')),
+        'angle_increment 0': scan(3.0, angle_increment=0.0),
+        'range_min negativ': scan(3.0, range_min=-1.0),
+        'Messwerte keine Zahlen': scan(['x'] * 10),
+        }
 
 
 class ReineQualitaet(unittest.TestCase):
     def test_ungueltige_scans_haben_grund(self):
-        for name, m in UNGUELTIG.items():
+        for name, m in ungueltige().items():
             with self.subTest(name):
                 self.assertIsNotNone(lidar.scan_pruefen(m))
 
@@ -110,7 +123,7 @@ class Linienfolger(Halt):
     neu = staticmethod(linienfolger)
 
     def test_ungueltig_haelt_trotz_gueltiger_kamera_und_ki(self):
-        for name, m in UNGUELTIG.items():
+        for name, m in ungueltige().items():
             with self.subTest(name):
                 self.halt(self.neu(m), 'LIDAR UNBEKANNT')
 
@@ -160,7 +173,7 @@ class KiZentrale(unittest.TestCase):
     befehl = staticmethod(befehl)
 
     def test_ungueltig_ist_unbekannt_und_haelt(self):
-        for name, m in UNGUELTIG.items():
+        for name, m in ungueltige().items():
             with self.subTest(name):
                 z = self.neu(m)
                 self.assertEqual(z.lidar_pruefen(), (None, None, None))

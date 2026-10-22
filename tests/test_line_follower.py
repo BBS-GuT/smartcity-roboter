@@ -24,12 +24,22 @@ def check(name, ergebnis, faehrt):
     print(f"{'OK  ' if ok else 'FEHLER'} {name}: {lin:.2f} m/s - {status}")
 
 
+_scan_nr = [0]
+
+
+def stempel():
+    """Aufnahmezeit 50 ms vor jetzt, je Scan etwas spaeter (jeder Scan ist ein neuer, kein doppelter)."""
+    _scan_nr[0] += 1
+    t = time.time() - 0.05 + _scan_nr[0] * 1e-6
+    return types.SimpleNamespace(stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
+
+
 def scan(abstand, index_vorne=180):
     r = [2.0] * 360
     for k in range(index_vorne - 3, index_vorne + 4):
         r[k] = abstand
     return types.SimpleNamespace(ranges=r, angle_min=-math.pi, angle_increment=2 * math.pi / 360,
-                                 range_min=0.05, range_max=12.0)
+                                 range_min=0.05, range_max=12.0, header=stempel())
 
 
 def gerade_linie(n):

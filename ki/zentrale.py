@@ -178,6 +178,7 @@ class Zentrale(Node):
         self.tiefe_ausgewertet, self.tiefe_nr = None, 0   # zuletzt ausgewertetes Tiefenbild, Zaehler
         self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scans = {}
+        self.scan_stempel = {}          # Kanal -> Aufnahmezeit des letzten Scans (muss vorwaerts laufen)
         self.wahrnehmung = {'bild_nr': 0, 'bild_zeit': 0.0, 'objekte': [], 'ampel': None,
                             'stoppschild': False, 'tiefe_hindernis': None}
         self.befehl = {'aktion': 'stopp', 'faktor': 0.0, 'grund': 'KI startet ...', 'arm': None}
@@ -306,13 +307,18 @@ class Zentrale(Node):
     def _scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
         front = fronts[i] if i < len(fronts) else 0.0
-        grund = lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt, nie "frei"
+        # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, time.time(), self.scan_stempel.get(topic))
+        if grund == 'doppelt':
+            return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
+        self.scan_stempel[topic] = aufnahme
+        grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt, nie "frei"
         xy = breit = None
         if grund is None:
             xy = lidar.punkte_xy(msg, front, self.p('obstacle_min_range'))
             breit = lidar.naechster_vorne(msg, front, 60.0, self.p('obstacle_min_range'))   # fuer Zebrastreifen
         with self.lock:
-            self.scans[topic] = (time.monotonic(), xy, breit, grund)   # Empfang monoton (Uhrsprung egal)
+            self.scans[topic] = (time.monotonic(), xy, breit, grund, aufnahme)   # Empfang monoton (Uhrsprung egal)
 
     def _imu(self, msg):
         # Drehung um die Hochachse aufsummieren (fuer das Wenden)
@@ -403,13 +409,15 @@ class Zentrale(Node):
         with self.lock:
             # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
             frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
-        ungueltig = [f'{t}: {g}' for t, (_, _, _, g) in zip(topics, frisch) if g]
+        jetzt = time.time()     # Aufnahmealter jetzt nochmal: der Scan kann seit dem Empfang gealtert sein
+        ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt)}' for t, (_, _, _, g, a) in zip(topics, frisch)
+                     if g or lidar.aufnahme_alter(a, jetzt)]
         if grund or ungueltig:
             # Fehlender/alter Pflichtkanal oder unbrauchbarer Scan: wie keine LiDAR-Daten (Entscheider haelt)
             self.lidar_xy = None
             self.get_logger().warn('LiDAR unbekannt: ' + (grund or '; '.join(ungueltig)), throttle_duration_sec=2.0)
             return None, None, None
-        frisch = [(xy, b) for _, xy, b, _ in frisch]
+        frisch = [(xy, b) for _, xy, b, _, _ in frisch]
         self.lidar_xy = np.vstack([xy for xy, _ in frisch])   # alle Punkte (fuer den Zebrastreifen)
         weg = self.weg_voraus()
         objekte = [lidar.fahrschlauch(xy, weg, self.p('fahrschlauch_breite') / 2, self.p('fahrschlauch_laenge'),
