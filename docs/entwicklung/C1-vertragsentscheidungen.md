@@ -1,6 +1,7 @@
 # C1: Gemeinsame Vertragsentscheidung und Folgeaufträge
 
-Stand: 22.10.2026. **Entscheidungsvorlage, noch keine Vertragsannahme.**
+Stand: 22.10.2026. **Fundamentsemantik für Auftrag 1 aus C angenommen;
+implementierter Gesamtvertrag noch nicht angenommen.**
 Verantwortlicher Mensch: Carsten; Rolle C: C1-Entscheidungs-Chat
 (öffentlicher Datenvertrag, Version, JSON und Schemagrundlage); O: C1-Manager.
 Refs [#3](https://github.com/BBS-GuT/smartcity-roboter/issues/3),
@@ -35,16 +36,20 @@ und ihre Korrektur bleiben beim jeweiligen Besitzer und nativen Reviewer.
 
 Die folgenden Abschnitte trennen **R: festgelegte Anforderungen**, **V: konkrete
 Vorschläge zur Annahme** und **N: noch erforderliche Entscheidungen/Nachweise**.
-V1–V4 sind die von Rolle C vorgelegte Empfehlung, noch keine Gesamtannahme.
+V1/V1a/V4 sind von Rolle C als Grundlage für Auftrag 1 angenommen;
+V2/V3 bleiben Empfehlungen zur weiteren Abstimmung, keine Gesamtannahme.
 Carsten hat A/B-Fachabgleiche unter O bestätigt: A-Chat
 `01a162d4-e3bf-78d3-b661-335e65c4a4f4` liefert ausschließlich
 `docs/entwicklung/C1-abgleich-A.md`, B-Chat
 `01a162d4-f4ee-77f1-bb64-acff1646ed9e` ausschließlich
-`docs/entwicklung/C1-abgleich-B.md`. Beide liefern zunächst fachliche
-Annahmebedingungen zu V1–V4; ihre Zustimmung oder Ergebnisse liegen hier
-noch nicht vor. Nach Umsetzung folgt eine zweite Annahme am konkreten
+`docs/entwicklung/C1-abgleich-B.md`. O hat die ausdrückliche Annahme von
+V1/V1a/V4 als erste Implementierungsgrundlage aus
+[A / #145](https://github.com/BBS-GuT/smartcity-roboter/pull/145) und
+[B / #147](https://github.com/BBS-GuT/smartcity-roboter/pull/147) übergeben;
+damit wird keine weitergehende A-/B-Zustimmung behauptet.
+Nach Umsetzung folgt eine zweite Annahme am konkreten
 Gesamtcommit. O koordiniert beide Stufen; nativer Review bleibt unabhängig.
-Die Rollen sind damit zugeteilt, ihre Annahme wird nicht vorweggenommen.
+Die Rollen sind damit zugeteilt; die Gesamtannahme wird nicht vorweggenommen.
 Teil-PRs gehen ausschließlich
 gegen `feat/gb-c1-zustandsvertrag`; nur Gesamt-PR
 [#134](https://github.com/BBS-GuT/smartcity-roboter/pull/134) geht nach main
@@ -73,7 +78,7 @@ und bleibt bis zur vollständigen Lieferung Draft.
 
 ## V1: Gemeinsame Feld-, Identitäts- und Zeitbasis
 
-Zur Annahme vorgeschlagen: Die folgende Basis gilt einheitlich für alle vier
+Aus Rolle C für Auftrag 1 angenommen: Die folgende Basis gilt einheitlich für alle vier
 Erweiterungen. Kennungen sind opake, nichtleere Texte, exakt verglichen;
 Sequenzen sind ganze Zahlen ≥ 0, ohne Boolean und ohne Umlauf im selben Start.
 Nur `robot_id` benutzt das bestehende Geräte-Vokabular RM01–RM04.
@@ -104,7 +109,7 @@ Sensorneustart erzeugt einen neuen Frame-Namensraum, keinen neuen B-Start.
 
 ### V1a: Exakte Sekundenfelder durch den gesamten JSON-Pfad
 
-Die Präzisierung aus #132 ist **zur Annahme vorgeschlagen**, noch nicht im
+Die Präzisierung aus #132 ist **aus C für Auftrag 1 angenommen**, noch nicht im
 öffentlichen Vertrag umgesetzt. Vorschlag für 2.0: monotone Zeitpunkte,
 Alters-/Dauerwerte und die zugehörigen lokalen Prüfparameter verwenden
 einheitlich das Nanosekundenraster. Die `_s`-Felder bleiben JSON-**Zahlen in
@@ -285,7 +290,8 @@ STOPP-/Watchdog-/Stellungs-/Lastnachweisen abhängig. Unabhängiger
 
 ## V4: Gemeinsame Version und Migration
 
-Vorschlag **2.0** für den noch nicht akzeptierten öffentlichen Vertrag:
+Aus Rolle C für Auftrag 1 angenommen: Version **2.0** für den noch nicht
+implementiert angenommenen öffentlichen Vertrag:
 neue Pflichtidentitäten, geänderte Uhrenbedeutung, eigenständiger Wunsch und
 erweiterte geschlossene Strukturen sind inkompatibel mit Entwurf 1.0.
 Kein stilles Erweitern unter gleicher Version. `contract_version` des
@@ -307,6 +313,33 @@ O hält vor C2 einen konkreten Annahmecommit mit Version, angenommenem Umfang,
 Zustimmung der betroffenen Rollen und ausdrücklich offenen Gerätenachweisen
 fest. Ein grüner Bot-/CI-Lauf ersetzt die fachliche Annahme nicht.
 
+## Explizite Fundamentannahme aus Rolle C
+
+**C nimmt V1/V1a/V4 einschließlich der bekannten nativen Präzisierungen als
+erste Implementierungsgrundlage für Auftrag 1 an.** Das umfasst gemeinsame
+Identitäten/Uhrenbedeutung, Version 2.0 und Migration, exakten Integer-ns-/
+Decimal-Bau-/JSON-Pfad, Endlichkeitsprüfung in Zeit- und Nichtzeitfeldern
+sowie den ausdrücklich erlaubten Test-Loader-/Zeit-Assertion-Umfang.
+Es verbleibt aus C **keine blockierende Fundamententscheidung** für diesen
+abgegrenzten Auftrag. Die Referenz dieser Annahme ist der Dokumentstand
+`68c1cf594bd43c2d8f62eeeb1e3df4908e147d94` mit den in dieser Lieferung
+ausdrücklich aktualisierten Annahmestatusangaben; der Liefercommit steht im PR.
+
+O kann Auftrag 1 nach dem fertig integrierten #14-Stand mit eigener enger
+Dateireservierung vergeben. Vollständige V3-Feldbelegung für Auftrag 5,
+reale Geräte-/Uhrbindungsnachweise, konkrete Schutzpolitik, Fristen und
+Brokerwerte sind **keine Voraussetzung dieser Fundamentumsetzung**.
+Fehlende reale Daten werden gemäß Vertrag ehrlich als unbekannt/fehlend
+dargestellt; synthetische Prüfkontexte sind keine Gerätefreigabe.
+
+Diese Annahme gilt der Semantik zur Umsetzung, nicht einem schon
+implementierten Gesamtvertrag. Native Prüfung bleibt unabhängig; zweite
+fachliche Annahme durch A/B/C/O erfolgt erst am tatsächlichen vollständigen
+Gesamtcommit. V3 wird separat zusammengeführt: A-Bindung atomarer
+Freigabe-/Ausgabe-/Sperrpakete und B-Unterbrechungs-/Ergebnis-/Nachweisfelder
+sind dabei zu berücksichtigen; `effect`/`scope` werden nicht konkurrierend
+als zwei öffentliche Belegungen umgesetzt.
+
 ## Sechs kleine Folgeaufträge nach #14
 
 Noch nicht vergeben. O benennt je Auftrag einen C-Dateibesitzer und stimmt
@@ -315,7 +348,8 @@ sind. Grundlage ist jeweils der integrierte Vorgänger im Sammelbranch.
 Alle Aufträge: Refs #3 und zugehöriges Entwurfsissue, ROS-unabhängig,
 kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
 
-1. **Version/Zeitbasis/JSON-Pfad als Fundament (C/O, A/B bestätigen V1/V1a/V4).**
+1. **Version/Zeitbasis/JSON-Pfad als Fundament (A/B laut O und C angenommen;
+   O vergibt nach #14).**
    Dateien: `lib/grundbetrieb_vertrag.py` nur Version/Kopf/Quellenidentitäten
    und monotone Quellenaufnahme sowie Zahlenprüfung, exakter Bau-/JSON-Pfad
    und Altersrechnung nach V1a; neue `schemas/grundbetrieb-v2.schema.json`;
@@ -418,10 +452,11 @@ für dessen neue Felder; unbekannte reale Messwerte bleiben unbekannt.
 
 ## N: Tatsächlich noch erforderliche Fachentscheidungen für den Manager
 
-1. **A/B/C/O:** V1–V4 einschließlich V1a samt Version 2.0, exaktem
-   Produzenten-/Bau-/JSON-Pfad, Feld-/Codebelegung und Trennung von
-   statischer und kontextueller Prüfung annehmen oder konkret ändern;
-   zustimmende Personen und Annahmecommit benennen. A/B sind den oben
+1. **A/B/C/O:** V1/V1a/V4 sind als erste Implementierungsgrundlage angenommen
+   (A/B laut O, C ausdrücklich oben); Auftrag 1 ist dadurch nicht mehr fachlich
+   blockiert. V2/V3 und genaue Feld-/Codebelegung für spätere Aufträge weiter
+   abstimmen; zustimmende Personen und späteren Gesamtannahmecommit benennen.
+   A/B sind den oben
    benannten Fachchats, C diesem Chat und O dem C1-Manager zugeteilt.
    A-/B-Annahmebedingungen zunächst abgleichen; tatsächliche Zustimmung zum
    implementierten Gesamtcommit bleibt die gesonderte zweite Stufe.
