@@ -20,7 +20,8 @@ class Tests(unittest.TestCase):
         self.assertTrue(required.issubset(set(updater.FILES.values())))
         source = Path(__file__).parents[1]
         for remote, relative in updater.FILES.items():
-            updater.validate_file(relative, (source / relative).read_bytes())
+            body = updater.normalize_file(relative, (source / relative).read_bytes())
+            updater.validate_file(relative, body)
             self.assertTrue(remote)
 
     def test_process_matching(self):
@@ -39,8 +40,10 @@ class Tests(unittest.TestCase):
         with self.assertRaises(SyntaxError): updater.validate_file("x.py",b"if:\n")
         with self.assertRaises(RuntimeError): updater.validate_file("x.html",b"<html/>")
         with self.assertRaises(RuntimeError): updater.validate_file("scripts/microros_agent_stable.sh",b"#!/bin/bash\ntrue")
-        with self.assertRaises(subprocess.CalledProcessError):
+        with self.assertRaises(RuntimeError):
             updater.validate_file('x.sh', b'#!/bin/bash\n# micro_ros_agent\nif;\n')
+        self.assertEqual(updater.normalize_file('scripts/panel.sh',b'#!/bin/bash\r\ntrue\r\n'),
+                         b'#!/bin/bash\ntrue\n')
 
     def test_install_rollback_after_second_replace_fails(self):
         with tempfile.TemporaryDirectory() as directory:
