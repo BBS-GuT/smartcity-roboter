@@ -5,9 +5,110 @@
 # den Abstand rundherum. Ein Schuh erscheint deshalb nur als kurzer Bogen
 # (seine Vorderkante), nicht als Flaeche. Was niedriger oder hoeher als die
 # Scheibe ist, sieht er gar nicht.
+from dataclasses import dataclass
 import math
+from numbers import Integral
 
 import numpy as np
+
+# Ein Strahl gilt hoechstens fuer +-1 Grad um seine Richtung als Messung (halber Strahlabstand, aber nie mehr):
+# ein 3-cm-Hindernis am Ende des Fahrschlauchs (0,8 m) ist ca. 2 Grad breit. Groebere Scans (oder ein kaputter
+# riesiger angle_increment) decken so nur Teile ab -> der Rest ist unbekannt.
+STRAHL_RADIUS_MAX = math.radians(1.0)
+
+# Aufnahmezeit (header.stamp) eines Scans: so alt darf sie bei der Auswertung hoechstens sein (s). Gleiche Grenze
+# wie fuer den Empfang (1 s, schon vorher so) - keine eigene, am Geraet nicht gemessene Toleranz.
+AUFNAHME_MAX = 1.0
+
+
+def scan_pruefen(msg):
+    """Ist der Scan ueberhaupt verwertbar? None = ja, sonst der Grund (Text).
+
+    Unbrauchbar: kaputte Bereichs-/Winkelangaben, keine Messwerte oder kein einziger gueltiger Wert
+    (alle 0 unter range_min, NaN, inf, ausserhalb range_max). Ein solcher Scan sagt NICHTS ueber den Weg -
+    er darf nie als "frei" gelten (vorher: keine Punkte -> kein Hindernis -> frei). Die Verbraucher
+    halten dann wie ohne LiDAR; der naechste verwertbare Scan desselben Kanals gibt wieder frei.
+    """
+    try:
+        meta = [float(msg.range_min), float(msg.range_max), float(msg.angle_min), float(msg.angle_increment),
+                float(msg.angle_max)]
+        r = np.asarray(msg.ranges, dtype=np.float64)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return 'Scan unlesbar'
+    if (not all(math.isfinite(v) for v in meta) or meta[0] < 0 or meta[1] <= meta[0] or meta[3] == 0):
+        return 'Bereichs-/Winkelangaben ungueltig'
+    if r.ndim != 1 or r.size == 0:
+        return 'keine Messwerte'
+    if not winkelspanne_ok(r.size, meta[3]):
+        return 'Winkelangaben ungueltig (mehr als eine Umdrehung)'
+    # angle_max muss zur Strahlgeometrie passen (angle_min + (N-1) * angle_increment). Ein Strahlabstand
+    # Spielraum: manche Treiber rechnen angle_increment = Spanne / N statt / (N-1).
+    if abs(meta[2] + (r.size - 1) * meta[3] - meta[4]) > abs(meta[3]) + 1e-6:
+        return 'Winkelangaben widerspruechlich (angle_max passt nicht zu Strahlzahl und -abstand)'
+    if not np.any(np.isfinite(r) & (r > meta[0]) & (r < meta[1])):
+        return 'kein gueltiger Messwert (alle 0/NaN/inf/ausserhalb)'
+    return None
+
+
+def aufnahme_alter(aufnahme, jetzt, max_alter=AUFNAHME_MAX):
+    """Ist die Aufnahmezeit (s, ROS-Zeit) bei 'jetzt' (gleiche Uhr) noch aktuell? None = ja, sonst Grund.
+    Aufnahme in der Zukunft heisst: andere Uhr oder Uhrsprung -> nicht belegbar, also nicht frisch."""
+    if aufnahme is None:
+        return 'keine gueltige Aufnahmezeit'
+    alter = jetzt - aufnahme
+    if alter < 0.0:
+        return f'Aufnahmezeit {-alter:.2f} s in der Zukunft (andere Uhr?)'
+    if alter > max_alter:
+        return f'Aufnahme {alter:.1f} s alt'
+    return None
+
+
+def aufnahme_pruefen(msg, jetzt, vorher=None, max_alter=AUFNAHME_MAX):
+    """Aufnahmezeit eines Scans beim Empfang pruefen (header.stamp, unabhaengig von der Empfangszeit).
+
+    jetzt: ROS-Zeit des Empfaengers in s (Node-Uhr, dieselbe Uhrdomaene wie header.stamp; ohne use_sim_time
+    ist das die Systemzeit, mit der die LiDAR-Treiber und der Simulator stempeln). vorher: neueste AKZEPTIERTE Aufnahmezeit dieses Kanals oder None
+    (die Verbraucher ruecken sie nur mit akzeptierten, groesseren Stempeln vor - ein zurueckgesetzter Stempel
+    bleibt so ungueltig, bis er die Marke ueberholt).
+    Rueckgabe: (aufnahme s oder None, Grund oder None). Grund 'doppelt' = derselbe Scan nochmal (nichts Neues).
+    """
+    try:
+        sec, ns = msg.header.stamp.sec, msg.header.stamp.nanosec
+    except AttributeError:
+        return None, 'keine Aufnahmezeit (header.stamp)'
+    if not (isinstance(sec, Integral) and isinstance(ns, Integral) and not isinstance(sec, bool)
+            and not isinstance(ns, bool) and sec >= 0 and 0 <= ns < 1_000_000_000 and sec + ns > 0):
+        return None, 'Aufnahmezeit ungueltig (null/kaputt)'
+    aufnahme = int(sec) + int(ns) * 1e-9
+    if vorher is not None and aufnahme == vorher:
+        return aufnahme, 'doppelt'
+    grund = aufnahme_alter(aufnahme, jetzt, max_alter)
+    if grund is None and vorher is not None and aufnahme < vorher:
+        grund = f'Aufnahmezeit laeuft {vorher - aufnahme:.2f} s zurueck'
+    return aufnahme, grund
+
+
+def pflichtkanaele(scans, topics, jetzt, max_alter=1.0):
+    """Liegen ALLE Pflichtkanaele (scan_topics) frisch vor? Ein frischer zweiter Kanal ersetzt keinen fehlenden.
+
+    scans: {topic: (empfangszeit, ...)}, Empfangszeit und jetzt monoton (time.monotonic).
+    Rueckgabe: (Eintraege der Pflichtkanaele in deren Reihenfolge, Grund oder None). Bei einem Grund ist die
+    Liste leer: dann gilt der LiDAR als unbekannt (Halt). Kanaele ausserhalb von topics zaehlen nicht.
+    """
+    topics = list(topics or [])
+    if not topics:
+        return [], 'keine LiDAR-Kanaele eingestellt (scan_topics leer)'
+    gruende = []
+    for t in topics:
+        if t not in scans:
+            gruende.append(f'{t}: noch nie ein Scan')
+            continue
+        alter = jetzt - scans[t][0]
+        if not 0.0 <= alter < max_alter:
+            gruende.append(f'{t}: letzter Scan vor {alter:.1f} s')
+    if gruende:
+        return [], '; '.join(gruende)
+    return [scans[t] for t in topics], None
 
 
 def winkel_und_abstand(msg, front_deg=0.0):
@@ -32,6 +133,68 @@ def naechster_vorne(msg, front_deg=0.0, halb_deg=30.0, min_abstand=0.08, rueckwa
     a, r = winkel_und_abstand(msg, front_deg + (180.0 if rueckwaerts else 0.0))
     im_sektor = (np.abs(a) <= math.radians(halb_deg)) & (r > min_abstand)
     return float(r[im_sektor].min()) if np.any(im_sektor) else float('inf')
+
+
+def winkelspanne_ok(anzahl, angle_increment):
+    """Ueberdecken die Strahlen hoechstens eine Umdrehung (plus einen Schritt Ueberlapp)? Mehrfach umlaufende
+    Winkelangaben (kaputte Metadaten, z. B. 360 Strahlen zu je 181 Grad) wuerden die Messwerte ueber alle
+    Richtungen verteilen und eine Abdeckung vortaeuschen."""
+    inc = abs(float(angle_increment))
+    return (anzahl - 1) * inc <= 2 * math.pi + inc + 1e-9
+
+
+def ungueltige_winkel(msg, front_deg=0.0):
+    """Richtungen (rad, relativ zu vorne, -pi..pi) OHNE gueltige Messung, rundherum in Schritten von hoechstens
+    einem Strahlabstand (und 1 Grad). Gemessen ist eine Richtung nur, wenn ein Strahl hoechstens einen halben
+    Strahlabstand (und STRAHL_RADIUS_MAX) entfernt liegt und alle so nahen Strahlen gueltig sind. Unbekannt sind also Strahlen ohne Messung (0 unter
+    range_min, NaN, inf, ausserhalb range_max) und Richtungen, die der Scan gar nicht enthaelt (Teilscan). Dort
+    weiss man nichts: in der ganzen Richtung kann ein Hindernis stehen. Auch +inf ist kein bestaetigtes "frei bis
+    zur Reichweite" (die Treiberkodierung dafuer ist nicht belegt)."""
+    r = np.asarray(msg.ranges, dtype=np.float64)
+    inc = abs(float(msg.angle_increment))
+    gut = np.isfinite(r) & (r > msg.range_min) & (r < msg.range_max)
+    a = msg.angle_min + np.arange(len(r)) * msg.angle_increment - math.radians(front_deg)
+    a = np.arctan2(np.sin(a), np.cos(a))
+    ordnung = np.argsort(a)
+    a, gut = a[ordnung], gut[ordnung]
+    # Raster hoechstens 1 Grad, aber nie feiner als 0,1 Grad: ein kaputter winziger angle_increment (z. B. 1e-6)
+    # erzeugt sonst Millionen Pruefrichtungen. Solche Scans decken dann nur winzige Bereiche ab -> unbekannt/Halt.
+    n = int(math.ceil(2 * math.pi / max(min(inc, math.radians(1.0)), math.radians(0.1))))
+    w = -math.pi + (np.arange(n) + 0.5) * 2 * math.pi / n           # Pruefrichtungen rundherum
+    if not len(a) or not winkelspanne_ok(len(a), inc):
+        return w                                                    # nichts verlaesslich gemessen
+    j = np.searchsorted(a, w)
+    kandidaten = np.stack([(j - 1) % len(a), j % len(a)], axis=1)    # Nachbarstrahlen (auch ueber +-pi hinweg)
+    abstand = np.abs(np.arctan2(np.sin(w[:, None] - a[kandidaten]), np.cos(w[:, None] - a[kandidaten])))
+    nah = abstand <= min(inc / 2, STRAHL_RADIUS_MAX) + 1e-9
+    # gemessen: mindestens ein Strahl nah genug, und JEDER nahe Strahl gueltig (genau dazwischen: beide)
+    gemessen = nah.any(axis=1) & (gut[kandidaten] | ~nah).all(axis=1)
+    return w[~gemessen]
+
+
+def sektor_abdeckung(msg, front_deg=0.0, halb_deg=30.0, rueckwaerts=False):
+    """Ist der Sektor vorne (bzw. hinten) +-halb_deg vollstaendig gemessen? None = ja, sonst Grund (Text).
+    Gueltige Punkte daneben ersetzen keine Messung IM Sektor: schon eine Richtung ohne Messung darin = unbekannt,
+    auch wenn der Scan diese Richtung gar nicht enthaelt."""
+    a = ungueltige_winkel(msg, front_deg + (180.0 if rueckwaerts else 0.0))
+    im = np.abs(a) <= math.radians(halb_deg)
+    if not np.any(im):
+        return None
+    a = a[im]
+    return f'{math.degrees(a.min()):+.0f} bis {math.degrees(a.max()):+.0f} Grad teils ohne Messung'
+
+
+def luecke_im_bereich(winkel, im_bereich, reichweite, schritt=0.04):
+    """Wo beginnt der erste unbekannte Teil eines Bereichs? winkel: ungueltige_winkel(). Jeder Strahl ohne Messung
+    wird vom LiDAR bis 'reichweite' (m) abgetastet; im_bereich(xy) -> (Maske, Abstand je Punkt im Bereichsmass).
+    Rueckgabe: kleinster Abstand eines unbekannten Punkts im Bereich, None = Bereich voll gemessen."""
+    winkel = np.asarray(winkel, dtype=np.float64)
+    if not len(winkel):
+        return None
+    s = np.arange(schritt, reichweite + schritt / 2, schritt)
+    xy = np.stack([np.cos(winkel)[:, None] * s, np.sin(winkel)[:, None] * s], axis=-1).reshape(-1, 2)
+    drin, abstand = im_bereich(xy)
+    return float(np.min(abstand[drin])) if np.any(drin) else None
 
 
 def punkte(msg, front_deg=0.0, max_punkte=360):
@@ -64,6 +227,99 @@ def punkte_xy(msg, front_deg=0.0, min_abstand=0.08):
     a, r = winkel_und_abstand(msg, front_deg)
     ok = r > min_abstand
     return np.stack([r[ok] * np.cos(a[ok]), r[ok] * np.sin(a[ok])], axis=1)
+
+
+# ---------------- Sensor -> Roboter (L4 #63) ----------------
+# Roboterbezug: base_link, x vorne, y links, Meter, Winkel gegen den Uhrzeigersinn positiv.
+# Genau EINE Drehkonvention: die Drehung eines LiDARs kommt allein aus scan_front_deg (Grad, unter welchem
+# Sensorwinkel er die Roboter-Vorderrichtung sieht; Panel -> LiDAR-Radar). Die Einbaupose ergaenzt nur die
+# Verschiebung (x, y) des Sensorursprungs:  p_basis = R(-scan_front_deg) * p_sensor + (x, y).
+# Noch KEIN Verbraucher benutzt das (Umstellung in #64, erst mit am Geraet bestaetigter Pose aus #66).
+BASIS_FRAME = 'base_link'
+EINBAU_QUELLEN = ('gemessen', 'werksmodell', 'unbekannt')
+
+
+@dataclass(frozen=True)
+class Einbau:
+    """Wo ein LiDAR am Roboter sitzt. frame: erwarteter header.frame_id seiner Scans; x, y: Sensorursprung im
+    Roboterbezug (m); quelle: 'gemessen' (am Geraet bestaetigt), 'werksmodell' (z. B. URDF, nur Rechenbezug) oder
+    'unbekannt'. frame == base_link heisst: der Treiber liefert schon im Roboterbezug (dann x = y = 0)."""
+    frame: str
+    x: float
+    y: float
+    quelle: str
+
+
+def einbau_aus_parametern(topics, frames, xy, quellen):
+    """Einbau je Kanal aus den Parametern scan_frames, scan_einbau_xy ([x0, y0, x1, y1 ...]) und scan_einbau_quelle.
+    Rueckgabe: ({topic: Einbau}, None) oder (None, Grund), wenn die Listen nicht zusammenpassen."""
+    topics, frames, xy, quellen = list(topics), list(frames), list(xy), list(quellen)
+    n = len(topics)
+    if not n or len(frames) != n or len(xy) != 2 * n or len(quellen) != n:
+        return None, f'Einbauangaben passen nicht zu {n} Kanaelen (frames {len(frames)}, xy {len(xy)}, ' \
+                     f'quellen {len(quellen)})'
+    einbau = {}
+    for k, t in enumerate(topics):
+        if not isinstance(frames[k], str) or not frames[k].strip():
+            return None, f'{t}: Frame fehlt'
+        if quellen[k] not in EINBAU_QUELLEN:
+            return None, f'{t}: Quelle {quellen[k]!r} unbekannt (erlaubt: {", ".join(EINBAU_QUELLEN)})'
+        try:
+            x, y = float(xy[2 * k]), float(xy[2 * k + 1])
+        except (TypeError, ValueError):
+            return None, f'{t}: Einbau x/y keine Zahlen'
+        einbau[t] = Einbau(frames[k].strip(), x, y, quellen[k])
+    return einbau, None
+
+
+def einbau_pruefen(einbau, frame_id, nur_gemessen=True, front_deg=0.0):
+    """Darf dieser Scan (header.frame_id) mit diesem Einbau in den Roboterbezug? None = ja, sonst Grund.
+    nur_gemessen: nur am Geraet bestaetigte Posen (Werksmodell ist keine Vermessung des Roboters)."""
+    if einbau is None:
+        return 'Einbaupose fehlt'
+    if not isinstance(frame_id, str) or not frame_id:
+        return 'Scan ohne Frame'
+    if frame_id != einbau.frame:
+        return f'Frame passt nicht (Scan {frame_id!r}, eingestellt {einbau.frame!r})'
+    if einbau.quelle == 'unbekannt' or not (math.isfinite(einbau.x) and math.isfinite(einbau.y)):
+        return 'Einbaupose unbekannt'
+    if einbau.frame == BASIS_FRAME and (einbau.x, einbau.y) != (0.0, 0.0):
+        return f'widerspruechlich: Scan schon in {BASIS_FRAME}, aber Verschiebung eingestellt'
+    if einbau.frame == BASIS_FRAME and front_deg != 0.0:
+        return f'widerspruechlich: Scan schon in {BASIS_FRAME}, aber scan_front_deg {front_deg} eingestellt'
+    if nur_gemessen and einbau.quelle != 'gemessen':
+        return f'Einbaupose nur {einbau.quelle}, nicht am Geraet vermessen'
+    return None
+
+
+def nach_basis(xy_vorne, einbau):
+    """Punkte, die schon nach vorne gedreht sind (punkte_xy mit scan_front_deg), in den Roboterbezug: nur noch
+    um den Sensorursprung verschieben. Schon im Roboterbezug gelieferte Scans (base_link) bleiben unveraendert."""
+    xy = np.asarray(xy_vorne, dtype=np.float64).reshape(-1, 2)
+    if einbau.frame == BASIS_FRAME:
+        return xy.copy()
+    return xy + np.array([einbau.x, einbau.y])
+
+
+def sensor_zu_basis(xy_sensor, front_deg, einbau):
+    """Punkte im eigenen Sensorbezug (Winkel wie im LaserScan) in den Roboterbezug:
+    p_basis = R(-front_deg) * p_sensor + (x, y). Drehung und Verschiebung genau einmal. Scans schon in base_link
+    duerfen weder gedreht noch verschoben werden (front_deg muss dann 0 sein)."""
+    if einbau.frame == BASIS_FRAME and front_deg != 0.0:
+        raise ValueError(f'Scan schon in {BASIS_FRAME}: scan_front_deg muss 0 sein, nicht {front_deg}')
+    w = -math.radians(front_deg)
+    c, s = math.cos(w), math.sin(w)
+    xy = np.asarray(xy_sensor, dtype=np.float64).reshape(-1, 2) @ np.array([[c, s], [-s, c]])
+    return nach_basis(xy, einbau)
+
+
+def punkte_basis(msg, front_deg, einbau, min_abstand=0.08, nur_gemessen=True):
+    """Gueltige Punkte eines Scans im Roboterbezug: (xy oder None, Grund oder None).
+    Ohne passenden Frame oder bestaetigte Pose gibt es KEINE Punkte (unbekannt), keine Annahme 'Sensor = Mitte'."""
+    grund = einbau_pruefen(einbau, getattr(getattr(msg, 'header', None), 'frame_id', None), nur_gemessen, front_deg)
+    if grund:
+        return None, grund
+    return nach_basis(punkte_xy(msg, front_deg, min_abstand), einbau), None
 
 
 def abstand_zum_weg(xy, weg=None, laenge=0.8):
@@ -112,9 +368,7 @@ def fahrschlauch(xy, weg=None, halbe_breite=0.15, laenge=0.8, nah=0.2, nah_halb_
     xy = xy[np.hypot(xy[:, 0], xy[:, 1]) < max(laenge, nah) + halbe_breite + 0.01]
     if len(xy) == 0:
         return None
-    quer, entlang = abstand_zum_weg(xy, weg, laenge)
-    im_kegel = np.abs(np.arctan2(xy[:, 1], xy[:, 0])) <= math.radians(nah_halb_deg)
-    drin = (quer < halbe_breite) & (entlang > 0.0) & (entlang <= laenge) & ((entlang > nah) | im_kegel)
+    drin, entlang, quer = _im_schlauch(xy, weg, halbe_breite, laenge, nah, nah_halb_deg)
     if not np.any(drin):
         return None
     xy, entlang, quer = xy[drin], entlang[drin], quer[drin]
@@ -122,3 +376,32 @@ def fahrschlauch(xy, weg=None, halbe_breite=0.15, laenge=0.8, nah=0.2, nah_halb_
     teil = np.hypot(xy[:, 0] - xy[k, 0], xy[:, 1] - xy[k, 1]) < 0.04
     return {'abstand': float(entlang[k]), 'vor': float(xy[k, 0]), 'seite': float(np.mean(xy[teil, 1])),
             'breite': float(np.ptp(xy[teil, 1]) + 0.01), 'quer': float(quer[k])}
+
+
+def _im_schlauch(xy, weg, halbe_breite, laenge, nah, nah_halb_deg):
+    """(Maske: Punkt liegt im Fahrschlauch, Strecke entlang des Wegs, seitlicher Abstand zum Weg) je Punkt."""
+    quer, entlang = abstand_zum_weg(xy, weg, laenge)
+    im_kegel = np.abs(np.arctan2(xy[:, 1], xy[:, 0])) <= math.radians(nah_halb_deg)
+    drin = (quer < halbe_breite) & (entlang > 0.0) & (entlang <= laenge) & ((entlang > nah) | im_kegel)
+    return drin, entlang, quer
+
+
+def fahrschlauch_luecke(winkel, weg=None, halbe_breite=0.15, laenge=0.8, nah=0.2, nah_halb_deg=30.0):
+    """Erster NICHT gemessener Teil des Fahrschlauchs (gleiche Form wie fahrschlauch): Strecke entlang des Wegs (m)
+    bis dorthin, None = ganz gemessen. winkel: ungueltige_winkel(). Gueltige Punkte neben dem Weg aendern daran
+    nichts - sie sagen nichts ueber den Weg."""
+    def im_bereich(xy):
+        drin, entlang = np.zeros(len(xy), dtype=bool), np.zeros(len(xy))
+        vorn = xy[:, 0] > -halbe_breite         # der Weg beginnt am Roboter und fuehrt nach vorne: spart Rechenzeit
+        drin[vorn], entlang[vorn], _ = _im_schlauch(xy[vorn], weg, halbe_breite, laenge, nah, nah_halb_deg)
+        return drin, entlang
+    return luecke_im_bereich(winkel, im_bereich, max(laenge, nah) + halbe_breite)
+
+
+def hinten_luecke(winkel, halbe_breite=0.15, ab=0.05):
+    """Erster nicht gemessener Punkt im Streifen hinter dem Roboter (x < -ab, |y| < halbe_breite): Abstand nach
+    hinten (m) oder None = ganz gemessen. winkel: ungueltige_winkel(). Ein Strahl vom LiDAR nach hinten tritt bei
+    x = -ab in den Streifen ein, wenn er dort seitlich noch innerhalb liegt - dann ist ab schon unbekannt."""
+    c, s = np.cos(winkel), np.sin(winkel)
+    hinein = (c < 0) & (np.abs(s) * ab < halbe_breite * np.abs(c))
+    return float(ab) if np.any(hinein) else None

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """A1: echte Bildannahme und Entscheidung mit ROS-Attrappen, ohne Hardware."""
+import math
 import os
 import sys
 import types
@@ -11,21 +12,42 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'line_follower'
 import line_follower as lf
 
 
+_scan_nr = [0]
+
+
+def scan(abstand):
+    _scan_nr[0] += 1                    # jeder Scan neu: Aufnahme 50 ms vor jetzt, je Scan etwas spaeter
+    t = lf.time.time() - 0.05 + _scan_nr[0] * 1e-6
+    kopf = types.SimpleNamespace(stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
+    return types.SimpleNamespace(ranges=[abstand] * 360, angle_min=-math.pi, angle_increment=2 * math.pi / 360,
+                                 angle_max=math.pi - 2 * math.pi / 360,
+                                 range_min=0.05, range_max=12.0, header=kopf)
+
+
 class Sensorfreigabe(unittest.TestCase):
     def setUp(self):
         self.uhr = patch.object(lf.time, 'time', return_value=1000.0)
         self.zeit = self.uhr.start()
         self.addCleanup(self.uhr.stop)
+        self.mono = patch.object(lf.time, 'monotonic', return_value=1000.0)   # Empfangszeit der Scans
+        self.mono.start()
+        self.addCleanup(self.mono.stop)
 
     def neu(self):
         n = lf.LineFollower()
         n._p.update(show=False, publish_image=False)
-        n.scans = {'/scan0': (1000.0, 1.0)}
+        self.lidar(n)
         n.ki = (1000.0, {'aktion': 'fahren', 'faktor': 1.0})
         n.sucher.suche = lambda img, *_, **__: {
             'gefunden': True, 'boden': [(0.05 + k * 0.02, 0.0) for k in range(30)],
             'quer': 0.0, 'kurs': 0.0}
         return n
+
+    def lidar(self, n, abstand=1.0, zeit=1000.0):
+        with patch.object(lf.time, 'monotonic', return_value=zeit):
+            n.scans.clear()
+            n.on_scan(scan(abstand), '/scan0', 0)
+            n.on_scan(scan(abstand), '/scan1', 1)
 
     def bild(self, n, alter=0.1, stamp=None):
         if stamp is None:
@@ -95,9 +117,9 @@ class Sensorfreigabe(unittest.TestCase):
                     if mangel in ['beide', 'lidar']:
                         n.scans.clear()
                     if mangel == 'scan_alt':
-                        n.scans = {'/scan0': (998.0, 1.0)}
+                        self.lidar(n, zeit=998.0)
                     if mangel == 'kritisch':
-                        n.scans = {'/scan0': (1000.0, 0.1)}
+                        self.lidar(n, 0.1)
                     if mangel == 'stempel':
                         n.stempel_ok = False
                     n.ki = (1000.0, {'aktion': 'manoever', 'manoever': wunsch})

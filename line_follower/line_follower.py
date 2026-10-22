@@ -19,8 +19,10 @@
 #   - Fahrbefehle gehen 20x pro Sekunde raus. Das Motorboard stoppt selbst, wenn
 #     0,3 s lang kein Befehl kommt (Watchdog).
 #   - Ohne Antwort der KI (ki_pflicht), ohne Kamerabilder oder ohne Linie: Stopp.
-#   - Notbremse ueber LiDAR, unabhaengig von der KI (blockiert vorwaerts und seitwaerts,
-#     einschliesslich Drehen und Rueckwaerts).
+#   - Notbremse ueber LiDAR, unabhaengig von der KI (blockiert vorwaerts und seitwaerts, einschliesslich Drehen
+#     und Rueckwaerts): prueft den Bereich der Fahrtrichtung (direction) UND den, in den der tatsaechliche Befehl
+#     faehrt (rueckwaerts -> hinten, seitwaerts -> links/rechts, Drehen/seitwaerts auf der Stelle zusaetzlich
+#     vorne und hinten).
 #
 # Einstellungen: -p name:=wert beim Start oder  ros2 param set /line_follower name wert
 import json
@@ -55,6 +57,8 @@ sys.path.insert(0, os.path.join(REPO, 'line_follower'))
 import lidar  # noqa: E402
 import linie  # noqa: E402
 
+# LiDAR-Bereiche der Notbremse: Mitte (Grad, links positiv), je +-obstacle_half_deg
+BEREICHE = {'vorne': 0.0, 'hinten': 180.0, 'links': 90.0, 'rechts': -90.0}
 # Grenzen fuer Manoever der KI (Sicherheit)
 MANOEVER_MAX = {'lin': 0.10, 'quer': 0.08, 'dreh': 1.2}
 
@@ -107,6 +111,7 @@ class LineFollower(Node):
         self.bild_zeit = 0.0
         self.bild_zaehler, self.fps, self.fps_zeit = 0, 0.0, time.time()
         self.scans = {}
+        self.scan_stempel = {}           # Kanal -> neueste akzeptierte Aufnahmezeit (muss vorwaerts laufen)
         self.ki = (0.0, None)            # (zeit, befehl)
         self.last_image_pub = 0.0
         self.status_text = 'startet ...'
@@ -149,6 +154,10 @@ class LineFollower(Node):
     def p(self, name):
         return self.get_parameter(name).value
 
+    def ros_jetzt(self):
+        """ROS-Zeit dieses Knotens (s) - dieselbe Uhr wie header.stamp, auch mit use_sim_time."""
+        return self.get_clock().now().nanoseconds * 1e-9
+
     def _parameter_geaendert(self, params):
         # Einstellungen der Linie/Lenkung gelten sofort (z. B. ros2 param set ... kamera_neigung 30.0)
         from rcl_interfaces.msg import SetParametersResult
@@ -163,9 +172,24 @@ class LineFollower(Node):
     # ---------------- Eingaenge ----------------
     def on_scan(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
-        d = lidar.naechster_vorne(msg, fronts[i] if i < len(fronts) else 0.0, self.p('obstacle_half_deg'),
-                                  self.p('obstacle_min_range'), rueckwaerts=self.p('direction') < 0)
-        self.scans[topic] = (time.time(), d)
+        # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
+        if grund == 'doppelt':
+            return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
+        if grund is None:
+            self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
+        grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt -> Halt (nie "frei")
+        d = None
+        if not grund:
+            # vorne UND hinten merken: welcher Bereich zaehlt, entscheidet erst der tatsaechliche Fahrbefehl
+            # (nicht der Parameter direction - ein KI-Manoever kann z. B. rueckwaerts fahren)
+            front = fronts[i] if i < len(fronts) else 0.0
+            halb, mindest = self.p('obstacle_half_deg'), self.p('obstacle_min_range')
+            # je Bereich: (naechster Abstand, Abdeckungsluecke oder None). Ein Strahl ohne Messung im Bereich
+            # macht ihn unbekannt - gueltige Punkte daneben belegen nicht, dass der Bereich selbst frei ist
+            d = {b: (lidar.naechster_vorne(msg, front + w, halb, mindest), lidar.sektor_abdeckung(msg, front + w, halb))
+                 for b, w in BEREICHE.items()}
+        self.scans[topic] = (time.monotonic(), d, grund, aufnahme)   # Empfang monoton (Uhrsprung egal)
 
     def on_odom(self, msg):
         t = msg.twist.twist
@@ -237,20 +261,50 @@ class LineFollower(Node):
         speed = max(0.0, min(0.5, float(msg.data)))
         self.set_parameters([Parameter('speed', value=speed)])
 
-    def notbremse(self):
-        """Grund (Text) oder None."""
+    @staticmethod
+    def bereiche(lin, quer, dreh):
+        """In welche LiDAR-Bereiche faehrt dieser Befehl? Vorwaerts -> vorne, rueckwaerts -> hinten,
+        seitwaerts -> links bzw. rechts (auch schraeg zusammen mit vor/zurueck). Ohne vor/zurueck, aber mit
+        Drehen oder seitwaerts: zusaetzlich vorne UND hinten (der Aufbau schwenkt in beide)."""
+        b = set()
+        if lin > 0:
+            b.add('vorne')
+        elif lin < 0:
+            b.add('hinten')
+        elif quer or dreh:
+            b.update(('vorne', 'hinten'))
+        if quer > 0:
+            b.add('links')
+        elif quer < 0:
+            b.add('rechts')
+        return tuple(sorted(b))
+
+    def notbremse(self, lin=0.0, quer=0.0, dreh=0.0):
+        """Grund (Text) oder None. Fehlende/unbrauchbare LiDAR-Daten halten immer. Ein frischer, aber unbrauchbarer
+        Scan haelt wie ein fehlender, bis derselbe Kanal wieder einen verwertbaren Scan liefert (dann sofort wieder
+        frei, kein Nachlauf). Der Abstand zaehlt in dem Bereich, in den (lin, quer, dreh) tatsaechlich faehrt."""
         if not self.p('obstacle_check'):
             return None
-        jetzt = time.time()
-        frisch = [(t, d) for t, (z, d) in self.scans.items() if jetzt - z < 1.0]
-        if not frisch:
+        topics = self.p('scan_topics')
+        # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
+        frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
+        if grund:
             if not self.scans:
-                return 'KEIN LIDAR: noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
-            alter = min(jetzt - z for z, _ in self.scans.values())
-            return f'KEIN LIDAR: letzter Scan vor {alter:.1f} s'
-        t, d = min(frisch, key=lambda x: x[1])
+                grund = 'noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
+            return 'KEIN LIDAR: ' + grund
+        jetzt = self.ros_jetzt()     # Aufnahmealter bei der Entscheidung (Scan kann seit dem Empfang gealtert sein)
+        frisch = [(t, d, g or lidar.aufnahme_alter(a, jetzt)) for t, (_, d, g, a) in zip(topics, frisch)]
+        ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
+        if ungueltig:
+            return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'
+        # Bereich der eingestellten Fahrtrichtung zaehlt wie bisher immer, dazu der des tatsaechlichen Befehls
+        bereiche = {'hinten' if self.p('direction') < 0 else 'vorne', *self.bereiche(lin, quer, dreh)}
+        d, b, t = min((d[b][0], b, t) for t, d, _ in frisch for b in bereiche)
         if d < self.p('notbremse_dist'):
-            return f'NOTBREMSE {d * 100:.0f} cm ({t})'
+            return f'NOTBREMSE {d * 100:.0f} cm {b} ({t})'     # echtes nahes Hindernis: auch bei Luecken
+        luecken = [f'{t} {b}: {d[b][1]}' for t, d, _ in frisch for b in sorted(bereiche) if d[b][1]]
+        if luecken:
+            return 'LIDAR UNBEKANNT (' + '; '.join(luecken) + ')'
         return None
 
     # ---------------- Kamera: Linie suchen ----------------
@@ -339,7 +393,16 @@ class LineFollower(Node):
 
     # ---------------- Fahrbefehl (20x pro Sekunde) ----------------
     def entscheide(self):
-        """Rueckgabe: (vorwaerts, seitwaerts, drehen, status)."""
+        """Rueckgabe: (vorwaerts, seitwaerts, drehen, status). Die LiDAR-Notbremse prueft zuletzt GENAU den Befehl,
+        der hinausgeht (auch KI-Manoever rueckwaerts/drehend), nicht die eingestellte Fahrtrichtung."""
+        lin, quer, dreh, status = self._wunsch()
+        grund = self.notbremse(lin, quer, dreh)
+        if grund:
+            return 0.0, 0.0, 0.0, grund + ' -> STOPP'
+        return lin, quer, dreh, status
+
+    def _wunsch(self):
+        """Fahrbefehl vor der letzten LiDAR-Pruefung: (vorwaerts, seitwaerts, drehen, status)."""
         jetzt = time.time()
         with self.lock:
             bild_zeit = self.bild_zeit
@@ -352,7 +415,7 @@ class LineFollower(Node):
             vorher = self.vorhersage_zeit()
             lokal = self.gedaechtnis.lokal(self.gedaechtnis.vorhersage(lin, quer, dreh, vorher) if vorher > 0 else None)
             k_voraus = self.gedaechtnis.kruemmung_voraus() if self.p('quer_beschl') > 0 else 0.0
-        grund = self.notbremse()
+        grund = self.notbremse()        # fehlende/unbrauchbare LiDAR-Daten: Halt, egal wohin
         ki_zeit, ki = self.ki
         manoever = ki.get('manoever') if (ki and ki.get('aktion') == 'manoever' and jetzt - ki_zeit < 0.6) else None
         if grund:
