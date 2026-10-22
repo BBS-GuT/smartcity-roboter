@@ -18,8 +18,11 @@ class Systemlast:
         self.kerne = kerne or os.cpu_count() or 1
 
     def _lies(self, *pfad):
+        # /proc-Inhalte fremder Prozesse (cmdline, comm, stat) sind Bytes ohne Kodierungszusage. Ungueltige UTF-8-Folgen
+        # werden als \xNN-Escapes gelesen statt mit UnicodeDecodeError den ganzen Logger zu beenden (Issue #35).
+        # Die Escapes sind reines ASCII und lassen sich daher in jede Logdatei schreiben, auch unter C-/ASCII-Locale.
         try:
-            with open(os.path.join(*pfad)) as f:
+            with open(os.path.join(*pfad), encoding='utf-8', errors='backslashreplace') as f:
                 return f.read()
         except OSError:
             return None
