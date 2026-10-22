@@ -57,6 +57,10 @@ STANDARD = {
     'such_dreh': 0.7,         # Drehgeschwindigkeit beim Suchen (rad/s)
     # Kreuzungen
     'abbiegen': True,         # an Kreuzungen zufaellig abbiegen (False = immer dem bisherigen Verlauf nach)
+    'abbiegen_halten': False,  # True: gewaehlten Ast halten, bis er eingelenkt hat (Fahr-Gehirn). Die Kamera sieht erst
+                              # ab ca. 25 cm: kurz vor der Kreuzung ist der Abzweig aus dem Bild, nur die Gerade ist
+                              # zu sehen. Ohne Halten verfaellt die Wahl dort und die Gerade gewinnt (Sim: Links-/
+                              # Rechtsabbiegen von einer durchgehenden Linie klappte 0 von 4). False = wie bisher
     'ast_min': 0.05,          # ein Ast der Kreuzung muss mindestens so lang zu sehen sein (m), sonst Stummel. Kurz,
                               # weil die Kamera nur ca. 22 cm Boden sieht (RM02 22.10.: Abzweige nie erkannt);
                               # Haltelinien filtert die Regel "Ast muss aus dem Bild hinauslaufen"
@@ -105,8 +109,12 @@ class LinienSucher:
         self.wahl = None           # an der aktuellen Kreuzung gewaehlter Ast: Richtung (rad, wie gier) oder None
         self.ohne_kreuzung = 0     # so viele Bilder in Folge ohne Kreuzung (danach gilt sie als durchfahren)
         self.pos = None            # eigene Position beim aktuellen Bild (x, y m, Gedaechtnis) oder None (unbekannt)
+        self.gier = None           # eigene Drehung beim aktuellen Bild (rad, Gedaechtnis) oder None
         self.kreuzung_pos = None   # dort zuletzt die Kreuzung gesehen
         self.zufall = random.Random()
+        # Wer waehlt den Ast? None = zufaellig (Grundbetrieb). Sonst Funktion (richtungen rad, gier) -> gewaehlte
+        # Richtung (rad, eine aus der Liste) oder None = gewuenschter Ast noch nicht zu sehen (z. B. Fahr-Gehirn: Fahrplan)
+        self.waehler = None
 
     def _vogel(self, w, h):
         """Umrechnung Kamerabild -> Draufsicht (Homographie, gilt fuer den ebenen Boden)."""
@@ -226,10 +234,30 @@ class LinienSucher:
         if not kamera_ok:
             return
         self.ohne_kreuzung += 1
-        gefahren = (self.pos is None or self.kreuzung_pos is None
-                    or math.hypot(self.pos[0] - self.kreuzung_pos[0], self.pos[1] - self.kreuzung_pos[1]) > 0.20)
+        strecke = (None if self.pos is None or self.kreuzung_pos is None
+                   else math.hypot(self.pos[0] - self.kreuzung_pos[0], self.pos[1] - self.kreuzung_pos[1]))
+        gefahren = strecke is None or strecke > 0.20
+        if self._einlenken() and strecke is not None and strecke < 0.60:
+            return     # abbiegen_halten: noch nicht eingelenkt -> Wahl bleibt (hoechstens 60 cm ab letzter Sichtung)
         if self.ohne_kreuzung > 15 and gefahren:
             self.wahl = None
+
+    def _einlenken(self):
+        """abbiegen_halten und der gewaehlte Ast weicht noch mehr als 30 Grad von der eigenen Richtung ab?"""
+        return (bool(self.c.get('abbiegen_halten')) and self.wahl is not None and self.gier is not None
+                and abs(math.remainder(self.gier - self.wahl, 2 * math.pi)) > math.radians(30))
+
+    def _passt_zur_wahl(self, teil):
+        """Verlaeuft diese Linienflaeche (ohne Kreuzung im Bild) ungefaehr in Richtung des gewaehlten Astes?
+        Verglichen wird nur die Achse (+-45 Grad, Richtung egal): eine Querlinie passt zu links und zu rechts."""
+        ys, xs = np.nonzero(teil)
+        if len(xs) < 10:
+            return False
+        schritt = max(1, len(xs) // 200)
+        p = np.array([self._zu_boden(px, py) for px, py in zip(xs[::schritt], ys[::schritt])])
+        _, _, vt = np.linalg.svd(p - p.mean(axis=0), full_matrices=False)
+        achse = self.gier + math.atan2(vt[0][1], vt[0][0])
+        return abs(math.remainder(achse - self.wahl, math.pi)) <= math.radians(45)
 
     def _abbiegen(self, teil, start, gier, erg, kamera_ok=True):
         """Kreuzung? Dann einen Ast waehlen (zufaellig beim ersten Sehen, danach derselbe) und nur Stamm + diesen Ast
@@ -249,16 +277,24 @@ class LinienSucher:
             return teil
         self.ohne_kreuzung = 0
         self.kreuzung_pos = self.pos
-        stamm, aeste, _ = teilung
+        stamm, aeste, abzweig = teilung
         g = gier or 0.0
         if self.wahl is None:
-            richtung, _ = self.zufall.choice(aeste)
+            if self.waehler is None:
+                richtung, _ = self.zufall.choice(aeste)
+            else:
+                richtung = self.waehler([r for r, _ in aeste], g)
+                if richtung is None:
+                    # gewuenschter Ast (noch) nicht zu sehen: nicht festlegen, nur dem Stamm folgen
+                    erg['kreuzung'] = {'aeste': sorted(round(math.degrees(r)) for r, _ in aeste), 'wahl': None,
+                                       'abzweig': round(float(abzweig), 3)}
+                    return stamm
             self.wahl = g + richtung
             erg['kreuzung_neu'] = True
         abw = lambda a: abs(math.remainder(g + a[0] - self.wahl, 2 * math.pi))   # noqa: E731
         richtung, ast = min(aeste, key=abw)
         erg['kreuzung'] = {'aeste': sorted(round(math.degrees(r)) for r, _ in aeste),
-                           'wahl': round(math.degrees(richtung))}
+                           'wahl': round(math.degrees(richtung)), 'abzweig': round(float(abzweig), 3)}
         if abw((richtung, ast)) > math.radians(45):
             # gewaehlter Ast in diesem Bild nicht zu sehen (verdeckt, Rauschen): keinen anderen nehmen, nur den
             # Stamm - die Wahl bleibt, bis der gewaehlte Ast wieder erkannt wird
@@ -270,7 +306,7 @@ class LinienSucher:
         """Rueckgabe: dict gefunden, boden (Liste Mittellinien-Punkte x, y in m), punkte (Bild) fuer die Anzeige.
         gier: Drehung des Roboters (rad), fuer die Wahl an Kreuzungen. kamera_ok: Kamera schaut in Fahrstellung.
         pos: eigene Position (x, y m, Gedaechtnis) - die Kreuzungswahl verfaellt erst nach Fahrstrecke."""
-        self.pos = pos
+        self.pos, self.gier = pos, gier
         h, w = img.shape[:2]
         c = self.c
         oben = int(h * c['zeilen_oben'])
@@ -308,6 +344,13 @@ class LinienSucher:
         # Kreuzung von der Linie direkt vor dem Roboter aus messen (Startpunkt naechster Linienpunkt zum Roboter):
         # von der Erwartung (30 cm) aus lag der Start oft schon hinter dem Abzweig
         teil = self._abbiegen(etiketten == beste, self._zu_raster(0.0, 0.0), gier, erg, kamera_ok)
+        if kamera_ok and erg.get('kreuzung') is None and self._einlenken():
+            # Kreuzung nicht mehr im Bild, er muss aber noch einlenken: nur eine Linie nehmen, die zum gewaehlten Ast
+            # passt. Die Gerade, die er verlassen will, kommt nicht ins Gedaechtnis (dort liegt der Ast schon).
+            passend = [(d, i) for i, d, _ in kandidaten if self._passt_zur_wahl(etiketten == i)]
+            if not passend:
+                return erg
+            teil = etiketten == min(passend)[1]
         a = abstand * teil
         grat = teil & (a >= 0.6 * a.max())                     # Mittellinie (Grat der Abstandskarte)
         ys, xs = np.nonzero(grat)

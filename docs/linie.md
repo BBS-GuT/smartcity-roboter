@@ -191,6 +191,20 @@ Im Log steht z. B. `Kreuzung: Aeste [-90, 90] Grad -> zufaellig gewaehlt: links 
 - Erlaubte Ausfahrten (Einbahnstraßen) kennt er noch nicht, siehe oben.
 - Ob er eine 90°-Abzweigung sauber fährt, ist nur mit gezeichneten Bildern geprüft (`tests/test_kreuzung.py`).
 
+**Abbiegen von einer durchgehenden Linie (gefunden mit dem Fahr-Gehirn, Simulator):** Die Kamera sieht erst ab ca.
+25 cm vor dem Roboter. Kurz vor der Kreuzung ist der Abzweig deshalb schon aus dem Bild, zu sehen ist nur noch die
+gerade Weiterführung. Die Wahl verfällt nach ca. 15 Bildern und 20 cm, und die Gerade überschreibt das Gedächtnis: Er
+fährt geradeaus weiter. Im Simulator (`sim/fahrgehirn_sim.py`) klappte so Links-/Rechtsabbiegen von einer
+durchgehenden Linie 0 von 4 Mal; am T-Stoß (Linie endet quer) klappte es.
+Neue Einstellung `abbiegen_halten` (Standard **aus**, der Grundbetrieb bleibt unverändert; das Fahr-Gehirn schaltet sie
+ein): Solange er noch nicht eingelenkt hat (mehr als 30° vom gewählten Ast weg, höchstens 60 cm ab der letzten
+Sichtung der Kreuzung), bleibt die Wahl, und nur eine Linie, deren Achse zum gewählten Ast passt (±45°), kommt ins
+Gedächtnis. Damit im Simulator 11 von 11 Kreuzungen richtig. Ob der Grundbetrieb (Zufallswahl) sie auch bekommen
+soll, ist eine eigene Entscheidung (Abnahme am Brett).
+
+**Kreuzungswahl von außen:** `LinienSucher.waehler` (Standard `None` = zufällig). Das Fahr-Gehirn setzt hier seinen
+Fahrplan ein (`docs/fahrgehirn.md`).
+
 ## Was er an die KI meldet
 
 `/line_follower/status` (JSON): unter anderem `linie_quer`/`linie_kurs` (Lage der Linie am Roboter) und `weg`. `weg` ist die Linie vor dem Roboter als Punktliste. Daraus macht die KI den **Fahrschlauch**: Nur was entlang der Linie liegt, gilt als Hindernis. Häuser neben einer Kurve stören deshalb nicht mehr.
