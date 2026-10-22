@@ -637,6 +637,9 @@ class Zentrale(Node):
         w['lidar'], lid_obj, w['lidar_breit'] = self.lidar_pruefen()
         self.lidar_d = w['lidar']
         w['lidar_xy'] = self.lidar_xy if w['lidar'] is not None else None
+        # Richtungen ohne gueltige Messung (alle Pflicht-LiDARs): Ablaeufe pruefen damit selbst, ob IHRE Zone
+        # gemessen ist (Zebrastreifen #156) - fehlende Punkte dort heissen sonst faelschlich "frei"
+        w['lidar_luecken'] = self.lidar_luecken if w['lidar'] is not None else None
         w['lidar_hinten'] = self.lidar_hinten()
         w['weg'] = self.weg_voraus()
         w['gier'] = self.gier
