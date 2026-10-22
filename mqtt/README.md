@@ -1,5 +1,8 @@
 # MQTT-Telemetrie aus dem bestehenden Panel
 
+Für Einrichtung, Heimnetz-Fallback und Prüfung im Schulnetz siehe
+[Broker-Anleitung](BROKER_ANLEITUNG.md).
+
 Dieser Adapter liest den Panelstatus und die lokalen Lese-Endpunkte für Farbkamera,
 native Tiefe und beide LiDAR-Scans. Er empfängt keine Befehle und besitzt keinen
 ROS-/Motorzugang. Der Status verwendet `panel-telemetry/1`, die Sensordetails
@@ -210,11 +213,10 @@ sowie den Empfang von online und offline. Es werden keine echten Roboter benöti
 ## Projektunterlagen vom 21.10.2026
 
 Die bereitgestellte Brokerdokumentation nennt `172.16.3.29` als alte temporäre
-Schulnetzadresse und `10.0.40.100:1883` als aktuelles Projektbroker-Ziel.
-MQTT verlangt Anmeldung; TLS ist laut Dokumentation nicht eingerichtet.
-Der Nutzer bestätigt das 10er Projektnetz als künftigen Standort; die genaue
-Laufzeitadresse und der aktive Brokerdienst sind noch zu bestätigen. Der Code
-verwendet `10.0.40.100` als aktuellen Standard und erlaubt eine abweichende IP
+Schulnetzadresse. Der Nutzer hat `10.0.40.100:1883` am 22.10.2026 als neue
+Projektbroker-Adresse mitgeteilt. MQTT verlangt Anmeldung; TLS ist laut der
+vorliegenden Dokumentation nicht eingerichtet. Der Code verwendet die neue
+Adresse als aktuellen Standard und erlaubt eine abweichende IP
 mit `MQTT_HOST` oder `--host`. Für einen Test im Projektnetz:
 
 ```powershell
