@@ -24,11 +24,19 @@ HILFE = ('Gegenstand hinlegen, Haende weg, dann:\n'
          '  Enter = raeumbarer Gegenstand (soll gegriffen werden)\n'
          '  p     = Person/Spielfigur (darf NIE gegriffen werden)\n'
          '  m<N>  = raeumbarer Gegenstand genau auf Markierung N (z. B. m2): Lagefehler der Kamera wird gemessen\n'
+         '  v     = nur vermessen, NICHT greifen (Kamera mit dem Lineal pruefen)\n'
          '  g     = Arm in Grundstellung      f = Arm in Fahrstellung      q = Ende')
 
 
 def zeige(e, protokoll):
     print(f"  -> {e['ergebnis']}: {e.get('text', '')}" + (f"  (Korrektur {e['korrektur_cm']} cm)" if e.get('korrektur_cm') else ''))
+    if e.get('gemessen_cm'):
+        m = e['gemessen_cm']
+        print(f"     gemessen: Mitte {m['mitte_vorne']} cm vorne, {m['links']:+} cm links, {m['breite']} cm breit, "
+              f"{m['hoehe']} cm hoch (Blick {e.get('blick')})")
+    if e.get('ziel_cm'):
+        z = e['ziel_cm']
+        print(f"     Greifer gezielt auf: {z[0]} cm vorne, {z[1]:+} cm links, {z[2]} cm hoch")
     if e.get('richtig') is not None:
         print('     richtig' if e['richtig'] else '     NICHT richtig')
     print('  ' + protokoll.text().replace('\n', '\n  '))
@@ -77,6 +85,14 @@ def schleife(g, protokoll, frage, n_max, sim=None):
             eingabe = frage(HILFE + '\n> ').strip().lower()
         if eingabe == 'q':
             break
+        if eingabe == 'v':
+            o = g.nur_messen()
+            if o is None:
+                print('  nichts gesehen')
+            else:
+                print(f"  gemessen: Mitte {(o['vor'] + o['breite'] / 2) * 100:.1f} cm vor der Robotermitte, "
+                      f"{o['seite'] * 100:+.1f} cm links, {o['breite'] * 100:.1f} cm breit, {o['hoehe'] * 100:.1f} cm hoch")
+            continue
         if eingabe in ('g', 'f'):
             print('  ' + str((g.grundstellung if eingabe == 'g' else g.fahrstellung)() or 'ok'))
             continue

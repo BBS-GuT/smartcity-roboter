@@ -229,6 +229,14 @@ class ArmGehirn:
         elif erwartet == 'greifen':
             zeile['richtig'] = erg['ergebnis'] == 'abgelegt'
         erg['richtig'] = zeile.get('richtig')
+        # fuer die Anzeige: gemessene Mitte und Groesse (cm), angefahrener Punkt (cm), Blickstellung
+        if zeile.get('gemessen_vor') is not None:
+            erg['gemessen_cm'] = {'mitte_vorne': round((zeile['gemessen_vor'] + zeile['breite'] / 2) * 100, 1),
+                                  'links': round(zeile['gemessen_seite'] * 100, 1),
+                                  'breite': round(zeile['breite'] * 100, 1), 'hoehe': round(zeile['hoehe'] * 100, 1)}
+        if zeile.get('ziel_x') is not None:
+            erg['ziel_cm'] = [round(zeile[k] * 100, 1) for k in ('ziel_x', 'ziel_y', 'ziel_z')]
+        erg['blick'] = zeile.get('blick')
         self._speichern_zustand()
         if self.protokoll is not None:
             erg['nr'] = self.protokoll.schreiben(zeile)['nr']
