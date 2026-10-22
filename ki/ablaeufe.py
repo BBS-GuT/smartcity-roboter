@@ -100,8 +100,12 @@ class Zebrastreifen(Ablauf):
                and (o.get('abstand') is None or o['abstand'] <= self.c['zebra_figur_abstand'])
                for o in w.get('objekte', [])):
             self.jemand = 'Person gesehen'
-        # ... oder der LiDAR sieht etwas AUF oder direkt NEBEN dem Zebrastreifen (wartender Fussgaenger).
-        # Nur dieser Bereich zaehlt, damit Haeuser und Waende nicht als Fussgaenger gelten.
+        self._lidar_belegung(w)
+
+    def _lidar_belegung(self, w):
+        """Sieht der LiDAR etwas AUF oder direkt NEBEN dem Zebrastreifen (wartender Fussgaenger)? Laeuft in JEDEM
+        Zyklus, nicht nur bei neuen Kamerabildern: stockt die Kamera, zaehlt die aktuelle LiDAR-Belegung trotzdem
+        (Codex-Review PR #158). Nur dieser Bereich zaehlt, damit Haeuser und Waende nicht als Fussgaenger gelten."""
         xy = w.get('lidar_xy')
         if w.get('weg'):
             # Linie voraus jedes Mal neu nehmen: beim Anhalten (z. B. direkt nach einer Kurve) ist sie oft noch
@@ -154,6 +158,7 @@ class Zebrastreifen(Ablauf):
                         self.bilder, self.luecke = 0, 'keine LiDAR-Daten am Ueberweg'
                     else:
                         self.bilder += 1
+            self._lidar_belegung(w)     # auch ohne neues Bild: aktuelle LiDAR-Belegung vor jeder Entscheidung
             if d >= c['zebra_schauen'] + 1.0 and (self.jemand or self.bilder >= c['anschauen_bilder']):
                 return self._entscheiden(jetzt)
             if d >= c['zebra_schauen'] + 1.0:

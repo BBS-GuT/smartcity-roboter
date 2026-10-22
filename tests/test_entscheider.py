@@ -310,6 +310,18 @@ for name, aufnahme in (('Aufnahme 3 s alt', lambda lauf: lauf.t + 0.1 - 3.0), ('
     ok = all(x['aktion'] == 'stopp' for x in folge) and 'Aufnahmezeit' in folge[-1]['grund']
     fehler += not ok
     print(f"{'OK  ' if ok else 'FEHLER'} #70 {name} (Auswertung frisch) -> bleibt stehen ({folge[-1]['grund']})")
+# negativ (Codex-Review PR #158): genug freie Bilder gezaehlt, dann stockt die Kamera (gleiche Bildnummer, noch
+# frisch) und der LiDAR sieht jemanden am Ueberweg -> keine Freigabe, er wartet (LiDAR zaehlt in jedem Zyklus)
+lauf = Lauf(arm_erlaubt=True, posen=POSEN)
+lauf.schritt(1, zebra={'abstand': 0.3}, **FREI)
+lauf.schritt(17, **FREI)                                           # 0,5 s Halt + mindestens 5 freie Bilder
+nr, t_bild = lauf.nr, lauf.t
+person = np.array([[0.36, 0.20], [0.37, 0.21]])
+folge = [lauf.schritt(1, bild_nr=nr, bild_zeit=t_bild, aufnahme=t_bild, **dict(FREI, lidar_xy=person))
+         for _ in range(12)]
+ok = all(x['aktion'] == 'stopp' for x in folge) and any('LiDAR' in x['grund'] for x in folge)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} #70 Kamera stockt, LiDAR sieht jemanden -> keine Freigabe ({folge[-1]['grund']})")
 # negativ (Codex-Review PR #158): STOPP/TEST waehrend der Beobachtung -> Ablauf endet nicht im Stillstand,
 # nach START wird der Ueberweg neu beobachtet (nicht gesperrt/uebersprungen)
 lauf = Lauf(arm_erlaubt=True, posen=POSEN)
