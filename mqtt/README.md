@@ -29,6 +29,28 @@ schaltet MQTT ausdrücklich aus. Bei direktem Aufruf von `panel/panel.py`
 ist weiterhin `SMARTCITY_MQTT=1` nötig. Die Bridge endet mit dem Panel.
 Mit `MQTT_PYTHON` lässt sich der Pythonpfad einer eigenen Umgebung wählen.
 
+Der Desktop-Start versucht zuerst den Projektbroker (Standard `10.0.10.11:1883`).
+Erst eine erfolgreiche MQTT-Anmeldung zählt als Verbindung. Bei Ausfall nutzt
+er `127.0.0.1:1883` auf dem Roboter; falls dort noch kein Broker läuft, startet
+er einen auf die Loopback-Adresse begrenzten Testbroker. Alle 30 Sekunden prüft
+er den Projektbroker erneut und wechselt nach erfolgreicher Anmeldung zurück.
+Auf dem lokalen Broker gelten dieselben Robotertopics, er ist jedoch nur auf
+dem Roboter erreichbar. Der Wechsel sendet keine Fahrbefehle.
+
+Die Desktop-Verknüpfung übernimmt keine in einem SSH-Terminal gesetzten
+Umgebungsvariablen. Brokeradresse und Zugang können lokal in
+`~/.config/smartcity/mqtt.json` mit Dateirechten `0600` stehen, etwa:
+
+```json
+{"MQTT_HOST":"10.0.10.11","MQTT_PORT":1883,
+ "MQTT_USERNAME":"BENUTZER","MQTT_PASSWORD":"PASSWORT"}
+```
+
+Ohne gültige Projektdaten bleibt die Bridge beim lokalen Testbroker. Im
+Panelstatus kennzeichnet `mqtt.target` das aktuell verwendete Ziel (`project`
+oder `local`), `mqtt.broker` die tatsächliche Verbindung und
+`last_panel_ack_seq` die bestätigte Sequenz.
+
 ## Vom Windows-PC aus
 
 PowerShell im Projektordner, Panel auf dem Roboter bereits geöffnet:

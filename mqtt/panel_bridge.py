@@ -145,6 +145,7 @@ class Bridge:
     def write_status(self):
         with self.status_lock:
             state = {'broker': 'connected' if self.connected.is_set() else 'disconnected',
+                     'target': os.getenv('SMARTCITY_MQTT_TARGET', 'configured'),
                      'last_panel_ack_seq': self.last_ack,
                      'last_common_ack_seq': self.canonical_ack,
                      'reconnects': self.reconnects, 'dropped_messages': self.dropped_messages,

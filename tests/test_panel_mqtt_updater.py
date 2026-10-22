@@ -11,6 +11,16 @@ spec=importlib.util.spec_from_file_location("updater",path)
 updater=importlib.util.module_from_spec(spec); spec.loader.exec_module(updater)
 
 class Tests(unittest.TestCase):
+    def test_desktop_mqtt_runtime_is_in_installer(self):
+        required = {'panel/panel.py', 'mqtt/panel_bridge.py', 'mqtt/auto_bridge.py',
+                    'mqtt/local_broker.py', 'mqtt/requirements.txt',
+                    'scripts/panel.sh', 'scripts/mqtt_bridge.sh'}
+        self.assertTrue(required.issubset(set(updater.FILES.values())))
+        source = Path(__file__).parents[1]
+        for remote, relative in updater.FILES.items():
+            updater.validate_file(relative, (source / relative).read_bytes())
+            self.assertTrue(remote)
+
     def test_process_matching(self):
         cwd=Path("/home/u/smartcity-roboter")
         self.assertEqual(updater.python_script("python3 -u panel/panel.py",cwd),(cwd/"panel/panel.py").resolve())
@@ -23,9 +33,10 @@ class Tests(unittest.TestCase):
         updater.validate_file("x.py",b"x=1\n")
         updater.validate_file("x.html",b'<div id="s-mqtt"></div>')
         updater.validate_file("x.sh",b"#!/bin/bash\nmicro_ros_agent\n")
+        updater.validate_file("scripts/panel.sh",b"#!/bin/bash\ntrue\n")
         with self.assertRaises(SyntaxError): updater.validate_file("x.py",b"if:\n")
         with self.assertRaises(RuntimeError): updater.validate_file("x.html",b"<html/>")
-        with self.assertRaises(RuntimeError): updater.validate_file("x.sh",b"#!/bin/bash\ntrue")
+        with self.assertRaises(RuntimeError): updater.validate_file("scripts/microros_agent_stable.sh",b"#!/bin/bash\ntrue")
         with self.assertRaises(subprocess.CalledProcessError):
             updater.validate_file('x.sh', b'#!/bin/bash\n# micro_ros_agent\nif;\n')
 
