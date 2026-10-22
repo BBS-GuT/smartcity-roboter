@@ -6,10 +6,13 @@ Das Panel ist eine Webseite, die auf dem Roboter läuft (kleiner HTTP-Server in 
 
 ## Starten und fahren
 
+Vor jeder Fahrt das [Startprotokoll](Startprotokoll) abarbeiten: Die Vorbereitungen vor dem Einschalten beachten und die Prüfungen im gestarteten Panel vor TEST/START abschließen.
+
 1. Im Dock auf **SmartCity Panel** klicken. Das startet Kamera, KI, Kartograf und das Panel.
-2. **TEST**: Der Roboter zeigt alles an, fährt aber nicht. **Immer zuerst testen.**
-3. **START**: Er fährt. **STOPP**: Er hält sofort an. Der STOPP-Knopf ist auf jeder Seite oben rechts.
-4. Panel-Fenster schließen = Roboter hält an, alle Programme werden beendet.
+2. Die Prüfpunkte des [Startprotokolls](Startprotokoll) im Panel abschließen. Fehlende Pflichtvoraussetzungen vor TEST/START klären.
+3. **TEST**: Der Roboter zeigt alles an, fährt aber nicht. **Immer zuerst testen.**
+4. **START**: Er fährt. **STOPP**: Er hält sofort an. Der STOPP-Knopf ist auf jeder Seite oben rechts.
+5. Panel-Fenster schließen = Roboter hält an, alle Programme werden beendet.
 
 **Not-Aus von außen** (z. B. per SSH): `scripts/stopp.sh`
 
