@@ -73,8 +73,10 @@ class Zebrastreifen(Ablauf):
     Frei ist der Ueberweg nur nach mindestens anschauen_bilder NEUEN, FRISCHEN Kamerabildern im Beobachtungsfenster,
     zu denen jeweils LiDAR-Daten fuer den Ueberweg vorliegen (lidar_xy oder lidar_breit) und die keine Belegung zeigen.
     Ablaufende Zeit, leere Objektlisten, fehlende oder alte Daten zaehlen nicht als frei: dann bleibt er stehen.
-    Vertragsluecke (#60/#58): die Wahrnehmung hat kein Gueltigkeitsmerkmal fuer die Scanqualitaet. Ein vorhandener,
-    aber ungueltiger Scan (z. B. ohne Punkte) ist hier nicht von einem freien zu unterscheiden."""
+    Ganz ungueltige Scans, fehlende/alte Kanaele und Luecken im Fahrschlauch meldet die Zentrale als keine LiDAR-Daten
+    (#60/#61/#62/#79) -> Halt. Vertragsluecke (#156): ob die Ueberwegzone SEITLICH neben dem Fahrschlauch (bis
+    zebra_seite) gemessen ist, sagt die Wahrnehmung nicht - Strahlen ohne Messung dort sind hier nicht von frei zu
+    unterscheiden."""
     name = 'zebra'
     braucht_arm = False     # bewegt den Arm nie (#70)
 
