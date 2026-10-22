@@ -356,6 +356,28 @@ class Wegwahl(unittest.TestCase):
         self.assertEqual(a.schritt(bild(4, bezug=neue), 4).ausgang, 'C')
         self.assertEqual(rng.zuege, 2)
 
+    def test_schutzstopp_merkt_neueste_sequenz_gegen_alte_einfahrt(self):
+        a = automat(zufall=Zufall())
+        a.schritt(bild(), 1)
+        rot = bild(3, einfahrtsfreigabe=False)
+        self.assertEqual(a.schritt(rot, 3, haltgruende=('Hindernis',)).grund, 'schutzstopp')
+        alt = bild(2, art='einfahrt', ausgang='A', bestaetigt=True)
+        self.assertEqual(a.schritt(alt, 3).grund, 'sequenz_ruecklaeufig')
+        self.assertEqual(a.schritt(bild(4, einfahrtsfreigabe=False), 4).grund,
+                         'einfahrt_gesperrt')
+        self.assertEqual(a.historie, {})
+        self.assertEqual(a.schritt(bild(5, art='einfahrt', ausgang='A', bestaetigt=True), 5).lage,
+                         'raeumen')
+
+    def test_schutzstopp_merkt_zeit_und_widerspruechliche_duplikate(self):
+        a = automat()
+        e = bild(3)
+        a.schritt(e, 3, haltgruende=('STOPP',))
+        self.assertEqual(a.schritt(bild(4, aufnahme=2.5), 3).grund, 'zeit_ruecklaeufig')
+        self.assertEqual(a.schritt(replace(e, einfahrtsfreigabe=False), 3).grund,
+                         'duplikat_widerspruechlich')
+        self.assertEqual(a.schritt(e, 3.1).lage, 'gewaehlt')
+
 
 if __name__ == '__main__':
     unittest.main()

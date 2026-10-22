@@ -83,6 +83,7 @@ class Auswahl:
         self._abgeschlossen = set()
         self._zufallsfehler = set()
         self._letzte = None
+        self._verarbeitet = None
         self._jetzt = None
         self.ergebnis = Ergebnis('bereit', None, None)
 
@@ -133,11 +134,14 @@ class Auswahl:
         grund = self._pruefen(e, jetzt)
         if grund:
             return self._halt(grund)
+        # Empfangsstand auch im Schutzstopp fortschreiben. Ein spaeterer
+        # aelterer Eingang darf keine ueberholte Einfahrtsfreigabe ausfuehren.
+        self._letzte = e
         if haltgruende:
             return self._halt('schutzstopp')
-        if self._letzte == e:
+        if self._verarbeitet == e:
             return self.ergebnis  # keine neue Frische, kein RNG, kein Zaehler
-        self._letzte = e
+        self._verarbeitet = e
         b = e.bezug
         if self._historie is None:
             return self._halt('historie_unbekannt')
