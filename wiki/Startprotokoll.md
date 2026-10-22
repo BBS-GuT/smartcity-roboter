@@ -5,7 +5,7 @@ Diese **manuelle Checkliste** wird vor TEST/START für den vereinbarten Prüf- o
 ## Vorbereiten und prüfen
 
 - [ ] **Gerät und Platz:** Beschriftung RM01–RM04 stimmt mit dem Geräteblatt überein. Prüfbereich ist frei, eine Person bedient und beobachtet. Vor dem Einschalten bekannte Startbewegungen aus dem Geräteprotokoll berücksichtigen, insbesondere eine eingerichtete Arm-Ausgangsposition. Solange die ROS-Trennung nicht nachgewiesen ist, andere Roboter mit derselben Domain im selben Netz ausgeschaltet lassen.
-- [ ] **Software und Einstellungen:** Im [Panel](Bedienung-mit-dem-Panel) unter **System → Systemcheck** Gerätename und Software-Version mit dem festgelegten Stand vergleichen. Geladene Karte und lokale Einstellungen gehören zu diesem Gerät und Aufbau; die zugehörigen Kalibrierbelege liegen vor. Fehlende Versions- oder Kalibrierzuordnung bleibt ungeprüft.
+- [ ] **Software und Einstellungen:** Im [Panel](Bedienung-mit-dem-Panel) unter **System → Systemcheck** Gerätename und Software-Version mit dem festgelegten Stand vergleichen. Zusätzlich den sauberen Arbeitsbaum über den Git-Prüfweg unten bestätigen; der Systemcheck allein zeigt keine lokalen Änderungen. Geladene Karte und lokale Einstellungen gehören zu diesem Gerät und Aufbau; die zugehörigen Kalibrierbelege liegen vor. Fehlende Versions- oder Kalibrierzuordnung bleibt ungeprüft.
 - [ ] **Netz und ROS:** Systemcheck und IP-Adresse in der Panel-Kopfzeile passen zum Geräteblatt. Bei vereinbartem Fernzugriff das Panel am Laptop öffnen. Die dokumentierte Domain muss für unsere Programme **und** Hersteller-/micro-ROS-Agent gelten; eine Zahl im Terminal allein belegt das nicht. Nach Änderungen zuerst die Zuordnung gemäß [Roboter und Netz](Roboter-und-Netz) prüfen lassen.
 - [ ] **Akku, Board und Uhr:** Akkuanzeige in der **Kopfzeile** ansehen; unter **Sensoren** die Akkuspannung und vorhandene Board-/Agentmeldungen prüfen und mit den festgelegten Gerätegrenzen vergleichen. Datum/Uhrzeit des Roboters mit einer Referenz vergleichen; den Synchronisationsstatus gemäß Geräteprotokoll prüfen. Keine Unterspannung oder ungeklärten Boardfehler übergehen.
 - [ ] **Arm, Kamera und Sensoren:** Arm/Kamera befinden sich in der für dieses Gerät bestätigten Fahrstellung. Sensorfenster sind frei, Halterungen unverändert. Im Startcheck keine ungemessenen Posen anfahren oder Greifer-/Kalibrierläufe starten.
@@ -14,6 +14,17 @@ Diese **manuelle Checkliste** wird vor TEST/START für den vereinbarten Prüf- o
 - [ ] **Datenverbindung:** Vereinbarten Netz-/Brokerstatus und Aktualität der übertragenen Daten prüfen und fehlende Anzeigen oder Übertragungen als offen notieren. Ein Brokerausfall darf die lokale Steuerung nicht blockieren; eine Wiederverbindung erzeugt keine neue Fahrfreigabe. Eine noch fehlende MQTT-Funktion gilt dadurch nicht als abgenommen.
 
 **Fehlt eine Pflichtvoraussetzung für den vorgesehenen Versuch, nicht START drücken.** Ursache und betroffenen Prüfumfang notieren. Fehlende Sensoren oder Schutzprüfungen nicht abschalten, um die Liste abzuhaken.
+
+## Ausgeführten Softwarestand bestätigen
+
+Im Terminal des Roboters in den **tatsächlich vom Panel gestarteten Projektordner** wechseln; der Pfad steht im Geräteprotokoll. Dort vor START lesend prüfen:
+
+```bash
+git rev-parse HEAD
+git status --short --untracked-files=all
+```
+
+Beide Befehle müssen fehlerfrei laufen: Der erste muss den festgelegten vollständigen Commit ausgeben, der zweite **keine Ausgabe**. Jede Änderung an versionierten Dateien und jede unversionierte Datei bleibt zunächst ungeprüft, auch bei passender Commit-ID. Befund sichern und mit der zuständigen Person klären; nichts durch Löschen oder Zurücksetzen verbergen. Ignorierte geräteeigene Konfigurations-, Karten- und Kalibrierdaten brauchen weiterhin ihren gesonderten Beleg.
 
 ## TEST, dann bewusster START
 
