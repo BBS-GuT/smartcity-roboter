@@ -1,8 +1,9 @@
 # LiDAR: Softwarestand und ausstehende Nachweise am 22.10.2026
 
 Bezug: [#58](https://github.com/BBS-GuT/smartcity-roboter/issues/58) mit allen
-Unteraufgaben. Diese Statuslieferung integriert keine ungeprüfte Schutzsoftware
-und behauptet keine Gerätefreigabe. Geprüfte Ausgangsbasis ist main
+Unteraufgaben. Die Schutzkorrektur aus #176 ist nach erfolgreicher nativer Prüfung
+im Sammelbranch integriert; ihre Lieferung nach main bleibt getrennt offen.
+Es wird keine Gerätefreigabe behauptet. Geprüfte Ausgangsbasis ist main
 `dc6acc25e490edc301a6464af8fe19e17339aa42` mit integriertem
 [PR #170](https://github.com/BBS-GuT/smartcity-roboter/pull/170).
 
@@ -11,13 +12,18 @@ und behauptet keine Gerätefreigabe. Geprüfte Ausgangsbasis ist main
 | Lieferung | Exakter Kandidat | Prüfung / Integrationsgrenze |
 |---|---|---|
 | [#172: Mess- und Ausfallmatrix](https://github.com/BBS-GuT/smartcity-roboter/pull/172) | `a3c81259d69990183ca4eb20f6d9eae9774b243f` | Linux-CI 43/43; [nativer Review](https://github.com/BBS-GuT/smartcity-roboter/pull/172#issuecomment-6349216160) beim Statusabgleich noch laufend. Noch nicht integriert. |
-| [#176: fehlende Geometrie sperren und explizite Simulationsgeometrie](https://github.com/BBS-GuT/smartcity-roboter/pull/176) | `ac56051b438375ea63220120d4158837d2b690cb` | Aktuell 22 Fusionsverbraucher- und sechs neue Simulationskonfigurationstests bestanden; frische Gesamt-CI am neuen Head ausstehend. Vorgänger `b5a608e`: lokal 42/43 (nur bekannter Windowsfall `test_systemlast.py`), [Linux-CI-Log 43/43](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39839393132/job/120036098290). [Nativer Review des Vorgängers wegen Nutzungslimit abgebrochen](https://github.com/BBS-GuT/smartcity-roboter/pull/176#issuecomment-6349330384); aktueller Review fehlt, daher noch nicht integrierbar. |
+| [#176: fehlende Geometrie sperren und explizite Simulationsgeometrie](https://github.com/BBS-GuT/smartcity-roboter/pull/176) | `ac56051b438375ea63220120d4158837d2b690cb` | [Linux-CI 44/44](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39841340080/job/120042856186), alle Pflichtchecks erfolgreich. [Nativer Review am exakten Head abgeschlossen ohne Befunde](https://github.com/BBS-GuT/smartcity-roboter/pull/176#issuecomment-6349329512). Als `3d4684cb16a3652e3a05c90ff0cc6bdd10a39e2c` in den Sammelbranch integriert; kein main-Merge. |
 
 Die Unter-PRs zielen auf `fix/gb-58-lidar`. Erst nach den geforderten tatsächlichen
 Prüfergebnissen integrieren; für den abschließenden Haupt-PR zählen erneut dessen
 eigener Head, aktuelle main-Basis, CI, nativer Review und angerechnete Fremdfreigabe.
 Ein grüner Testlauf ersetzt keinen dieser Nachweise. Kein Reviewersatz durch den
 implementierenden Chat und keine Umgehung der Schutzregeln.
+
+Ein früherer nativer Review von #176 war wegen eines Nutzungslimits abgebrochen.
+Der notwendige Simulationsnachtrag startete regulär eine neue Prüfung am obigen
+Head; erst deren tatsächlich sauberes Ergebnis erlaubte die Unterintegration.
+Die vorbereitete Dokumentation #172 bleibt bis zu ihrem eigenen Abschluss separat.
 
 ## Ergebnis des Softwareabgleichs
 
