@@ -222,6 +222,56 @@ bleiben Geräteabnahmen (#37/#38/#58/#75/#79). Ohne sie keine reale Freigabe.
 Brokeradresse, Topics, Formate/Raten und externer Empfang bleiben C2/Partnerabnahme.
 Keine dieser unbekannten realen Größen wird für bloße C1-Darstellung erfunden.
 
+## A-Abgleich des konkreten C-Datenanhangs V3a
+
+Fachlicher Bezug ausschließlich [V3a in #142 auf
+`a4c16698ecca19b04a86636783a7ca3c2d26a4ff`](https://github.com/BBS-GuT/smartcity-roboter/blob/a4c16698ecca19b04a86636783a7ca3c2d26a4ff/docs/entwicklung/C1-vertragsentscheidungen.md#v3a-zusammengeführter-datenanhang-für-auftrag-5),
+einschließlich seiner vier tabellarischen Fälle. Vergleichsgrundlagen: dieser
+A-Abgleich auf `69da13138a9d1215dced02b8ca6b00b9c783c617` und
+[B-Abgleich auf `1a1a3e8c22dd52b1adbcd031a482b25b37a720d1`](https://github.com/BBS-GuT/smartcity-roboter/blob/1a1a3e8c22dd52b1adbcd031a482b25b37a720d1/docs/entwicklung/C1-abgleich-B.md).
+Keine Anwendungscode-/PR-Diffprüfung und kein formales Review.
+
+**A nimmt die folgenden konkreten Datenbelegungen zur späteren Umsetzung an;
+vor Auftrag 5 bleibt genau die unten genannte Ergebnisbindung zu ergänzen.**
+Dies nimmt weder einen implementierten Gesamtcommit noch Gerätefunktion an.
+
+| V3a-Belegung | Fachliche A-Annahme und Begründung |
+|---|---|
+| Referenzen und Pakete | Vollständige `EvaluationRef`, typisierte `OutputRef`, getrennte Ausgabe-/Freigabebesitzer, gleiche Auswertung für Ergebnis/Ausgabe/Sperrbild und daran gebundene Runtimeprojektion angenommen. Auch bei gleichem Wunsch kein Mischen neuer Ausgabe mit altem Ergebnis. `effect=motion/arm/both` wird einheitlich angenommen; kein paralleles B-`scope`. |
+| Nullwünsche und Qualität | `request_reason` bzw. `command_reason` tragen den Nullwunschgrund; Qualitäts-`reason` bleibt bei `valid` null. Diese konkrete Belegung ersetzt für die spätere gemeinsame Umsetzung die oben noch vorgeschlagene Verwendung von `reason=NO_REQUEST/PROTECTIVE_ACTION_WITHOUT_REQUEST`. Die dortigen Dokumentfälle sind entsprechend zu lesen. Gleiche Referenz und gleicher Wunschgrund in Ausgabe/Ergebnis bleiben Pflicht. `NO_ARM_REQUEST` ohne behauptete Armausgabe, getrenntes `output_reason` und unbekannter verlorener Bezug sind angenommen. So bleibt ein gültig belegter Schutzauftrag ohne erfundenen Wunsch darstellbar. |
+| Sperren und offener Besitzer | Vollständiges Sperrbild mit eigenen Qualitätsblöcken für STOPP-/Fehlerlatches angenommen. Unbekannt bleibt null statt false/leer; unbekannter Armbesitzer erzeugt keine aktuelle Auswertung oder Ausgabeidentität. Gemeinsame Ursachen bleiben mit derselben `BlockRef` in beiden getrennten Paketen nachvollziehbar. Politik-/Matrixnachweise sind getrennt von Räumerfolgsbelegen. C berechnet keine fehlenden Sperren oder reale Freigabe. |
+| Inaktivität | Feldweise bekannte Produzenten-/Uhrbindung bleibt erhalten, Vorgang/Objekt/Zeiten/Belege null, `arm.request=null` bereits im ersten gültig inaktiven Zustand. Messungen, historische Ausgaben/Empfangsbestätigungen und Sperren behalten eigene Bezüge. Restfrist reaktiviert keinen alten Wunsch; Inaktivität beweist keine mechanische Stornierung oder Stillstand. |
+| Beobachtung/Schätzung/Erfolg | Aufnahmeschlüssel/-zeit bleiben unverändert; Schätzung hat eigene Herkunft, Zeit und Unsicherheitsqualität. Stellung, Last und Kamerapose sind echte getrennte Messungen. Zwei auflösbare vorgangsgebundene Nachweise `verification/travel_pose` für Erfolg angenommen; weder Auftrag noch Timer ist ein Beleg. |
+
+**Eine nötige Semantikergänzung für C/O vor Auftrag 5:** V3a muss ausdrücklich
+festlegen: Für `result=erfolgreich/nicht_raeumbar/abgebrochen` gilt zwingend
+`execution_status=beendet`. Bei `laufend/pausiert` ist `result=offen`;
+`abort_reason` bzw. `result_reason` und beide Erfolgsbelege bleiben nach den
+jeweiligen V3a-Regeln gebunden. Das folgt Bs konkreter Ergebnisvorgabe, fehlt
+aber als ausdrückliche Bindung im gelesenen V3a. Sonst wäre ein noch laufender
+Vorgang trotz vorhandener Belege als erfolgreich oder nicht räumbar darstellbar.
+Gültig inaktiv bleibt ausdrücklich `beendet/offen`; ein unbekannter Ablauf
+bleibt unbekannt, statt durch diese Regel ein Ergebnis zu erfinden. Dies ist
+eine Datenkonsistenzregel, kein Algorithmus für Abschluss oder Wiederaufnahme.
+
+| Synthetischer V3a-Fall | A-Abgleich der konkret dargestellten Daten |
+|---|---|
+| Anschauen, 100 s | C10 ist Wunsch, Kamerapose unbekannt und Armbesitzer unbekannt; kein An/Vn erfunden. M10/U10 belegen nur gemeldeten Halt und Nullausgabe, keinen gemessenen Stillstand. Angenommen. |
+| Ausrichten, 101 s | R11/M11/U11 und hypothetische Politik-/Matrixbelege sind als gelieferte Daten getrennt; A11 ohne Armwunsch/Ausgabe trägt eigene Nullgründe. Alternative M12/U12 ist ein neues Paket und ersetzt keine einzelne Komponente von M11. Beobachtung bleibt bei 99 s. Angenommen, ohne aus 2 s Alter eine reale Schutzgültigkeit abzuleiten. |
+| Greifen, 102 s | Schätzung mit unbekannter Unsicherheit ist nicht gültige Lage; Stellung/Last fehlen. A12 ist gesperrt ohne erfundene V12/Empfangsbestätigung; Ergebnis offen, Erfolgsbelege null. Angenommen; kein Griffnachweis aus C12. |
+| Personenhalt, 103 s | Pause erhält Phase/Objekt und offene Ausführung; P/T wirken in beiden getrennten Paketen. Wegfall P löscht T/STOPP nicht und verlangt neue Pakete. Fehlende Armausgabe/Last bleiben sichtbar. Angenommen, ohne neue Akteursentscheidung oder physische Armreaktion festzulegen. |
+
+Dokumentarisch kontrolliert: Zeiten 99 ≤ 100/101/102/103, unveränderte Aufnahme
+bei Schätzung; normale und alternative Auswertungsfolgen nicht vermischt;
+gültige Datenqualität mit Nullwunschgrund ohne Qualitätsgrundkollision.
+Ergebnis-Gegenfälle `laufend/erfolgreich`, `pausiert/nicht_raeumbar` sowie
+`laufend/abgebrochen` müssen nach der engen Ergänzung ausgeschlossen sein;
+`beendet/erfolgreich` bleibt nur mit den zwei V3a-Belegen zulässig.
+Dies sind Dokumentbeispiele, keine ausgeführten Softwarevalidatoren.
+Die offenen realen Uhr-, Frist-, Sensor-, Geometrie-, Arm-/STOPP- und
+Brokerbelege sowie die zweite Annahme des konkreten Gesamtliefercommits
+bleiben unverändert. Andere Abschnitte von #142 werden hier nicht neu angenommen.
+
 ## Tatsächliche Dokumentprüfung
 
 Windows, PowerShell 7.6.5, Git 2.55.0.windows.4, eigene Arbeitskopie:
