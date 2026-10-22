@@ -11,9 +11,12 @@ Echter Entscheider, natuerliche Phasen, reiner Planerstub; kein ROS, kein Geraet
 import unittest
 
 from raeum_lauf import POSEN, PRUEF_POSEN, Lauf
+from entscheider import STANDARD  # noqa: E402
+
+GREIF = STANDARD['greif_vor']   # Gegenstand liegt in Greifweite
 
 PRUEF = {'quelle': 'tiefe', 'blick': 'pruef', 'vor': 0.17, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.04}
-VORNE = {'quelle': 'tiefe', 'vor': 0.28, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.04}
+VORNE = {'quelle': 'tiefe', 'vor': GREIF, 'seite': 0.0, 'breite': 0.04, 'hoehe': 0.04}
 
 
 def texte(lauf):
@@ -112,7 +115,7 @@ class RaeumenZustand(unittest.TestCase):
             if lauf.phase() == 'kontrolle' and t_kontrolle is None:
                 t_kontrolle = lauf.t
             akteur = 'Person' if t_kontrolle is not None else None
-            b = lauf.schritt(akteur=akteur, im_weg=False, **({} if weg else {'lidar': 0.28, 'objekt': dict(VORNE)}))
+            b = lauf.schritt(akteur=akteur, im_weg=False, **({} if weg else {'lidar': GREIF, 'objekt': dict(VORNE)}))
             a = b['arm']
             weg = weg or (isinstance(a, dict) and (a.get('winkel') or [0] * 6)[5] == 130)
             if b['aktion'] == 'fahren':

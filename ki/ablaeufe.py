@@ -68,8 +68,11 @@ class Zebrastreifen(Ablauf):
         self._phase(jetzt, 'halt')
 
     def _beobachten(self, w):
-        # Personen/Tiere irgendwo im Bild (nicht nur im Weg) ...
-        if any(o['name'] in LEBEWESEN for o in w.get('objekte', [])):
+        # Fussgaenger sind Spielfiguren (Projektinhaber 21.10.): nur Figuren in der Naehe des Ueberwegs zaehlen.
+        # Zuschauer im Raum (echte Menschen, weit weg) hielten ihn sonst ewig fest. Ohne Abstand/Groesse: zaehlt.
+        if any(o['name'] in LEBEWESEN and o.get('spielfigur') is not False
+               and (o.get('abstand') is None or o['abstand'] <= self.c['zebra_figur_abstand'])
+               for o in w.get('objekte', [])):
             self.jemand = 'Person gesehen'
         # ... oder der LiDAR sieht etwas AUF oder direkt NEBEN dem Zebrastreifen (wartender Fussgaenger).
         # Nur dieser Bereich zaehlt, damit Haeuser und Waende nicht als Fussgaenger gelten.
@@ -343,6 +346,10 @@ class Wegraeumen(Ablauf):
                     if jetzt - self.lebend_seit > 30.0:
                         return self._ende('fehler', f'Wegraeumen abgebrochen: {self.lebend_name} bleibt in Sicht', 'stopp')
                     self.seit += jetzt - self.letzter_schritt     # Wartezeit des laufenden Schritts anhalten
+                    if self.phase == 'abstand':
+                        # beim Warten verdeckt die Person evtl. den Gegenstand: zaehlt nicht als "aus den Augen
+                        # verloren" (RM02 21.10.: nach jeder Person brach er sofort ab)
+                        self.zuletzt_gesehen += jetzt - self.letzter_schritt
                     self.letzter_schritt, self.letzte = jetzt, jetzt
                     self.s_alt = w.get('strecke')
                     return befehl('stopp', f'Wegraeumen: {self.lebend_name} in Sicht -> Arm haelt still, warte')
@@ -387,6 +394,8 @@ class Wegraeumen(Ablauf):
                 if w.get('blick') == 'pruef':     # Zentrale hat dieses Bild wirklich im Pruefblick ausgewertet
                     self.pruef_bilder += 1
                     self.pruef_tiefe += bool(w.get('tiefe_hindernis'))
+                    if w.get('pruef_tiefe'):
+                        self.pruef_diag = w['pruef_tiefe']
                 if kamera_obj and kamera_obj.get('blick') == 'pruef':
                     self.messungen.append(kamera_obj)
             t = d - c['arm_zeit'] - 0.5
@@ -396,9 +405,13 @@ class Wegraeumen(Ablauf):
                 return self._pruef_gesehen(jetzt, w)
             # im Pruefblick nichts: Kamera zurueck nach vorne, dann wie bisher entscheiden (etwas zurueckfahren ...)
             # Diagnose (RM02 21.10.: Pruefblick sah nie etwas): Kam der Arm in die Pose? Sah die Tiefenkamera etwas?
+            diag = getattr(self, 'pruef_diag', None)
+            if diag:
+                naechst = 'keiner' if diag[1] is None else f'{diag[1] * 100:.0f} cm'
+                diag = f', gueltige Tiefe {diag[0]:.0%} des Bildes, naechster Messwert {naechst}'
             self.ereignisse.append((f'Pruefblick: nichts gesehen (im Pruefblick ausgewertet: {self.pruef_bilder} von '
-                                    f'{self.bilder} Bildern, Tiefenkamera meldete etwas in {self.pruef_tiefe}) '
-                                    '-> Kamera zurueck nach vorne', 'info'))
+                                    f'{self.bilder} Bildern, Tiefenkamera meldete etwas in {self.pruef_tiefe}'
+                                    f'{diag or ""}) -> Kamera zurueck nach vorne', 'info'))
             self._phase(jetzt, 'pruef_zurueck')
             return befehl('stopp', 'Pruefblick: Kamera zurueck', arm={'pose': 'fahrstellung'})
         if self.phase == 'pruef_zurueck':
@@ -412,6 +425,16 @@ class Wegraeumen(Ablauf):
         if self.phase == 'zurueck':
             hinten = w.get('lidar_hinten')
             self.zurueck_gefahren -= self._gefahren(w, jetzt, -c['zurueck_tempo'])
+            if not w.get('strecke_gemessen'):
+                # Strecke nur aus Fahrbefehlen geschaetzt (Radzaehler weg): kein Nachweis, dass er wirklich
+                # zurueckgefahren ist (ein blockierter Roboter "kaeme" so auch zurueck) -> danach nie "frei"
+                self.zurueck_unbelegt = True
+            # Zeitgrenze: melden die Radzaehler keine Bewegung (Rad blockiert, Odometrie weg), sonst ewig rueckwaerts.
+            # Dann sicher anhalten und warten - nie so tun, als waere er zurueckgefahren (danach koennte "frei" folgen)
+            if (d > 1.5 * c['sicht_zurueck'] / c['zurueck_tempo'] + 1.0       # erwartete Zeit + Reserve
+                    and self.zurueck_gefahren < c['sicht_zurueck']):
+                return self._ende('fehler', 'Wegraeumen: Zurueckfahren klappt nicht (Radzaehler melden keine '
+                                            'Bewegung) -> warte', 'stopp')
             if hinten is None or hinten < c['hinten_frei'] or self.zurueck_gefahren >= c['sicht_zurueck']:
                 self._anschauen(jetzt)
                 return befehl('stopp', 'Hindernis: schaue nochmal hin')
@@ -436,7 +459,8 @@ class Wegraeumen(Ablauf):
             # gemessen = Radzaehler frisch UND seit der letzten Sichtung ohne Luecke (Abschnitt gleich, siehe Zentrale)
             # leer zaehlt nur ein neues Tiefenbild (tiefe_neu, oben)
             return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg'),
-                                                 bool(w.get('strecke_gemessen')), w.get('odom_abschnitt'), tiefe_neu))
+                                                 bool(w.get('strecke_gemessen')), w.get('odom_abschnitt'), tiefe_neu,
+                                                 w.get('lidar_hinten')))
         if self.phase == 'planen':
             if self.plan is None:
                 if d > 6.0:
@@ -609,6 +633,14 @@ class Wegraeumen(Ablauf):
             # Kamera sieht in allen Bildern nichts. Meldet der LiDAR noch etwas?
             lid = [x for x in self.lidar_werte if x < c['pruef_dist']]
             if len(lid) < 2:
+                if getattr(self, 'zurueck_unbelegt', False):
+                    return self._ende('fehler', 'Wegraeumen: zurueckgefahren ohne Radzaehler, Kamera sieht nichts '
+                                                '-> nicht sicher frei, warte', 'stopp')
+                if getattr(self, 'verloren_n', 0):
+                    # beim Heranfahren verloren und auch nach dem Zurueckfahren nicht wiedergefunden: vielleicht nur
+                    # zu niedrig fuer die Kamera, nicht weg -> nicht "frei" (er fuehre drueber)
+                    return self._ende('fehler', 'Wegraeumen: Hindernis nach dem Zurueckfahren nicht wiedergefunden '
+                                                '-> warte', 'stopp')
                 return self._ende('frei', 'Kamera und LiDAR sehen nichts mehr -> weiter', 'fahren')
             naechst = float(np.median(lid))
             if naechst < c['kamera_min_sicht'] and self.zurueck_gefahren < c['sicht_zurueck']:
@@ -640,6 +672,7 @@ class Wegraeumen(Ablauf):
         self.pruef_versucht = True
         self.messungen, self.bilder = [], 0
         self.pruef_bilder = self.pruef_tiefe = 0
+        self.pruef_diag = None
         self.arm_bewegt = True
         self._phase(jetzt, 'pruefblick')
         return befehl('stopp', 'Hindernis zu nah fuer die Kamera -> Pruefblick (Kamera nach unten)',
@@ -680,7 +713,25 @@ class Wegraeumen(Ablauf):
         aus['quelle'] = 'tiefe'
         return aus
 
-    def _abstand(self, jetzt, obj, strecke=None, weg=None, gemessen=False, abschnitt=None, neu=False):
+    def _verloren(self, jetzt, hinten, vor=None):
+        """Beim Heranfahren aus den Augen verloren (und blind greifen geht nicht): etwas zurueck, bis die Kamera es
+        wieder sieht, und neu anfangen (hoechstens zweimal). Vorher wartete er nur (RM02 21.10.: fast jeder Versuch).
+        vor: wo es laut Radzaehler liegt. Weiter weg als die Greifweite sollte die Kamera es sehen -> zurueck hilft
+        nicht (eher weggenommen), wie bisher warten."""
+        c = self.c
+        self.verloren_n = getattr(self, 'verloren_n', 0) + 1
+        weit = vor is not None and vor > c['greif_vor'] + c['greif_toleranz']
+        if self.verloren_n > 2 or weit or hinten is None or hinten < c['hinten_frei']:
+            return self._ende('fehler', 'Wegraeumen: Hindernis beim Heranfahren aus den Augen verloren -> warte',
+                              'stopp')
+        self.ereignisse.append(('Hindernis beim Heranfahren aus den Augen verloren -> fahre etwas zurueck und '
+                                'schaue nochmal hin', 'info'))
+        self.zurueck_gefahren = 0.0      # eigenes Stueck zurueck fuer diesen Versuch (hoechstens sicht_zurueck)
+        self.letzte = jetzt
+        self._phase(jetzt, 'zurueck')
+        return befehl('stopp', 'Hindernis aus den Augen verloren -> fahre etwas zurueck')
+
+    def _abstand(self, jetzt, obj, strecke=None, weg=None, gemessen=False, abschnitt=None, neu=False, hinten=None):
         c = self.c
         schraeg = None
         if obj:
@@ -717,8 +768,8 @@ class Wegraeumen(Ablauf):
                 if abs(self.objekt['vor'] - gefahren - c['greif_vor']) < c['greif_toleranz']:
                     return self._blind_planen(jetzt, gefahren)
             if jetzt - self.zuletzt_gesehen > 2.5:
-                return self._ende('fehler', 'Wegraeumen: Hindernis beim Heranfahren aus den Augen verloren -> warte',
-                                  'stopp')
+                vor = None if s0 is None or strecke is None else self.objekt['vor'] - (strecke - s0)
+                return self._verloren(jetzt, hinten, vor)
         if self.ruhig >= 3:
             o = self._mittel()
             o['belegt'] = self._belegt()
@@ -745,6 +796,20 @@ class Wegraeumen(Ablauf):
             quer = max(-0.03, min(0.03, 0.6 * o['seite']))
         if schraeg is not None and c['greif_winkel'] * 0.5 < abs(schraeg) < math.radians(35):   # sonst unplausibel
             dreh = max(-0.25, min(0.25, 0.8 * schraeg))        # auf der Stelle gerade zur Strasse drehen
+        if dreh:
+            # erst auf der Stelle gerade drehen, dann heranfahren: beides zugleich brachte ihn in Greifweite, bevor er
+            # gerade stand - dort sah die Kamera den Gegenstand nicht mehr (RM02 21.10.: "drehe +27 Grad", verloren).
+            # Drehen um die Mitte aendert den Abstand kaum, die Kamera behaelt ihn im Blick. Auch nicht seitlich
+            # schieben: wirklich auf der Stelle (sonst verlaesst die Fahrzeughuelle die Spur)
+            lin = quer = 0.0
+        gemerkt = getattr(self, 'schraeg_zuletzt', None)
+        if not dreh and schraeg is None and gemerkt is not None and abs(gemerkt) >= c['greif_winkel']:
+            # Linie gerade weg, zuletzt stand er aber schraeg: nicht naeher heran (dort verloere er es wieder), warten,
+            # bis die Linie wieder da ist und er weiter gerade drehen kann
+            lin = min(lin, 0.0)
+            quer = 0.0
+        if lin < 0 and (hinten is None or hinten < c['hinten_frei']):
+            lin = 0.0                                          # rueckwaerts nur, wenn hinten frei
         text = f"Hindernis: fahre in Greifweite ({vor * 100:.0f} cm"
         if dreh:
             text += f", drehe {math.degrees(schraeg):+.0f} Grad gerade"

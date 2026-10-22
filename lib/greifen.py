@@ -46,7 +46,7 @@ LOKAL = os.environ.get('SMARTCITY_GREIFEN', os.path.join(REPO, 'config', 'lokal'
 Z_MIN = 0.006           # Greifermitte nie tiefer als 6 mm ueber dem Boden (sonst stoesst er auf)
 OEFFNUNG = 0.085        # so weit ist der Greifer offen (m, geschaetzt) -> so viel darf er danebenliegen
 ERKUNDEN_ANTEIL = 0.4    # beim Ausprobieren hoechstens so viel des Spielraums von der besten Korrektur abweichen
-NAEHER_MAX = 0.12       # so weit faehrt er hoechstens blind naeher heran, wenn der Arm nicht hinreicht (m)
+NAEHER_MAX = 0.15       # so weit faehrt er hoechstens blind naeher heran, wenn der Arm nicht hinreicht (m)
 # Gitter der Vermutungen (m): vorne, links, hoch
 GITTER_XY, GITTER_Z, SCHRITT = 0.04, 0.02, 0.005
 STREUUNG_START = np.array([0.012, 0.012, 0.007])   # Vorwissen ohne Vortraining: so unsicher (m)

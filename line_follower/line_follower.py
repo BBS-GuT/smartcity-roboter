@@ -285,7 +285,13 @@ class LineFollower(Node):
         with self.lock:
             ziel = self.gedaechtnis.linie(0.3)
             self.sucher.erwartung = ziel['ziel'] if ziel['gefunden'] else None
-        erg = self.sucher.suche(img)
+            pose = self.gedaechtnis.pose_bei(aufnahme)    # Lage beim Fotografieren (Wahl an Kreuzungen)
+        erg = self.sucher.suche(img, pose[2], kamera_ok=not kamera_weg, pos=pose[:2])
+        if erg.get('kreuzung_neu'):
+            k = erg['kreuzung']
+            seite = 'links' if k['wahl'] > 30 else 'rechts' if k['wahl'] < -30 else 'geradeaus'
+            self.get_logger().info(f"Kreuzung: Aeste {k['aeste']} Grad -> zufaellig gewaehlt: {seite} "
+                                   f"({k['wahl']:+d} Grad)")
         if kamera_weg:
             erg.update({'gefunden': False, 'boden': [], 'punkte': []})
         with self.lock:

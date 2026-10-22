@@ -8,8 +8,8 @@ import unittest
 from raeum_lauf import Lauf
 from entscheider import STANDARD
 
-START = 0.34          # Hindernis liegt so weit voraus (m)
-SICHT = 0.32          # naeher sieht die Kamera es (in diesem Test) nicht mehr
+START = STANDARD['greif_vor'] + 0.06   # Hindernis liegt so weit voraus (m)
+SICHT = STANDARD['greif_vor'] + 0.04   # naeher sieht die Kamera es (in diesem Test) nicht mehr
 
 
 class Welt:
