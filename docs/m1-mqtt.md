@@ -19,6 +19,16 @@ gemeinsame Spielfeldkoordinate veröffentlicht. Dynamische Hindernisse und
 Personen müssen vor dem dauerhaften Zusammenführen der Belegung zuverlässig
 herausgefiltert sein. Der bestehende `karte.npz`-Export belegt das noch nicht.
 
+Die vom Nutzer gezeigten Straßenbilder sind **nur ein Beispiel**, kein
+vermessener Endplan. Es werden daraus keine festen Strecken- oder Startkoordinaten
+in die Software übernommen. Als einfachere erste Einordnung können später vier
+eindeutige Startplätze mit Position, Richtung und Messunsicherheit im wirklichen
+Spielfeldplan festgelegt werden. `lib/m1_start_slots.py` rechnet dann lokale
+Posen in einen gemeinsamen **ungefähren** Anzeigerahmen um und lässt die
+Unsicherheit mit der gefahrenen Entfernung wachsen. Ein solcher Handstart
+ersetzt die Marker-/Lokalisierungsprüfung für Kartenfusion und Fahrfreigabe
+nicht; das Ergebnis trägt ausdrücklich `quality=approximate`.
+
 Erst nach diesen beiden Nachweisen sollen vier lokale Beiträge über den
 Projektbroker zur gemeinsamen Karte kombiniert und als verifizierte Version
 veröffentlicht werden. Streckenabschnitte und Ausfahrten brauchen anschließend
