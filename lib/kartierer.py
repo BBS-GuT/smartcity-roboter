@@ -109,16 +109,20 @@ class Kalibrierung:
         self.einbau = tuple(g.get('einbau') or (0.0, 0.0, 0.0))
         self.einbau_gelernt = bool(g.get('einbau'))
         self.spiegeln = bool(g.get('spiegeln', False))
+        self.lidar_quelle = g.get('lidar_quelle')
+        self.lernquelle = None    # aktuelle Quelle fuer neu gelernte LiDAR-Werte
         self.dreh_proben = []      # (lidar_drehung, imu_roh_integral, dauer)
         self.weg_proben = []       # (to_x, to_y, lidar_drehung, tm_x, tm_y)
         self.ergebnis = {}         # letzte Schaetzung (auch wenn noch nicht angewendet) fuer die Diagnose
         self.meldungen = []        # (zeit, text) was gelernt/geaendert wurde
 
     def speichern(self):
+        quelle = (self.lernquelle if self.lernquelle and (self.einbau_gelernt or self.spiegeln)
+                  else self.lidar_quelle)
         return {'imu_vorzeichen': self.imu_vorzeichen, 'imu_skala': round(self.imu_skala, 4),
                 'gyro_bias': round(self.gyro_bias, 5), 'odom_skala': round(self.odom_skala, 4),
                 'einbau': [round(v, 4) for v in self.einbau] if self.einbau_gelernt else None,
-                'spiegeln': self.spiegeln}
+                'spiegeln': self.spiegeln, 'lidar_quelle': quelle}
 
     def drehrate(self, gz):
         return self.imu_vorzeichen * self.imu_skala * (gz - self.gyro_bias)
@@ -328,7 +332,23 @@ class Kartierer:
         # Speicherstand und Anwendung trennen: ausgeschaltet weiter Rohwerte verwenden,
         # aber die gespeicherten Korrekturen bei normalem Speichern nicht verlieren.
         self.gespeicherte_kalibrierung = Kalibrierung(karte.kalibrierung)
-        self.kal = self.gespeicherte_kalibrierung if self.c['selbst_kalibrieren'] else Kalibrierung()
+        geladen = self.gespeicherte_kalibrierung
+        self.kalibrierung_hinweis = None
+        self.kalibrierung_fremd = geladen.lidar_quelle != self.haupt and (
+            geladen.einbau_gelernt or geladen.spiegeln)
+        aktiv = geladen.speichern()
+        if self.kalibrierung_fremd:
+            herkunft = geladen.lidar_quelle or 'unbekannte Herkunft (Legacy)'
+            self.kalibrierung_hinweis = (
+                f'LiDAR-Kalibrierung: {herkunft} passt nicht zu Hauptquelle {self.haupt}; '
+                'gespeicherten Einbau und Spiegelung nicht angewendet.')
+            # Nur diese beiden Werte beschreiben den LiDAR. IMU-/Radkorrekturen
+            # behalten ihre eigene Bedeutung und werden nicht pauschal verworfen.
+            aktiv.update(einbau=None, spiegeln=False, lidar_quelle=None)
+        self.kal = Kalibrierung(aktiv) if self.c['selbst_kalibrieren'] else Kalibrierung()
+        # Ausschliesslich der aktive Lernstand gehoert zur tatsaechlichen Quelle.
+        # Der geladene Originalstand bleibt separat, auch bei ausgeschaltetem Lauf.
+        self.kal.lernquelle = self.haupt
         self.lok = K.Lokalisierung(karte)
         self.uhren = {}
         self.scans = {}               # name -> Liste der letzten Scans (zeit, punkte, empfang)
@@ -372,7 +392,15 @@ class Kartierer:
     def kalibrierung_speichern(self):
         """Aktive Korrekturen speichern; bei deaktivierter Anwendung den geladenen Stand erhalten."""
         kal = self.kal if self.c['selbst_kalibrieren'] else self.gespeicherte_kalibrierung
-        return kal.speichern()
+        daten = kal.speichern()
+        if self.c['selbst_kalibrieren'] and self.kalibrierung_fremd and not (
+                kal.einbau_gelernt or kal.spiegeln):
+            # Noch keine neue LiDAR-Korrektur gelernt: Originale samt Herkunft
+            # bewahren, ohne sie unter der neuen Quelle zu etikettieren.
+            original = self.gespeicherte_kalibrierung.speichern()
+            for feld in ('einbau', 'spiegeln', 'lidar_quelle'):
+                daten[feld] = original[feld]
+        return daten
 
     def imu(self, empfang, d):
         """d: stamp, g (Drehrate x, y, z rad/s), a (Beschleunigung, optional)."""
@@ -543,7 +571,8 @@ class Kartierer:
         t = self._zeit(name, d.get('stamp'), empfang)
         a = d['amin'] + np.arange(n) * d['ainc']
         spiegeln = self.c['scan_spiegeln'][i] if i < len(self.c['scan_spiegeln']) else False
-        if spiegeln != self.kal.spiegeln:     # Einstellung und Selbstkorrektur heben sich auf, wenn beide da sind
+        gelernt_spiegeln = self.kal.spiegeln if name == self.haupt else False
+        if spiegeln != gelernt_spiegeln:     # Selbstkorrektur gilt nur fuer ihre Hauptquelle
             a = -a
         fronts = self.c['scan_front_deg']
         a = a - math.radians(fronts[i] if i < len(fronts) else 0.0)
@@ -696,7 +725,7 @@ class Kartierer:
             text = self.kal.lernen(jetzt, anwenden=self.c['selbst_kalibrieren'])
             if text:
                 self.meldung = text
-                self.karte.kalibrierung = self.kal.speichern()
+                self.karte.kalibrierung = self.kalibrierung_speichern()
 
     def global_suchen(self):
         """Position in der vorhandenen Karte suchen (dauert, eigener Thread im Kartografen)."""
@@ -735,6 +764,8 @@ class Kartierer:
 
     def warnungen(self):
         w = self.kal.warnungen()
+        if self.kalibrierung_hinweis:
+            w.append(self.kalibrierung_hinweis)
         anteil = self.sicher_anteil(30.0)
         if anteil is not None and len(self.diagnose) > 100 and anteil < 0.5:
             w.append(f'Scan-Abgleich passt oft nicht ({anteil:.0%} sicher in 30 s): wenig Waende/Gegenstaende '
