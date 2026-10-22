@@ -1,5 +1,34 @@
 # M1 im Fork: MQTT und gemeinsame Karte
 
+## Zielablauf mit vier Robotern
+
+RM01–RM04 starten jeweils den lokalen Kartografen. Er lädt eine vorhandene
+`karten/smartcity/karte.npz` und legt sonst eine neue Karte an; während des
+Betriebs speichert er sie regelmäßig. Jeder Roboter braucht eine eindeutige
+Gerätekennung und eine eigene ROS-Domain. Für die gemeinsame Karte und
+gegenseitige Positionen müssen **alle vier denselben erreichbaren Projektbroker**
+nutzen. Der lokale MQTT-Testbroker auf einem Roboter ist nur über `127.0.0.1`
+erreichbar und kann deshalb keinen Vierrobotenabgleich leisten.
+
+Die lokalen Karten haben zunächst unterschiedliche Ursprünge. Vor einer Fusion
+müssen mindestens drei feste, eindeutig benannte, nicht kollineare Marker im
+Spielfeld-Koordinatensystem eingemessen und von jedem Roboter wiedererkannt
+werden. Der Nutzer hat am 22.10.2026 bestätigt, dass diese Marker noch fehlen.
+Bis dahin bleiben Karten und Posen gerätelokal; keine lokale Pose wird als
+gemeinsame Spielfeldkoordinate veröffentlicht. Dynamische Hindernisse und
+Personen müssen vor dem dauerhaften Zusammenführen der Belegung zuverlässig
+herausgefiltert sein. Der bestehende `karte.npz`-Export belegt das noch nicht.
+
+Erst nach diesen beiden Nachweisen sollen vier lokale Beiträge über den
+Projektbroker zur gemeinsamen Karte kombiniert und als verifizierte Version
+veröffentlicht werden. Streckenabschnitte und Ausfahrten brauchen anschließend
+dieselben IDs auf allen Robotern. Die Peer-Hinweise meiden belegte und von
+anderen angekündigte Ausfahrten; wenn alle lokal erlaubten Ausfahrten betroffen
+sind, melden sie `requires_local_hold`. Diese Meldung ist noch **nicht** an den
+Fahrstack angeschlossen. Bis Position, Abschnitt und Integration am echten
+Gerät geprüft sind, verhindert sie keine Kollision. Lokale LiDAR-, Ampel- und
+Notstoppregeln bleiben immer maßgeblich.
+
 Stand 22.10.2026. Der Nutzer hat MQTT als Transport für die Umsetzung im Fork
 gewählt. Die formale Freigabe durch Projektinhaber und Brokerteam sowie die Abnahme
 mit mindestens zwei realen Robotern sind offen. Die vorhandene Zieldefinition
@@ -82,8 +111,9 @@ Filterung fehlt.
 
 `lib/m1_routes.py` wählt ausschließlich aus lokal bereits erlaubten Ausfahrten.
 Bei fehlenden, alten oder unpassenden MQTT-Daten gilt die ursprüngliche lokale
-Wahl. Frisch belegte oder kürzlich besuchte Abschnitte werden nachrangig gewählt.
-Bei Konflikt erhält die kleinere Roboterkennung Vorrang. Ein Anschluss
+Wahl. Frisch belegte, angekündigte oder kürzlich besuchte Abschnitte werden
+nachrangig gewählt. `advise()` meldet einen ungelösten Konflikt ausdrücklich,
+wenn es keine freie lokal erlaubte Ausfahrt gibt. Ein Anschluss
 an die echte N1-Navigation ist noch nicht möglich, weil deren freigegebene
 Ausfahrten und Abschnitts-IDs nicht als Schnittstelle vorliegen. Die Funktion
 sendet selbst keine Fahr- oder Stoppsignale.

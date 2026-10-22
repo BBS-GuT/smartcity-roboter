@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / 'mqtt'))
 from m1_protocol import Inbox, envelope
 from m1_map import align_markers, fuse
 from m1_local_map import from_npz
-from m1_routes import choose
+from m1_routes import advise, choose
 from m1_map_transport import package, publish, verify_package
 
 T = 1792656000
@@ -124,6 +124,25 @@ class RouteTest(unittest.TestCase):
         visited = dict(peer, current_section='X', next_section='Y', recent_sections=['B'])
         self.assertEqual(choose(['B', 'C'], 'RM02', 'A', [visited], 'B',
                                 map_id='city', map_version=1, now=T), 'C')
+
+    def test_four_robots_and_no_safe_exit(self):
+        peers = [
+            {'robot': 'RM01', 'current_section': 'A', 'next_section': 'B'},
+            {'robot': 'RM02', 'current_section': 'C', 'next_section': 'A'},
+            {'robot': 'RM03', 'current_section': 'X', 'next_section': 'D'},
+        ]
+        peers = [dict(peer, map_id='city', map_version=1, observed_at=T) for peer in peers]
+        result = advise(['B', 'C', 'D', 'E'], 'RM04', 'A', peers, 'B',
+                        map_id='city', map_version=1, now=T)
+        self.assertEqual(result['selected_exit'], 'E')
+        self.assertFalse(result['requires_local_hold'])
+        blocked = advise(['B', 'D'], 'RM04', 'A', peers, 'B',
+                         map_id='city', map_version=1, now=T)
+        self.assertEqual(blocked['selected_exit'], 'B')
+        self.assertTrue(blocked['requires_local_hold'])
+        self.assertEqual(advise(['B', 'D'], 'RM04', 'A', peers, 'B',
+                                map_id='city', map_version=1, now=T+4)['reason'],
+                         'no_fresh_peer_data')
 
 
 if __name__ == '__main__':
