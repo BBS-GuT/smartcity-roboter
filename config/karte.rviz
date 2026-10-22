@@ -1,0 +1,75 @@
+# RViz-Ansicht fuer die Karte (von oben). Wird von karte_anzeigen.sh und karte_laden.sh benutzt.
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Raster
+      Enabled: true
+      Cell Size: 0.5
+      Plane Cell Count: 20
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/Map
+      Name: Karte
+      Enabled: true
+      Alpha: 0.8
+      Color Scheme: map
+      Topic:
+        Value: /map
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/LaserScan
+      Name: LiDAR scan0
+      Enabled: true
+      Color Transformer: FlatColor
+      Color: 255; 0; 0
+      Size (m): 0.03
+      Style: Points
+      Topic:
+        Value: /scan0
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/LaserScan
+      Name: LiDAR scan1
+      Enabled: true
+      Color Transformer: FlatColor
+      Color: 0; 170; 255
+      Size (m): 0.03
+      Style: Points
+      Topic:
+        Value: /scan1
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/TF
+      Name: Koordinatensysteme
+      Enabled: true
+      Show Names: true
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Measure
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Scale: 150
+      X: 0
+      Y: 0
+      Target Frame: <Fixed Frame>
+Window Geometry:
+  Height: 800
+  Width: 1200

@@ -1,0 +1,23 @@
+# Einstellungen fuer Linienfolger, KI-Zentrale und Panel (gleich fuer alle Roboter).
+# Wird automatisch geladen. Ampelwerte stehen getrennt in config/ampel.yaml.
+# "/**" = gilt fuer alle Programme.
+/**:
+  ros__parameters:
+    # LiDAR. "Vorne" je LiDAR ist NOCH NICHT GEPRUEFT:
+    # Panel -> LiDAR-Radar, Gegenstand vor die Kamera-Seite stellen und mit den Pfeilen drehen,
+    # bis er oben im Bild erscheint, dann "Speichern".
+    scan_topics: ['/scan0', '/scan1']
+    scan_front_deg: [0.0, 0.0]
+    obstacle_half_deg: 30.0
+    obstacle_min_range: 0.08
+kartograf:
+  ros__parameters:
+    # Karte: Haupt-LiDAR ist /scan1. Messfahrt 20.10. (RM02): /scan1 dreht beim Scan-Abgleich so viel
+    # wie Raeder und Lagesensor (x1,0), /scan0 nur x0,8 - er sitzt ca. 23 cm hinter und 13 cm neben /scan1, die
+    # Karte rechnet aber jeden LiDAR in der Robotermitte. Mit /scan1 vorne: Abgleich sicher 72 % / 91 % statt
+    # 56 % / 0 % in den ersten zwei Minuten, kein verdrehtes zweites Zimmer. Pruefen: kartograf/abspielen.py.
+    haupt_lidar: '/scan1'
+line_follower:
+  ros__parameters:
+    obstacle_check: true
+    notbremse_dist: 0.12

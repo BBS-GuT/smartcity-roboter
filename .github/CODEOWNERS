@@ -1,0 +1,6 @@
+# Produktreviews uebernimmt Codex. Aenderungen an der Freigabe selbst
+# brauchen eine unabhaengige Person mit Schreibrechten.
+/.github/ @letsc4 @davidheinrich73
+AGENTS.md @letsc4 @davidheinrich73
+CODEOWNERS @letsc4 @davidheinrich73
+/docs/entwicklung/D-reviewbot.md @letsc4 @davidheinrich73

@@ -1,0 +1,405 @@
+{
+  "purpose": "historical_error_reproduction",
+  "basis_commit": "d92e366907fd538c377c272250a0e2d75120b5e2",
+  "product_acceptance": false,
+  "hardware_access": false,
+  "meaning_of_exit_zero": "Fehlersignatur am fixierten Altstand reproduziert; keine bestandene Sicherheitspruefung.",
+  "python": "3.12.14",
+  "source_sha256_git_blob_bytes": {
+    "lib/lidar.py": "edd8c317d9a55185cd6e39a04bbd570de129bbb5c7d708260100970ffe86fa2e",
+    "ki/zentrale.py": "8b6d3a3638b71c78dc22c1de6705a3caf4427e52d58d640d342bfffd5da29f5e",
+    "ki/entscheider.py": "7d4d3b4346f6d2fae1eba4fda6fa475848037617c34b0936a7e4d90b877341c6",
+    "line_follower/line_follower.py": "ddc7e39099793762bc48a1ae297df7455419425ae30ecde610cfc3c4e088494c",
+    "tests/attrappen/rclpy/node.py": "02525d072b8c14ed134c164767c0e0fe2b6b75a5552f5bc5ce4945518e5f3c46"
+  },
+  "source_sha256_export_bytes": {
+    "lib/lidar.py": "edd8c317d9a55185cd6e39a04bbd570de129bbb5c7d708260100970ffe86fa2e",
+    "ki/zentrale.py": "8b6d3a3638b71c78dc22c1de6705a3caf4427e52d58d640d342bfffd5da29f5e",
+    "ki/entscheider.py": "7d4d3b4346f6d2fae1eba4fda6fa475848037617c34b0936a7e4d90b877341c6",
+    "line_follower/line_follower.py": "ddc7e39099793762bc48a1ae297df7455419425ae30ecde610cfc3c4e088494c",
+    "tests/attrappen/rclpy/node.py": "02525d072b8c14ed134c164767c0e0fe2b6b75a5552f5bc5ce4945518e5f3c46"
+  },
+  "source_sha256_normalized_utf8_lf": {
+    "lib/lidar.py": "edd8c317d9a55185cd6e39a04bbd570de129bbb5c7d708260100970ffe86fa2e",
+    "ki/zentrale.py": "8b6d3a3638b71c78dc22c1de6705a3caf4427e52d58d640d342bfffd5da29f5e",
+    "ki/entscheider.py": "7d4d3b4346f6d2fae1eba4fda6fa475848037617c34b0936a7e4d90b877341c6",
+    "line_follower/line_follower.py": "ddc7e39099793762bc48a1ae297df7455419425ae30ecde610cfc3c4e088494c",
+    "tests/attrappen/rclpy/node.py": "02525d072b8c14ed134c164767c0e0fe2b6b75a5552f5bc5ce4945518e5f3c46"
+  },
+  "fahrpfad": {
+    "product_acceptance": false,
+    "hardware_access": false,
+    "mode": "original methods with local ROS test doubles; synthetic KI reverse wish",
+    "environment": {
+      "python": "3.12.14",
+      "numpy": "1.26.4",
+      "opencv": "4.10.0"
+    },
+    "historical_signature_match": true,
+    "case_count": 12,
+    "results": [
+      {
+        "case": "valid_free",
+        "lidar_distance": "inf",
+        "rear_distance": 2.997868299484253,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "all_zero",
+        "lidar_distance": "inf",
+        "rear_distance": 5.0,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "all_nan",
+        "lidar_distance": "inf",
+        "rear_distance": 5.0,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "all_inf",
+        "lidar_distance": "inf",
+        "rear_distance": 5.0,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "empty",
+        "lidar_distance": "inf",
+        "rear_distance": 5.0,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "one_missing",
+        "lidar_distance": "inf",
+        "rear_distance": 2.997868299484253,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "one_stale",
+        "lidar_distance": "inf",
+        "rear_distance": 2.997868299484253,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "old_header",
+        "lidar_distance": "inf",
+        "rear_distance": 2.997868299484253,
+        "ki_action": "fahren",
+        "ki_reason": "Weg frei",
+        "notbremse": null,
+        "decision": [
+          0.15,
+          0.0,
+          0.0,
+          "Linie: +0.0 cm, +0 Grad"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.15,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "both_stale",
+        "lidar_distance": "None",
+        "rear_distance": null,
+        "ki_action": "stopp",
+        "ki_reason": "Kein LiDAR -> fahre nicht blind",
+        "notbremse": "KEIN LIDAR: letzter Scan vor 20.0 s",
+        "decision": [
+          0.0,
+          0.0,
+          0.0,
+          "KEIN LIDAR: letzter Scan vor 20.0 s -> STOPP"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "near_control",
+        "lidar_distance": "0.08701837807893753",
+        "rear_distance": 0.050362326204776764,
+        "ki_action": "stopp",
+        "ki_reason": "NOTBREMSE: LiDAR 9 cm (ohne KI-Pruefung)",
+        "notbremse": "NOTBREMSE 10 cm (/scan0)",
+        "decision": [
+          0.0,
+          0.0,
+          0.0,
+          "NOTBREMSE 10 cm (/scan0) -> STOPP"
+        ],
+        "default_drive_false_publications": 0,
+        "fake_drive_true_cmd": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "reverse_rear_obstacle",
+        "direction_parameter": 1.0,
+        "rear_obstacle_m": 0.1,
+        "front_m": 3.0,
+        "notbremse": null,
+        "decision": [
+          -0.05,
+          0.0,
+          0.0,
+          "KI-Manoever: synthetic reverse wish"
+        ],
+        "fake_drive_true_cmd": [
+          -0.05,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      },
+      {
+        "case": "reverse_rear_obstacle",
+        "direction_parameter": -1.0,
+        "rear_obstacle_m": 0.1,
+        "front_m": 3.0,
+        "notbremse": "NOTBREMSE 10 cm (/scan0)",
+        "decision": [
+          0.0,
+          0.0,
+          0.0,
+          "NOTBREMSE 10 cm (/scan0) -> STOPP"
+        ],
+        "fake_drive_true_cmd": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "historical_signature_match": true
+      }
+    ]
+  },
+  "geometrie": {
+    "product_acceptance": false,
+    "hardware_access": false,
+    "mode": "synthetic points; original pure library and AST-extracted Zentrale method",
+    "manufacturer_model": {
+      "file": "M3Pro.urdf",
+      "sha256": "6001d4747d0ed68826a2bacad0891aec531fb9217351c2ffff72114909825acf",
+      "positions_m": {
+        "laser0_frame": [
+          -0.11617,
+          0.09156,
+          0.1253
+        ],
+        "laser1_frame": [
+          0.10766,
+          -0.09078,
+          0.1253
+        ]
+      },
+      "independently_surveyed": false
+    },
+    "reference_parameters": {
+      "half_width_m": 0.15,
+      "length_m": 0.8,
+      "min_range_m": 0.08
+    },
+    "historical_signature_match": true,
+    "case_count": 3,
+    "results": [
+      {
+        "case": "front_corridor_missed",
+        "frame": "laser1_frame",
+        "synthetic_sensor_xy_m": [
+          0.3,
+          0.2
+        ],
+        "historical_xy_m": [
+          [
+            0.30000001192092896,
+            0.20000000298023224
+          ]
+        ],
+        "manufacturer_model_base_xy_m": [
+          [
+            0.40766001192092893,
+            0.10922000298023224
+          ]
+        ],
+        "historical_result": null,
+        "result_with_model_translation": {
+          "abstand": 0.4076600119209289,
+          "vor": 0.40766001192092893,
+          "seite": 0.10922000298023224,
+          "breite": 0.01,
+          "quer": 0.10922000298023224
+        },
+        "historical_signature_match": true
+      },
+      {
+        "case": "front_side_point_counted_as_corridor",
+        "frame": "laser1_frame",
+        "synthetic_sensor_xy_m": [
+          0.4,
+          -0.1
+        ],
+        "historical_xy_m": [
+          [
+            0.4000000059604645,
+            -0.10000000149011612
+          ]
+        ],
+        "manufacturer_model_base_xy_m": [
+          [
+            0.5076600059604645,
+            -0.19078000149011612
+          ]
+        ],
+        "historical_result": {
+          "abstand": 0.4000000059604644,
+          "vor": 0.4000000059604645,
+          "seite": -0.10000000149011612,
+          "breite": 0.01,
+          "quer": 0.10000000149011612
+        },
+        "result_with_model_translation": null,
+        "historical_signature_match": true
+      },
+      {
+        "case": "rear_corridor_missed",
+        "frame": "laser0_frame",
+        "synthetic_sensor_xy_m": [
+          -0.3,
+          -0.2
+        ],
+        "historical_xy_m": [
+          [
+            -0.30000001192092896,
+            -0.20000000298023224
+          ]
+        ],
+        "manufacturer_model_base_xy_m": [
+          [
+            -0.41617001192092895,
+            -0.10844000298023224
+          ]
+        ],
+        "historical_result": 5.0,
+        "result_with_model_translation": 0.41617001192092895,
+        "historical_signature_match": true
+      }
+    ]
+  },
+  "historical_signature_match": true,
+  "status": "Fehler reproduziert"
+}

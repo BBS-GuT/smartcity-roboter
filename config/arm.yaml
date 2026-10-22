@@ -1,0 +1,45 @@
+# Arm-Posen (Grad je Servo 1-6). Weitere ueber das Panel (Seite Arm) speichern.
+# Werte aus den Yahboom-Programmen auf dem Roboter (Greifer dort 0, hier 30 = offen):
+#   fahrstellung   = Startstellung der Gamepad-Steuerung (yahboom_joy_M3Pro.py), die nach dem
+#                    Einschalten automatisch angefahren wird -> damit lief unser Linienfolger.
+#   yahboom_linie  = Stellung von Yahboms eigenem Linienfolger (largemodel_arm/follow_line.py)
+# Zum Wegraeumen braucht die KI KEINE eingelernten Greif-Posen: Sie misst das Hindernis mit der
+# Tiefenkamera und rechnet die Servowinkel aus (Yahbooms Kinematik-Dienst, wenn er laeuft, sonst eigene
+# Rechnung mit den Massen unten). Was dabei danebengeht, lernt sie selbst nach (lib/greifen.py).
+# ki_darf_arm_bewegen: true = KI darf den Arm selbst bewegen (Zebrastreifen umschauen, Hindernis wegraeumen).
+#   Sicherheitsregeln: nur im Stand, nur solange das Fahrprogramm faehrt (START), nie bei Personen/Tieren/
+#   Fahrzeugen, langsam, Abbruch bei STOPP. Ausschalten: Panel -> Arm (gilt sofort).
+posen:
+  fahrstellung: [90, 120, 10, 20, 90, 30]
+  yahboom_linie: [90, 90, 12, 20, 90, 30]
+ki_darf_arm_bewegen: true
+# Greifer (Servo 6). Yahboom-Kurse: 30 = offen, 120-130 = zugegriffen, 180 = ganz zu.
+# Im Panel (Seite Arm) mit "Greifer auf/zu" pruefen und bei Bedarf in config/lokal/arm.yaml aendern.
+greifer_auf: 30
+greifer_zu: 130          # hoechstens so weit zu (auch bei sehr schmalen Dingen)
+# Greifkraft nach Breite (Wegraeumen): Greifer schnell bis kurz vors Beruehren, dann langsam auf
+# "beruehrt + greifer_druecken". Wann die Backen anliegen, kommt in dieser Reihenfolge aus:
+#   1. EINGEMESSEN (Panel -> Arm -> "Greifer einmessen"): Gegenstand bekannter Breite zwischen die Backen,
+#      Servo 6 in kleinen Schritten zu, bis sie anliegen, "Anliegen merken". Landet in config/lokal/arm.yaml als
+#      greifer_messpunkte: [[Breite m, Servo 6], ...]. Misst die Kamera fast dieselbe Breite (+- greifer_fang),
+#      nimmt die KI genau diesen Wert (die Kamera misst Breiten etwas zu klein, das spielt dann keine Rolle).
+#      Ein Punkt mit Breite 0 (Backen beruehren sich gerade) ist die Grenze, weiter geht der Greifer nie zu.
+#   2. zwischen eingemessenen Punkten gerade verbunden
+#   3. GESCHAETZT (nichts eingemessen): beruehrt = greifer_auf + (greifer_offen_m - Breite) * 100 * greifer_grad_pro_cm,
+#      hoechstens greifer_zu. Die KI meldet beim Start und bei jedem Plan, welche Quelle sie nimmt.
+# Knackt der Greifer: greifer_druecken kleiner. Rutscht der Wuerfel raus: groesser.
+greifer_offen_m: 0.085   # Oeffnung bei greifer_auf (m, geschaetzt)
+greifer_grad_pro_cm: 17.6  # geschaetzt: 150 Grad auf 8,5 cm
+greifer_druecken: 8
+greifer_fang: 0.008      # Kamera-Breite so nah (m) an einer eingemessenen Breite -> deren Messwert
+# Masse fuer die eigene Rechnung (nur wenn Yahbooms Kinematik-Dienst nicht laeuft).
+# Findet die KI Yahbooms Robotermodell (URDF, Paket yahboom_M3Pro_description), nimmt sie die Masse von dort.
+# Selbst nachgemessene Masse in config/lokal/arm.yaml unter "geometrie:" gelten vor beidem.
+# Standard: oeffentliches M3-Pro-Modell (Masse laut Autor aus Yahbooms CAD), am Arm NICHT nachgemessen.
+geometrie:
+  schulter: [0.0336, 0.0, 0.218]   # Servo 2 gegenueber Robotermitte am Boden (m): vorne, links, Hoehe
+  oberarm: 0.0829
+  unterarm: 0.0828
+  hand: 0.150                      # Servo 4 bis Mitte zwischen den Greiferbacken
+  servo1_links: 1                  # UNGEPRUEFT: dreht Servo 1 > 90 den Arm nach links?
+greifpunkt: 0.075                  # Servo 5 bis Mitte zwischen den Backen (m), fuer Masse aus der URDF

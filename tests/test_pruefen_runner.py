@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""D1b: Runner mit temporaeren kuenstlichen Skripten, ohne ROS oder Fachimporte."""
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNNER = ROOT / 'scripts/pruefen.py'
+
+
+class Runner(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        (self.root / 'tests').mkdir()
+
+    def script(self, name, source):
+        (self.root / 'tests' / name).write_text(source, encoding='utf-8')
+
+    def run_runner(self, *args, root=None):
+        return subprocess.run([sys.executable, str(RUNNER), '--root', str(root or self.root), *args],
+                              cwd=self.root.parent, capture_output=True, text=True,
+                              encoding='utf-8', errors='replace', timeout=30)
+
+    def test_discovery_lists_all_real_scripts_without_imports(self):
+        result = self.run_runner('--list', root=ROOT)
+        expected = sorted('tests/' + path.name for path in (ROOT / 'tests').glob('test_*.py'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), expected)
+        # Ein Import dieses Skripts wuerde sofort fehlschlagen.
+        self.script('test_only_discover.py', "raise RuntimeError('must not import')")
+        self.assertEqual(self.run_runner('--list').returncode, 0)
+
+    def test_sorted_separate_processes_and_project_cwd(self):
+        self.script('test_a.py', "from pathlib import Path\nPath('marker').write_text('ok')\n"
+                    "import builtins\nbuiltins.d1_marker = True\nprint('first')\n")
+        self.script('test_b.py', "from pathlib import Path\nimport builtins\n"
+                    "assert Path('marker').read_text() == 'ok'\n"
+                    "assert not hasattr(builtins, 'd1_marker')\nprint('second')\n")
+        # Historische Probes und Hilfsskripte gehoeren nicht zur Regression.
+        (self.root / 'docs/pruefungen').mkdir(parents=True)
+        (self.root / 'docs/pruefungen/test_probe.py').write_text('raise RuntimeError()')
+        self.script('helper.py', 'raise RuntimeError()')
+        result = self.run_runner('--log-dir', str(self.root / 'logs'))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertLess(result.stdout.index('first'), result.stdout.index('second'))
+        self.assertIn('2/2 Skripte bestanden', result.stdout)
+        self.assertIn('second', (self.root / 'logs/test_b.log').read_text(encoding='utf-8'))
+
+    def test_failure_keeps_stdout_stderr_and_continues(self):
+        self.script('test_a.py', "import sys\nprint('before failure')\nprint('diagnosis', file=sys.stderr)\nsys.exit(7)")
+        self.script('test_b.py', "print('after failure')")
+        result = self.run_runner()
+        self.assertEqual(result.returncode, 1)
+        for message in ('before failure', 'diagnosis', 'Exitcode 7', 'after failure', '1/2 Skripte bestanden'):
+            self.assertIn(message, result.stdout)
+
+    def test_missing_dependency_is_failure(self):
+        self.script('test_missing.py', 'import d1_intentionally_missing_dependency_38502')
+        result = self.run_runner()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('ModuleNotFoundError', result.stdout)
+
+    def test_unittest_skip_is_incomplete(self):
+        self.script('test_skip.py', "import unittest\nclass Check(unittest.TestCase):\n"
+                    " @unittest.skip('missing required package')\n def test_schema(self): pass\n"
+                    "unittest.main()\n")
+        self.script('test_skip_and_expected_failure.py', "import unittest\nclass Check(unittest.TestCase):\n"
+                    " @unittest.skip('missing required package')\n def test_schema(self): pass\n"
+                    " @unittest.expectedFailure\n def test_known(self): self.fail('known')\n"
+                    "unittest.main()\n")
+        self.script('test_expected_only.py', "import unittest\n"
+                    "print('Produktlog: OK (skipped=1, expected failures=1)')\n"
+                    "class Check(unittest.TestCase):\n"
+                    " @unittest.expectedFailure\n def test_known(self): self.fail('known')\n"
+                    "unittest.main()\n")
+        result = self.run_runner()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.count('UNVOLLSTAENDIG'), 2)
+        self.assertIn('skipped=1', result.stdout)
+        self.assertIn('expected failures=1', result.stdout)
+        self.assertIn('1/3 Skripte bestanden', result.stdout)
+
+    def test_timeout_keeps_partial_output_and_continues(self):
+        self.script('test_a.py', "import subprocess, sys, time\n"
+                    "subprocess.Popen([sys.executable, '-c', \"import pathlib,time; time.sleep(4); pathlib.Path('child-leak').write_text('leak')\"])\n"
+                    "print('before timeout', flush=True)\ntime.sleep(60)")
+        self.script('test_b.py', "print('after timeout')")
+        started = time.monotonic()
+        result = self.run_runner('--timeout', '0.8')
+        elapsed = time.monotonic() - started
+        self.assertEqual(result.returncode, 1)
+        for message in ('TIMEOUT', 'before timeout', 'after timeout', '1/2 Skripte bestanden'):
+            self.assertIn(message, result.stdout)
+        self.assertLess(elapsed, 3, 'Timeout darf nicht auf das vier Sekunden laufende Kind warten')
+        self.assertNotIn('WARNUNG', result.stdout)
+        time.sleep(4.2)
+        self.assertFalse((self.root / 'child-leak').exists(), 'Testkind wurde nicht beendet')
+
+    def test_individual_timeout_override(self):
+        self.script('test_long.py', 'import time\ntime.sleep(1.2)')
+        result = self.run_runner('--timeout', '0.8', '--test-timeout', 'test_long.py=10')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_invalid_timeout_and_empty_suite_fail(self):
+        self.assertEqual(self.run_runner().returncode, 2)
+        self.script('test_ok.py', 'pass')
+        for value in ('0', '-1', 'nan', 'inf', 'not-a-number'):
+            with self.subTest(value=value):
+                self.assertEqual(self.run_runner('--timeout', value).returncode, 2)
+        self.assertEqual(self.run_runner('--test-timeout', 'test_unknown.py=1').returncode, 2)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

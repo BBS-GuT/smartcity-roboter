@@ -1,0 +1,60 @@
+{
+  "untersuchter_commit": "d92e366907fd538c377c272250a0e2d75120b5e2",
+  "publikationsbasis_main": "d92e366907fd538c377c272250a0e2d75120b5e2",
+  "geraet": "RM01",
+  "datum_lokal": "2026-10-21",
+  "quelle": "oeffentliche versionierte Dateien aus BBS-GuT/smartcity-roboter",
+  "hashverfahren": {
+    "git_blob_sha256": "SHA256 der unveraenderten Git-Blobbytes; kein Git-SHA1",
+    "normalisiert_sha256": "SHA256 nach UTF-8-Dekodierung, CRLF und CR zu LF, anschliessend UTF-8-Kodierung"
+  },
+  "dateien": {
+    "lib/lidar.py": {
+      "git_blob_sha256": "edd8c317d9a55185cd6e39a04bbd570de129bbb5c7d708260100970ffe86fa2e",
+      "normalisiert_sha256": "edd8c317d9a55185cd6e39a04bbd570de129bbb5c7d708260100970ffe86fa2e"
+    },
+    "ki/zentrale.py": {
+      "git_blob_sha256": "8b6d3a3638b71c78dc22c1de6705a3caf4427e52d58d640d342bfffd5da29f5e",
+      "normalisiert_sha256": "8b6d3a3638b71c78dc22c1de6705a3caf4427e52d58d640d342bfffd5da29f5e"
+    },
+    "ki/entscheider.py": {
+      "git_blob_sha256": "7d4d3b4346f6d2fae1eba4fda6fa475848037617c34b0936a7e4d90b877341c6",
+      "normalisiert_sha256": "7d4d3b4346f6d2fae1eba4fda6fa475848037617c34b0936a7e4d90b877341c6"
+    },
+    "line_follower/line_follower.py": {
+      "git_blob_sha256": "ddc7e39099793762bc48a1ae297df7455419425ae30ecde610cfc3c4e088494c",
+      "normalisiert_sha256": "ddc7e39099793762bc48a1ae297df7455419425ae30ecde610cfc3c4e088494c"
+    },
+    "tests/attrappen/rclpy/node.py": {
+      "git_blob_sha256": "02525d072b8c14ed134c164767c0e0fe2b6b75a5552f5bc5ce4945518e5f3c46",
+      "normalisiert_sha256": "02525d072b8c14ed134c164767c0e0fe2b6b75a5552f5bc5ce4945518e5f3c46"
+    },
+    "requirements-test.txt": {
+      "git_blob_sha256": "b9fc8b76c45989b1c5c89a93df8dd0391f6a78aa42955c115a1c7648498f9e3c",
+      "normalisiert_sha256": "b9fc8b76c45989b1c5c89a93df8dd0391f6a78aa42955c115a1c7648498f9e3c"
+    }
+  },
+  "originalpakete_nicht_veroeffentlicht": [
+    {
+      "name": "RM01-20261021-lidar-referenzdaten.zip",
+      "sha256": "db525a11456cb618e81ae12c4cf698b0e669abc1f66810d372539264847e18fd",
+      "inhalt": "7 Referenzlaeufe, 2892 Scans, Originale und Analysen"
+    },
+    {
+      "name": "RM01-20261021-lidar-geometrie-daten.zip",
+      "sha256": "fc206bbae4b8567c604ce52ff29b6bdaa0bb2d0f697cf4f3f89112fb5c8cdc56",
+      "inhalt": "Fruehere Geometrie-Gegenprobe am getrennten Altstand df3d5d6; nicht mit BBS-d92e366 verwechseln"
+    },
+    {
+      "name": "RM01-20261021-lidar-loesungsansatz-belege.zip",
+      "sha256": "ab27c5b8468a8f89fcf0ffdb982a767bcd3d62f3c4d5f5826a1127b3776fca89",
+      "inhalt": "Lokaler Analyseentwurf, synthetische Probes und Replay ueber832 Scans"
+    }
+  ],
+  "aufbewahrung": "Originale verbleiben im bestehenden lokalen Geraetepruefbestand; Referenz- und fruehere Versionsbelege zusaetzlich persistent am Geraet gesichert. Keine Originalarchive oder privaten Zugriffspfade in dieser Uebergabe.",
+  "urdf_modellbezug": {
+    "dateiname": "M3Pro.urdf",
+    "sha256": "6001d4747d0ed68826a2bacad0891aec531fb9217351c2ffff72114909825acf",
+    "geltung": "Werksmodellbezug der synthetischen Geometriebeispiele; keine unabhaengige RM01-Einbauvermessung."
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "checked_at_utc": "2026-10-20T09:26:16.165657+02:00",
+  "repository": "https://github.com/davidheinrich73/smartcity-roboter",
+  "base_sha": "b9f64424d92f64ed4f391a96b6c6718caae43bcd",
+  "reviewed_pr_heads": {
+    "11": "0db42c2a6500bb57d9bd1561392d3c1ba15007df",
+    "17": "10290b29ede5349d789ab7272ed8dffc440c1cbd"
+  },
+  "merged_pr17_sha": "0c7e8b3be35b2e5987748682e54b376e808b2dd3",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "dependencies": {
+    "numpy": "2.3.5",
+    "opencv": "5.0.0",
+    "pyyaml": "6.0.3"
+  },
+  "tests": [
+    {
+      "test": "tests/test_ampel.py",
+      "exit_code": 0,
+      "printed_ok_checks": 17,
+      "unittest_methods": null,
+      "duration_s": 0.31
+    },
+    {
+      "test": "tests/test_entscheider.py",
+      "exit_code": 0,
+      "printed_ok_checks": 82,
+      "unittest_methods": null,
+      "duration_s": 0.34
+    },
+    {
+      "test": "tests/test_greifen.py",
+      "exit_code": 0,
+      "printed_ok_checks": 20,
+      "unittest_methods": null,
+      "duration_s": 0.84
+    },
+    {
+      "test": "tests/test_karte.py",
+      "exit_code": 0,
+      "printed_ok_checks": 22,
+      "unittest_methods": null,
+      "duration_s": 77.81
+    },
+    {
+      "test": "tests/test_line_follower.py",
+      "exit_code": 0,
+      "printed_ok_checks": 21,
+      "unittest_methods": null,
+      "duration_s": 0.38
+    },
+    {
+      "test": "tests/test_schilder.py",
+      "exit_code": 0,
+      "printed_ok_checks": 5,
+      "unittest_methods": null,
+      "duration_s": 0.28
+    },
+    {
+      "test": "tests/test_sicherheitsfreigabe.py",
+      "exit_code": 0,
+      "printed_ok_checks": 0,
+      "unittest_methods": 7,
+      "duration_s": 0.55
+    }
+  ],
+  "python_syntax": {
+    "files": 58,
+    "errors": []
+  },
+  "shell_syntax": {
+    "files": 13,
+    "errors": []
+  },
+  "ros_simulation": "not run",
+  "hardware": "not run",
+  "additional_documentation_review": {
+    "files": [
+      "docs/auftraege/A1-geraetetest.md",
+      "docs/auftraege/README.md",
+      "docs/pruefungen/2026-10-20-integration.json"
+    ],
+    "independent_review": "no blockers",
+    "product_code_changed": false
+  }
+}

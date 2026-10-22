@@ -1,0 +1,61 @@
+{
+  "repository": "https://github.com/davidheinrich73/smartcity-roboter",
+  "commit": "b9f64424d92f64ed4f391a96b6c6718caae43bcd",
+  "checked_at_utc": "2026-10-20T08:33:28.510238+02:00",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "dependencies": {
+    "opencv": "5.0.0",
+    "numpy": "2.3.5",
+    "pyyaml": "6.0.3"
+  },
+  "syntax": {
+    "files": 56,
+    "errors": []
+  },
+  "shell_syntax": {
+    "files": 13,
+    "errors": []
+  },
+  "tests": [
+    {
+      "test": "test_ampel.py",
+      "exit_code": 0,
+      "ok_checks": 17,
+      "duration_s": 0.5
+    },
+    {
+      "test": "test_entscheider.py",
+      "exit_code": 0,
+      "ok_checks": 82,
+      "duration_s": 0.33
+    },
+    {
+      "test": "test_greifen.py",
+      "exit_code": 0,
+      "ok_checks": 20,
+      "duration_s": 1.06
+    },
+    {
+      "test": "test_karte.py",
+      "exit_code": 0,
+      "ok_checks": 22,
+      "duration_s": 79.3
+    },
+    {
+      "test": "test_line_follower.py",
+      "exit_code": 0,
+      "ok_checks": 21,
+      "duration_s": 0.31
+    },
+    {
+      "test": "test_schilder.py",
+      "exit_code": 0,
+      "ok_checks": 5,
+      "duration_s": 0.33
+    }
+  ],
+  "ros_simulation": "not run: ROS 2 unavailable",
+  "hardware": "not run",
+  "broker": "not run"
+}

@@ -1,0 +1,28 @@
+# Arm NUR fuer die Simulation (scripts/simulation.sh). Der echte Roboter nutzt config/arm.yaml.
+# Zum Wegraeumen braucht die KI keine eingelernten Greif-Posen: sie rechnet die Servowinkel aus
+# (eigene Kinematik mit den Massen unter "geometrie") und korrigiert mit dem Gelernten (lib/greifen.py,
+# Modell "sim" in models/greifen.json).
+posen:
+  fahrstellung: [90, 120, 10, 20, 90, 30]
+  blick_links: [135, 120, 10, 20, 90, 30]
+  blick_rechts: [45, 120, 10, 20, 90, 30]
+greifer_auf: 30
+greifer_zu: 130
+geometrie:              # damit PLANT die KI (ausgedacht, aehnlich DOFBOT), am echten Arm NICHT benutzen
+  schulter: [0.037, 0.0, 0.13]
+  oberarm: 0.083
+  unterarm: 0.083
+  hand: 0.155
+  servo1_links: 1
+# So ist der simulierte Arm "wirklich" (nur der Simulator rechnet damit, die KI kennt es nicht):
+# ein Zufallsroboter (sim/greifen_welt.py, Zufallszahl 2026), den das Vortraining NICHT kannte.
+# Simulator mit -p arm_wie_planer:=true -> Arm genau wie geplant.
+geometrie_simulator:
+  schulter: [0.0319, 0.0008, 0.1295]
+  oberarm: 0.0820
+  unterarm: 0.0818
+  hand: 0.1608
+  nullpunkte: [2.03, -1.61, 0.76, -1.01]   # Servo 1-4 stehen so viele Grad anders als befohlen
+  durchhang: 2.9                           # Grad bei 25 cm Reichweite
+greif_modell: sim       # welches gelernte Modell (models/greifen.json, config/lokal/greifen.json)
+ki_darf_arm_bewegen: true

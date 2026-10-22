@@ -1,0 +1,2 @@
+Nachgebaute (unechte) ROS-Module, damit man Panel und Linienfolger ohne ROS
+auf einem Laptop testen kann. Werden NUR von den Tests benutzt, nie auf dem Roboter.

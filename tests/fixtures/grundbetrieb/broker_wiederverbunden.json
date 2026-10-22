@@ -1,0 +1,188 @@
+{
+  "schema_version": "1.0",
+  "robot_id": "RM02",
+  "boot_id": "beispiel-start-0001",
+  "seq": 131,
+  "generated_at": "2026-10-20T10:00:00.000Z",
+  "generated_mono_s": 1226.2,
+  "time_sync": {
+    "status": "unsynced",
+    "source": null
+  },
+  "software_version": "beispiel-commit",
+  "map_version": "smartcity-v1",
+  "config_version": "RM02-beispiel",
+  "runtime": {
+    "mode": "GRUNDBETRIEB",
+    "state": "GESTOPPT",
+    "motor_enabled": false,
+    "stop_latched": true,
+    "fault_latched": false,
+    "hold_reasons": [
+      "STOP_LATCHED"
+    ],
+    "faults": []
+  },
+  "motion": {
+    "request": null,
+    "output": {
+      "v_m_s": 0.0,
+      "w_rad_s": 0.0
+    },
+    "measured_v_m_s": {
+      "value": null,
+      "status": "missing",
+      "source": null
+    },
+    "measured_w_rad_s": {
+      "value": 0.0,
+      "status": "valid",
+      "source": "imu"
+    },
+    "odometry_distance_m": {
+      "value": 0.0,
+      "status": "valid",
+      "source": "odom_raw"
+    },
+    "heading_rad": {
+      "value": null,
+      "status": "unknown",
+      "source": null
+    }
+  },
+  "lane": {
+    "status": "valid",
+    "offset_m": 0.004,
+    "heading_error_rad": 0.02
+  },
+  "route": {
+    "section": null,
+    "node": null,
+    "approach_from": null,
+    "direction": null,
+    "allowed_exits": [],
+    "selected_exit": null,
+    "maneuver": null,
+    "maneuver_progress": null,
+    "localization_status": "unknown",
+    "localization_quality": null
+  },
+  "traffic": {
+    "signal_id": null,
+    "signal": "unknown",
+    "signal_status": "missing",
+    "signal_confidence": null,
+    "signs": [],
+    "crossings": []
+  },
+  "obstacles": {
+    "corridor": "free",
+    "front_clearance_m": {
+      "value": 1.8,
+      "status": "valid",
+      "source": "lidar_0"
+    },
+    "unknown_areas": false,
+    "distance_locks": [],
+    "objects": []
+  },
+  "sensors": {
+    "camera": {
+      "source_id": "camera/color",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.92,
+      "age_s": 0.08,
+      "rate_hz": 15.0,
+      "frame_id": "rgb-000120",
+      "coord_frame": "camera_color_optical"
+    },
+    "depth": {
+      "source_id": "camera/depth",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.91,
+      "age_s": 0.09,
+      "rate_hz": 15.0,
+      "frame_id": "depth-000118",
+      "coord_frame": "camera_depth_optical"
+    },
+    "lidar_0": {
+      "source_id": "scan0",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.97,
+      "age_s": 0.03,
+      "rate_hz": 10.0,
+      "frame_id": "scan0-004410",
+      "coord_frame": "laser0"
+    },
+    "lidar_1": {
+      "source_id": "scan1",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.965,
+      "age_s": 0.035,
+      "rate_hz": 10.0,
+      "frame_id": "scan1-004402",
+      "coord_frame": "laser1"
+    },
+    "imu": {
+      "source_id": "imu/data_raw",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.99,
+      "age_s": 0.01,
+      "rate_hz": 100.0,
+      "frame_id": null,
+      "coord_frame": "imu_link"
+    },
+    "odometry": {
+      "source_id": "odom_raw",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.98,
+      "age_s": 0.02,
+      "rate_hz": 50.0,
+      "frame_id": null,
+      "coord_frame": "odom"
+    }
+  },
+  "diagnostics": {
+    "battery_v": {
+      "value": 12.1,
+      "status": "valid",
+      "source": "board"
+    },
+    "board_status": "valid",
+    "warnings": [],
+    "events": []
+  },
+  "communication": {
+    "broker": "connected",
+    "last_publish_requested_seq": 131,
+    "last_broker_ack_seq": 120,
+    "last_broker_ack_mono_s": 1224.0,
+    "reconnects": 1,
+    "dropped_messages": 9,
+    "last_error": "Verbindung abgebrochen (Beispiel)"
+  },
+  "details": [
+    {
+      "channel": "details/camera",
+      "data_id": "rgb-000120",
+      "format": "image/jpeg",
+      "captured_at_s": 1792484499.92,
+      "frame_id": "rgb-000120",
+      "status": "valid"
+    },
+    {
+      "channel": "details/scan",
+      "data_id": "scan0-004410",
+      "format": "application/json",
+      "captured_at_s": 1792484499.97,
+      "frame_id": "scan0-004410",
+      "status": "valid"
+    }
+  ]
+}

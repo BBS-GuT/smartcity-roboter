@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+# Eigene Einstellungen und Karten dieses Roboters (nicht ins Repository)
+config/lokal/
+config/ampel.yaml
+karten/
+# Protokolle der Programme (Panel -> System -> "Logs herunterladen")
+logs/

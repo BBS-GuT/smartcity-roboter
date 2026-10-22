@@ -1,0 +1,18 @@
+{
+  "name": "BBS-GuT Codex Freigabe",
+  "url": "https://github.com/BBS-GuT/smartcity-roboter",
+  "description": "Formale PR-Freigabe nach eindeutigem nativem Codex-Review und erfolgreicher D1-CI; kein Merge und keine eigenen KI-Reviews.",
+  "public": false,
+  "hook_attributes": {
+    "url": "https://github.com/BBS-GuT/smartcity-roboter",
+    "active": false
+  },
+  "default_events": [],
+  "default_permissions": {
+    "contents": "write",
+    "checks": "read",
+    "actions": "read",
+    "issues": "read",
+    "pull_requests": "write"
+  }
+}
