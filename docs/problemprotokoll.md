@@ -50,7 +50,7 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
   vermutlich kaum. Ein einzelner Ausreißer setzte „ruhig“ zurück. Nach 15 s Abbruch, dann Warten.
   Zusätzlich blockierte der Linienfolger KI-Manöver, sobald seine eigenen Bilder aussetzten.
 - **Lösung:** Median der letzten 3 Messungen; kurze Lücken (0,4 s) halten das letzte Manöver; Mindesttempo
-  (`greif_min_*`); 25 s statt 15 s; frisches KI-Manöver gilt auch ohne Linienbilder (KI-Bild ≤ 0,5 s, Notbremse zuerst).
+  (`greif_min_*`); 25 s statt 15 s; frisches KI-Manöver gilt auch ohne Linienbilder (Aufnahme des KI-Bilds laut Kamerastempel ≤ 0,5 s, Notbremse zuerst).
 - **Status:** nur Test (`tests/test_raeumen_positionieren.py`, Totzone im Test angenommen). Am Roboter prüfen: Würfel in
   der Kurve → richtet sich aus und greift; Mindesttempo bewegt ihn wirklich.
 

@@ -523,7 +523,10 @@ class Zentrale(Node):
         self.ki_ms = (time.time() - t0) * 1000
         with self.lock:
             nr = self.wahrnehmung['bild_nr'] + 1
-            self.wahrnehmung = {'bild_nr': nr, 'bild_zeit': time.time(), 'objekte': objekte,
+            jetzt = time.time()
+            a = stempel(msg)                    # Aufnahmezeit des Farbbilds (gleiche Uhr), nur wenn plausibel
+            aufnahme = a if a is not None and a > 0 and 0.0 <= jetzt - a < 5.0 else None
+            self.wahrnehmung = {'bild_nr': nr, 'bild_zeit': jetzt, 'aufnahme': aufnahme, 'objekte': objekte,
                                 'ampel': ampel_farbe, 'ampel_quelle': ampel_quelle,
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
@@ -627,6 +630,9 @@ class Zentrale(Node):
             'ki': self.yolo.backend if self.yolo else self.yolo_fehler, 'ki_ms': round(self.ki_ms),
             'takt_max_ms': round(self.takt_max * 1000),
             'bild_alter': round(jetzt - w['bild_zeit'], 2) if w['bild_zeit'] else None,
+            # Aufnahmezeit des zuletzt ausgewerteten Farbbilds (None: Stempel fehlt/ungueltig). Der Linienfolger laesst
+            # KI-Manoever ohne eigene Bilder nur zu, wenn diese Aufnahme frisch ist.
+            'aufnahme': w.get('aufnahme'),
             'lidar': None if w['lidar'] is None else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
             'ampel': w['ampel'], 'ampel_quelle': w.get('ampel_quelle'),
             'stoppschild': w['stoppschild'], 'schild_quelle': w.get('schild_quelle'),

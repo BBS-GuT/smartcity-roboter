@@ -357,10 +357,12 @@ class LineFollower(Node):
         manoever = ki.get('manoever') if (ki and ki.get('aktion') == 'manoever' and jetzt - ki_zeit < 0.6) else None
         if grund:
             return 0.0, 0.0, 0.0, grund + ' -> STOPP'
-        # Frisches KI-Manoever (zum Greifen ausrichten, wenden) braucht die Linienbilder nicht, nur frische Bilder der
-        # KI selbst. Vorher blockierte jeder Aussetzer der Linienbilder das Heranfahren (RM02 22.10.).
-        ki_bild = ki.get('bild_alter') if ki else None
-        if manoever and self.p('ki_pflicht') and ki_bild is not None and ki_bild <= 0.5:
+        # Frisches KI-Manoever (zum Greifen ausrichten, wenden) braucht die Linienbilder nicht, nur ein frisch
+        # AUFGENOMMENES Bild der KI (Kamera-Zeitstempel, nicht Auswertezeit). Vorher blockierte jeder Aussetzer der
+        # Linienbilder das Heranfahren (RM02 22.10.).
+        ki_aufnahme = ki.get('aufnahme') if ki else None
+        if (manoever and self.p('ki_pflicht') and isinstance(ki_aufnahme, (int, float))
+                and 0.0 <= jetzt - ki_aufnahme <= 0.5):
             return self._manoever(manoever, 'KI-Manoever: ')
         if jetzt - bild_zeit > 0.5:
             return 0.0, 0.0, 0.0, 'KEINE KAMERABILDER -> STOPP'
