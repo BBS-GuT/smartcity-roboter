@@ -14,7 +14,9 @@ class Tests(unittest.TestCase):
     def test_desktop_mqtt_runtime_is_in_installer(self):
         required = {'panel/panel.py', 'mqtt/panel_bridge.py', 'mqtt/auto_bridge.py',
                     'mqtt/local_broker.py', 'mqtt/requirements.txt',
-                    'scripts/panel.sh', 'scripts/mqtt_bridge.sh'}
+                    'scripts/panel.sh', 'scripts/mqtt_bridge.sh',
+                    'lib/m1_start_slots.py', 'lib/m1_routes.py',
+                    'schemas/m1-v1.schema.json'}
         self.assertTrue(required.issubset(set(updater.FILES.values())))
         source = Path(__file__).parents[1]
         for remote, relative in updater.FILES.items():
@@ -74,5 +76,29 @@ class Tests(unittest.TestCase):
             run.assert_called_once_with(
                 ['systemctl', 'is-active', '--quiet', 'm3pro-microros.service'],
                 capture_output=True)
+
+    def test_battery_probe_distinguishes_subscription_from_publisher(self):
+        commands = [
+            (0, '/battery [std_msgs/msg/Float32]', ''),
+            (0, 'Type: std_msgs/msg/Float32\nPublisher count: 0\nSubscription count: 1', ''),
+        ]
+        with patch.object(updater, 'agent_is_active', return_value=True), \
+                patch.object(updater, 'ros_command', side_effect=commands), \
+                patch('builtins.print'):
+            result = updater.battery_diagnostics(Path('/tmp/robot'))
+        self.assertFalse(result['battery_publisher'])
+        self.assertIsNone(result['voltage_v'])
+
+    def test_battery_probe_reads_only_new_sample(self):
+        commands = [
+            (0, '/battery [std_msgs/msg/Float32]', ''),
+            (0, 'Publisher count: 1', ''),
+            (0, 'data: 12.730806350708008\n---', ''),
+        ]
+        with patch.object(updater, 'agent_is_active', return_value=True), \
+                patch.object(updater, 'ros_command', side_effect=commands), \
+                patch('builtins.print'):
+            result = updater.battery_diagnostics(Path('/tmp/robot'))
+        self.assertAlmostEqual(result['voltage_v'], 12.730806350708008)
 
 if __name__=="__main__": unittest.main()
