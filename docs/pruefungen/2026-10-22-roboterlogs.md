@@ -64,9 +64,15 @@ beide Domain 30; eine Domänenabweichung erklärt diesen konkreten Ausfall nicht
 
 Damit ist der Agent-Prozess allein kein Nachweis für eine funktionsfähige
 Board-Brücke. Beim früheren kompletten Roboterstart wurden die Entities erzeugt.
-Ein Software-Neustart des Roboters wird als Wiederherstellung geprüft. Ob
-danach auch neue Batteriesamples fließen, ist noch offen; die frühere
-Phase mit vorhandenem Publisher, aber ohne Sample darf nicht übergangen werden.
+Ein anschließender vollständiger Linux-Software-Neustart wurde vom Nutzer
+ausgeführt; auch danach blieb `/battery` ohne Publisher (`echo_exit=124`). Das
+Bootjournal zeigt im laufenden Agenten viele `session re-established` für den
+Board-Client `0x45033032`, während ROS weiterhin keinen `/battery`-Publisher
+meldet. Ein Host-Neustart ist daher keine bestätigte Wiederherstellung. Ob das
+separat aus der Fahrzeugbatterie versorgte Motorboard dabei elektrisch
+zurückgesetzt wurde, ist nicht belegt.
+Die frühere Phase mit vorhandenem Publisher, aber ohne Sample darf ebenfalls
+nicht übergangen werden.
 
 ## Lokale Änderungen
 

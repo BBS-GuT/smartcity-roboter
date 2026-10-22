@@ -521,8 +521,9 @@ def board_diagnose(board_da, sensoren_da):
     if a['domain'] is None:
         teile.append(f'(Domain-ID des Agents nicht lesbar, unsere: {unsere}. Pruefen: '
                      "sudo cat /proc/$(pgrep -f micro_ros_agent | head -1)/environ | tr '\\0' '\\n' | grep DOMAIN)")
-    teile.append('Meist hilft: Hauptschalter am Board aus und wieder an, oder Reset-Knopf am Board druecken, '
-                 'kurz warten. Danach diese Seite neu laden.')
+    teile.append('Ein Linux-Neustart setzt das separat versorgte Board moeglicherweise nicht zurueck. '
+                 'Board-Strom oder Reset-Knopf nur bei sicherem Stillstand pruefen, kurz warten und '
+                 'danach diese Seite neu laden.')
     return ' '.join(teile)
 
 
