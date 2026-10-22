@@ -25,7 +25,7 @@ bleibt. Die Feldnamen sind Entscheidungsvorschläge, keine Erweiterung von v1.0.
 | `channel`, `data_id` | nichtleerer Text | Kanal und unveränderliche Datenkennung innerhalb des Frame-Namensraums; mehrere Formate/Ableitungen eines Frames dürfen eigene Datenkennungen tragen. |
 | `format` | nichtleerer Text | Beschreibt die konkrete Darstellung; echte Formate, Auflösung und Raten sind noch abzustimmen. |
 | `captured_at_s` | endliche Zahl ≥ 0 / Unix-s oder `null` | Aufnahmezeit in UTC; bei unbekanntem UTC-Bezug `null`. Synchronisationsqualität bleibt über den Zustandsvertrag sichtbar. Keine Ersatzzeit für lokale Frische. |
-| `timebase_id` | nichtleerer Text | Kennung der gemeinsamen lokalen monotonen Geräteuhr, neu bei deren Reset (z. B. Geräteboot). Unabhängig von Produzenten- und Zustandsstart. |
+| `time_basis_id` | nichtleerer Text | Kennung der gemeinsamen lokalen monotonen Geräteuhr, neu bei deren Reset (z. B. Geräteboot). Unabhängig von Produzenten- und Zustandsstart. |
 | `captured_mono_s` | endliche Zahl ≥ 0 / s oder `null` | Aufnahmezeit in dieser Geräteuhr; Sensoreigenzeit nur nach belegter Umrechnung. |
 | `received_mono_s` | endliche Zahl ≥ 0 / s oder `null` | Empfang dieses Frames am Gerät, in derselben Uhr wie `captured_mono_s` und `generated_mono_s`. Erneuter Empfang verjüngt die Aufnahme nicht. |
 | `status`, `reason`, `age_s` | bestehender Status; Text oder `null`; endliche Zahl ≥ 0 / s oder `null` | Bewertung im referenzierenden Zustand. `age_s = generated_mono_s - captured_mono_s` nur bei belegtem gleichem Gerät/Zeitbezug. Nicht-`valid` braucht einen Grund. |
@@ -51,7 +51,7 @@ Geräte-, Start- oder Zeitangaben daraus erraten. Verschiedene Quellen mit gleic
    sie werden nicht still dem aktuellen Start zugeschlagen. `state_boot_id` muss
    zum herausgebenden Zustand passen; bei erneuter Referenzierung wird nur dieser
    Kontext erneuert, die Aufnahmeidentität bleibt erhalten.
-3. Für lokale Frische muss dieselbe `timebase_id` wie im Zustand belegt sein und
+3. Für lokale Frische muss dieselbe `time_basis_id` wie im Zustand belegt sein und
    `captured_mono_s <= received_mono_s <= generated_mono_s` gelten. Zukunftswerte,
    fremde Zeitbasis und unzulässige Zahlen sind `invalid` mit `age_s = null`.
    Fehlender Zeitnachweis ist `unknown`; UTC-Synchronisation allein repariert
@@ -92,7 +92,7 @@ Entwurfsreferenzen, keine vom heutigen v1.0-Validator akzeptierten Fixtures.
 `rgb-12` wird nicht zum Ersatz. Aufnahmealter 2 s ergibt `stale`.
 
 ```json
-{"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-A","state_boot_id":"state-B","frame_id":"rgb-10","channel":"color","data_id":"color-10","format":"example/rgb","captured_at_s":1792653603.0,"timebase_id":"clock-1","captured_mono_s":103.0,"received_mono_s":103.1,"status":"stale","reason":"age_limit_exceeded","age_s":2.0}
+{"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-A","state_boot_id":"state-B","frame_id":"rgb-10","channel":"color","data_id":"color-10","format":"example/rgb","captured_at_s":1792653603.0,"time_basis_id":"clock-1","captured_mono_s":103.0,"received_mono_s":103.1,"status":"stale","reason":"age_limit_exceeded","age_s":2.0}
 ```
 
 **2. LiDAR: auch ein nicht neuester Frame darf aktuell sein.**
@@ -100,7 +100,7 @@ Entwurfsreferenzen, keine vom heutigen v1.0-Validator akzeptierten Fixtures.
 der Beispielgrenze, obwohl `sensors.lidar_0.frame_id = scan-24` ist.
 
 ```json
-{"robot_id":"RM02","source":"lidar_0","source_id":"scan-test","producer_id":"lidar-driver","producer_boot_id":"lidar-A","state_boot_id":"state-B","frame_id":"scan-23","channel":"scan","data_id":"scan-data-23","format":"example/scan","captured_at_s":1792653604.8,"timebase_id":"clock-1","captured_mono_s":104.8,"received_mono_s":104.9,"status":"valid","reason":null,"age_s":0.2}
+{"robot_id":"RM02","source":"lidar_0","source_id":"scan-test","producer_id":"lidar-driver","producer_boot_id":"lidar-A","state_boot_id":"state-B","frame_id":"scan-23","channel":"scan","data_id":"scan-data-23","format":"example/scan","captured_at_s":1792653604.8,"time_basis_id":"clock-1","captured_mono_s":104.8,"received_mono_s":104.9,"status":"valid","reason":null,"age_s":0.2}
 ```
 
 **3. Fremde Quelle: die bekannte Kamera-Frame-ID genügt nicht.**
@@ -108,7 +108,7 @@ der Beispielgrenze, obwohl `sensors.lidar_0.frame_id = scan-24` ist.
 Kennung lösen einen Alias auf; keine Zuordnung zur lokalen Kamera, `invalid`.
 
 ```json
-{"robot_id":"RM02","source":"foreign_camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-A","state_boot_id":"state-B","frame_id":"rgb-10","channel":"color","data_id":"color-10","format":"example/rgb","captured_at_s":1792653603.0,"timebase_id":"clock-1","captured_mono_s":103.0,"received_mono_s":103.1,"status":"invalid","reason":"source_not_registered","age_s":null}
+{"robot_id":"RM02","source":"foreign_camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-A","state_boot_id":"state-B","frame_id":"rgb-10","channel":"color","data_id":"color-10","format":"example/rgb","captured_at_s":1792653603.0,"time_basis_id":"clock-1","captured_mono_s":103.0,"received_mono_s":103.1,"status":"invalid","reason":"source_not_registered","age_s":null}
 ```
 
 **4. Unpassende Zeitbasis: numerisch plausible Sekunden ergeben keine Frische.**
@@ -117,7 +117,7 @@ aber nicht zur aktuellen Geräteuhr. Seine Aufnahme bleibt identifizierbar;
 `105.0 - 104.9` darf hier nicht gerechnet werden, `invalid` im aktuellen Kontext.
 
 ```json
-{"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-old","state_boot_id":"state-B","frame_id":"rgb-9","channel":"color","data_id":"color-9","format":"example/rgb","captured_at_s":1792650000.0,"timebase_id":"clock-old","captured_mono_s":104.9,"received_mono_s":104.95,"status":"invalid","reason":"timebase_mismatch","age_s":null}
+{"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-old","state_boot_id":"state-B","frame_id":"rgb-9","channel":"color","data_id":"color-9","format":"example/rgb","captured_at_s":1792650000.0,"time_basis_id":"clock-old","captured_mono_s":104.9,"received_mono_s":104.95,"status":"invalid","reason":"timebase_mismatch","age_s":null}
 ```
 
 ## Entscheidungen und Folgeabhängigkeiten
