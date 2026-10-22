@@ -120,6 +120,42 @@ def naechster_vorne(msg, front_deg=0.0, halb_deg=30.0, min_abstand=0.08, rueckwa
     return float(r[im_sektor].min()) if np.any(im_sektor) else float('inf')
 
 
+def ungueltige_winkel(msg, front_deg=0.0):
+    """Winkel (rad, relativ zu vorne, -pi..pi) aller Strahlen OHNE gueltige Messung (0 unter range_min, NaN, inf,
+    ausserhalb range_max). Dort weiss man nichts: auf dem ganzen Strahl kann ein Hindernis stehen. Auch +inf ist
+    kein bestaetigtes "frei bis zur Reichweite" (die Treiberkodierung dafuer ist nicht belegt)."""
+    r = np.asarray(msg.ranges, dtype=np.float64)
+    a = msg.angle_min + np.arange(len(r)) * msg.angle_increment - math.radians(front_deg)
+    schlecht = ~(np.isfinite(r) & (r > msg.range_min) & (r < msg.range_max))
+    return np.arctan2(np.sin(a[schlecht]), np.cos(a[schlecht]))
+
+
+def sektor_abdeckung(msg, front_deg=0.0, halb_deg=30.0, rueckwaerts=False):
+    """Ist der Sektor vorne (bzw. hinten) +-halb_deg vollstaendig gemessen? None = ja, sonst Grund (Text).
+    Gueltige Punkte daneben ersetzen keine Messung IM Sektor: schon ein Strahl ohne Messung darin = unbekannt."""
+    r = np.asarray(msg.ranges)
+    a = msg.angle_min + np.arange(len(r)) * msg.angle_increment - math.radians(front_deg + (180.0 if rueckwaerts else 0.0))
+    im = np.abs(np.arctan2(np.sin(a), np.cos(a))) <= math.radians(halb_deg)
+    if not np.any(im):
+        return 'kein Strahl im Bereich'
+    a = ungueltige_winkel(msg, front_deg + (180.0 if rueckwaerts else 0.0))
+    n = int(np.sum(np.abs(a) <= math.radians(halb_deg)))
+    return f'{n} Strahl(en) ohne Messung' if n else None
+
+
+def luecke_im_bereich(winkel, im_bereich, reichweite, schritt=0.04):
+    """Wo beginnt der erste unbekannte Teil eines Bereichs? winkel: ungueltige_winkel(). Jeder Strahl ohne Messung
+    wird vom LiDAR bis 'reichweite' (m) abgetastet; im_bereich(xy) -> (Maske, Abstand je Punkt im Bereichsmass).
+    Rueckgabe: kleinster Abstand eines unbekannten Punkts im Bereich, None = Bereich voll gemessen."""
+    winkel = np.asarray(winkel, dtype=np.float64)
+    if not len(winkel):
+        return None
+    s = np.arange(schritt, reichweite + schritt / 2, schritt)
+    xy = np.stack([np.cos(winkel)[:, None] * s, np.sin(winkel)[:, None] * s], axis=-1).reshape(-1, 2)
+    drin, abstand = im_bereich(xy)
+    return float(np.min(abstand[drin])) if np.any(drin) else None
+
+
 def punkte(msg, front_deg=0.0, max_punkte=360):
     """Punkte fuer die Anzeige: Liste [x, y] in Metern, x = vorne, y = links."""
     a, r = winkel_und_abstand(msg, front_deg)
@@ -198,9 +234,7 @@ def fahrschlauch(xy, weg=None, halbe_breite=0.15, laenge=0.8, nah=0.2, nah_halb_
     xy = xy[np.hypot(xy[:, 0], xy[:, 1]) < max(laenge, nah) + halbe_breite + 0.01]
     if len(xy) == 0:
         return None
-    quer, entlang = abstand_zum_weg(xy, weg, laenge)
-    im_kegel = np.abs(np.arctan2(xy[:, 1], xy[:, 0])) <= math.radians(nah_halb_deg)
-    drin = (quer < halbe_breite) & (entlang > 0.0) & (entlang <= laenge) & ((entlang > nah) | im_kegel)
+    drin, entlang, quer = _im_schlauch(xy, weg, halbe_breite, laenge, nah, nah_halb_deg)
     if not np.any(drin):
         return None
     xy, entlang, quer = xy[drin], entlang[drin], quer[drin]
@@ -208,3 +242,32 @@ def fahrschlauch(xy, weg=None, halbe_breite=0.15, laenge=0.8, nah=0.2, nah_halb_
     teil = np.hypot(xy[:, 0] - xy[k, 0], xy[:, 1] - xy[k, 1]) < 0.04
     return {'abstand': float(entlang[k]), 'vor': float(xy[k, 0]), 'seite': float(np.mean(xy[teil, 1])),
             'breite': float(np.ptp(xy[teil, 1]) + 0.01), 'quer': float(quer[k])}
+
+
+def _im_schlauch(xy, weg, halbe_breite, laenge, nah, nah_halb_deg):
+    """(Maske: Punkt liegt im Fahrschlauch, Strecke entlang des Wegs, seitlicher Abstand zum Weg) je Punkt."""
+    quer, entlang = abstand_zum_weg(xy, weg, laenge)
+    im_kegel = np.abs(np.arctan2(xy[:, 1], xy[:, 0])) <= math.radians(nah_halb_deg)
+    drin = (quer < halbe_breite) & (entlang > 0.0) & (entlang <= laenge) & ((entlang > nah) | im_kegel)
+    return drin, entlang, quer
+
+
+def fahrschlauch_luecke(winkel, weg=None, halbe_breite=0.15, laenge=0.8, nah=0.2, nah_halb_deg=30.0):
+    """Erster NICHT gemessener Teil des Fahrschlauchs (gleiche Form wie fahrschlauch): Strecke entlang des Wegs (m)
+    bis dorthin, None = ganz gemessen. winkel: ungueltige_winkel(). Gueltige Punkte neben dem Weg aendern daran
+    nichts - sie sagen nichts ueber den Weg."""
+    def im_bereich(xy):
+        drin, entlang = np.zeros(len(xy), dtype=bool), np.zeros(len(xy))
+        vorn = xy[:, 0] > -halbe_breite         # der Weg beginnt am Roboter und fuehrt nach vorne: spart Rechenzeit
+        drin[vorn], entlang[vorn], _ = _im_schlauch(xy[vorn], weg, halbe_breite, laenge, nah, nah_halb_deg)
+        return drin, entlang
+    return luecke_im_bereich(winkel, im_bereich, max(laenge, nah) + halbe_breite)
+
+
+def hinten_luecke(winkel, halbe_breite=0.15, ab=0.05):
+    """Erster nicht gemessener Punkt im Streifen hinter dem Roboter (x < -ab, |y| < halbe_breite): Abstand nach
+    hinten (m) oder None = ganz gemessen. winkel: ungueltige_winkel(). Ein Strahl vom LiDAR nach hinten tritt bei
+    x = -ab in den Streifen ein, wenn er dort seitlich noch innerhalb liegt - dann ist ab schon unbekannt."""
+    c, s = np.cos(winkel), np.sin(winkel)
+    hinein = (c < 0) & (np.abs(s) * ab < halbe_breite * np.abs(c))
+    return float(ab) if np.any(hinein) else None

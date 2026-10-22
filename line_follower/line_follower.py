@@ -177,8 +177,11 @@ class LineFollower(Node):
             # (nicht der Parameter direction - ein KI-Manoever kann z. B. rueckwaerts fahren)
             front = fronts[i] if i < len(fronts) else 0.0
             halb, mindest = self.p('obstacle_half_deg'), self.p('obstacle_min_range')
-            d = {'vorne': lidar.naechster_vorne(msg, front, halb, mindest),
-                 'hinten': lidar.naechster_vorne(msg, front, halb, mindest, rueckwaerts=True)}
+            # je Bereich: (naechster Abstand, Abdeckungsluecke oder None). Ein Strahl ohne Messung im Bereich
+            # macht ihn unbekannt - gueltige Punkte daneben belegen nicht, dass der Bereich selbst frei ist
+            d = {b: (lidar.naechster_vorne(msg, front, halb, mindest, rueckwaerts=b == 'hinten'),
+                     lidar.sektor_abdeckung(msg, front, halb, rueckwaerts=b == 'hinten'))
+                 for b in ('vorne', 'hinten')}
         self.scans[topic] = (time.monotonic(), d, grund, aufnahme)   # Empfang monoton (Uhrsprung egal)
 
     def on_odom(self, msg):
@@ -281,9 +284,12 @@ class LineFollower(Node):
             return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'
         # Bereich der eingestellten Fahrtrichtung zaehlt wie bisher immer, dazu der des tatsaechlichen Befehls
         bereiche = {'hinten' if self.p('direction') < 0 else 'vorne', *self.bereiche(lin, quer, dreh)}
-        d, b, t = min((d[b], b, t) for t, d, _ in frisch for b in bereiche)
+        d, b, t = min((d[b][0], b, t) for t, d, _ in frisch for b in bereiche)
         if d < self.p('notbremse_dist'):
-            return f'NOTBREMSE {d * 100:.0f} cm {b} ({t})'
+            return f'NOTBREMSE {d * 100:.0f} cm {b} ({t})'     # echtes nahes Hindernis: auch bei Luecken
+        luecken = [f'{t} {b}: {d[b][1]}' for t, d, _ in frisch for b in sorted(bereiche) if d[b][1]]
+        if luecken:
+            return 'LIDAR UNBEKANNT (' + '; '.join(luecken) + ')'
         return None
 
     # ---------------- Kamera: Linie suchen ----------------
