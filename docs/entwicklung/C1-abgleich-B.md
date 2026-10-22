@@ -206,15 +206,29 @@ löscht keine andere. Odometrieschätzung ersetzt keine Schutzbeobachtung.
 
 ## B-Annahme des konkreten V3a-Datenanhangs für Auftrag 5
 
-**B nimmt V3a aus [PR #142 auf exakt
+**B stimmt V3a aus [PR #142 auf exakt
 `a4c16698ecca19b04a86636783a7ca3c2d26a4ff`](https://github.com/BBS-GuT/smartcity-roboter/blob/a4c16698ecca19b04a86636783a7ca3c2d26a4ff/docs/entwicklung/C1-vertragsentscheidungen.md)
-als Datenmodell zur späteren Auftrag-5-Implementierung an.** Abgeglichen wurden
+als Datenmodell zur späteren Auftrag-5-Implementierung nur unter den folgenden
+beiden Korrekturvorbehalten zu; keine uneingeschränkt fertige Grundlage.**
+Die vom Manager nachgereichten nativen P1-Befunde zu diesem Head bleiben offen:
+
+- Kommentar 4346793279: Ein `blocked`-Motion-Paket darf keine Nonzero-Ausgabe
+  als dazugehörige aktuelle Ausgabe führen. B verlangt diese Datenkonsistenz;
+  der Validator erzeugt daraus selbst keinen Nullbefehl.
+- Kommentar 4346793287: Ein `allowed`-Paket darf nach Ablauf der zugeordneten
+  Requestfrist nicht mehr als aktuell verwendbar gelten. B verlangt den
+  Frischebezug gemäß V2, ohne Fristverlängerung durch Auswertung oder Übertragung.
+
+C korrigiert diese Regeln. Erst am ausdrücklich neu gelieferten C-Head erfolgt
+der erneute fachliche Abgleich und ein konkretes Votum zur korrigierten Fassung.
+Bis dahin ist `a4c16698` nicht als fertige Auftrag-5-Grundlage bestätigt.
+Fundament-/V2-Annahmen bleiben unverändert bestehen. Abgeglichen wurden
 ausschließlich dieser Datenanhang und seine vier tabellarischen Fälle mit den
 B-Vorgaben einschließlich `1a1a3e8c22dd52b1adbcd031a482b25b37a720d1` sowie
 den im Anhang beschriebenen A-Vorgaben auf
 `69da13138a9d1215dced02b8ca6b00b9c783c617`. Dies ist keine Anwendungscode-/
-PR-Diffprüfung und keine Zustimmung im Namen von A/C/O. Aus B bleibt **keine
-nötige Feld- oder Semantikkorrektur an diesem konkreten Anhang** vor Auftrag 5.
+PR-Diffprüfung und keine Zustimmung im Namen von A/C/O. Der sonstige B-Abgleich
+der folgenden Datenbereiche und vier Fälle bleibt unter diesem Vorbehalt stehen.
 
 | Datenentscheidung | B-Annahme und Begründung |
 |---|---|
@@ -252,7 +266,7 @@ Beispielen und funktionalen Nachweisen; keine Geräte-/Broker-/Handlungsfreigabe
 | 2 Details | Angenommen mit explizitem gegebenem Register-/Alterskontext und `age_budget_unknown` wie oben. Historische Registrierung und Farb-/Tiefenpaarung prüfen; kein Payloadspeicher oder Brokerbetrieb. |
 | 3 Fahrwunsch | Angenommen einschließlich Anti-Replay-Höchststand aus aktuellem #142. Unabhängigen B-/C-Start, A-Neubindung, Umordnung 8/10/9/11 und unveränderte Fristen funktional nachweisen. Reales Maximalbudget bleibt A/B/O-Entscheidung. |
 | 4 Historie | B nimmt 16 Einträge im Zustand, sichtbare Kapazitätsverwerfung, Status-/Reset-/Kartenregeln an; Ergänzung zur Lückenerholung oben. Kein B2-Wegwahl- oder Kartenabnahmenachweis. |
-| 5 Räumen/Arm | B nimmt jetzt V3a auf `a4c16698ecca19b04a86636783a7ca3c2d26a4ff` einschließlich der vier Fälle an; die konsolidierte Belegung hat Vorrang vor B-Kurzvorschlägen. A/O-Annahme und O-Vergabe bleiben separat. Armfreigabebesitzer darf offen sichtbar bleiben. |
+| 5 Räumen/Arm | B stimmt V3a auf `a4c16698ecca19b04a86636783a7ca3c2d26a4ff` nur unter Korrekturvorbehalt zu den zwei oben genannten P1-Datenlücken zu. Neuer expliziter C-Head und dessen fachlicher Abgleich stehen aus; keine fertige Auftrag-5-Grundlage. Sonstige konsolidierte Datenbelegung hat Vorrang vor B-Kurzvorschlägen. A/O-Annahme und O-Vergabe bleiben separat. |
 | 6 Gesamtannahme | Vorgehen angenommen; erst am gesondert gelieferten Gesamtcommit Vertrag, v2-Schema, Beispiele und tatsächliche funktionale Nachweise fachlich abgleichen. Diese erste Entscheidung ersetzt diesen zweiten Schritt nicht. |
 
 Echte offene Entscheidung an den Manager: Armfreigabebesitzer A/B festlegen und
