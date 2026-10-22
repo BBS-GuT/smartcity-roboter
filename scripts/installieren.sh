@@ -64,6 +64,12 @@ fi
 python3 -c "import cv2, yaml" 2>/dev/null && echo "Python-Pakete: ok" || echo "WARNUNG: python3-opencv oder python3-yaml fehlt"
 [ -f "$REPO_DIR/models/yolov8n.onnx" ] && echo "KI-Modell: ok" || echo "KI-Modell fehlt (models/yolov8n.onnx)"
 
+# MQTT-Routenabgleich benoetigt paho-mqtt; Verbindung wird erst beim expliziten Start aufgebaut.
+if ! python3 -c "import paho.mqtt.client as mqtt; assert hasattr(mqtt, 'CallbackAPIVersion')" 2>/dev/null; then
+    echo "Installiere paho-mqtt fuer den MQTT-Routenabgleich."
+    pip3 install --user --upgrade "paho-mqtt==2.1.0" || { echo "paho-mqtt konnte nicht installiert werden."; exit 1; }
+fi
+
 # onnxruntime fuehrt das KI-Modell aus (OpenCV 4.5 von Ubuntu 22.04 kann es nicht)
 if python3 -c "import onnxruntime" 2>/dev/null; then
     echo "onnxruntime: ok"

@@ -82,14 +82,10 @@ Ein ausgegebener Befehl ist kein Nachweis einer Bewegung. `output` und `measured
 | `route.allowed_exits`, `selected_exit` | erlaubte und gewählte Ausfahrt (gewählt ∈ erlaubt, R9) |
 | `route.maneuver`, `maneuver_progress` | laufendes Manöver, Fortschritt 0–1 |
 | `route.localization_status`, `localization_quality` | Orientierungssicherheit (Qualität 0–1, keine Zentimeterortung) |
+| `route.history` (optional, C1I #153) | `{entries: [{seq}]}`; höchstens 16 Einträge. Sequenzen sind aufsteigend und lückenlos. |
 | `traffic.signal_id`, `signal`, `signal_status`, `signal_confidence` | **eigene** zugeordnete Ampel und Signal (`red`, `yellow`, `green`, `off`, `unknown`) |
 | `traffic.signs[]` | `{type, status, confidence}` |
 | `traffic.crossings[]` | Überwege `{id, occupancy: free\|occupied\|unknown, status}` |
-
-#### `route.history`
-
-* **Beschreibung:** Begrenzte bestätigte Fahrhistorie im Zustandsvertrag (maximal 16 Einträge, lückenlose Sequenzen).
-* **Status:** Aktiv gemäß C1I (Issue #153).
 
 ### `obstacles` – Hindernisse (Produzent: A/B)
 
