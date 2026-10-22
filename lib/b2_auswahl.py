@@ -1,6 +1,6 @@
 """Reine B2-Wegwahl; keine Erkennung, Regelautoritaet oder Motorfreigabe.
 
-Vertrag: docs/entwicklung/B2-verzweigungsfreigabe.md (b1ef110).
+Vertrag: docs/entwicklung/B2-verzweigungsfreigabe.md (5d0b728).
 Alle Bestaetigungen muessen von einem belegten lokalen Produzenten kommen.
 Ein solcher realer E1/B2-Produzent fehlt derzeit im normalen Fahrablauf.
 """
