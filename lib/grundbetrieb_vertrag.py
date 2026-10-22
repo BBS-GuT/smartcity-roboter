@@ -176,7 +176,7 @@ class _Pruefer:
         return v
 
     def messwert(self, d, pfad, k, mini=None, maxi=None):
-        """{value, status, source}: valid <=> value vorhanden. Unbekannt wird nie zur gueltigen Null (R2)."""
+        """{value, status, source}: valid braucht Wert und Quellen-Schluessel (R2)."""
         if k not in d:
             return
         m, p = d[k], f'{pfad}.{k}'
@@ -184,7 +184,7 @@ class _Pruefer:
             return
         self.zahl(m, p, 'value', null=True, mini=mini, maxi=maxi)
         self.text(m, p, 'status', auswahl=STATUS)
-        self.text(m, p, 'source', null=True)
+        self.text(m, p, 'source', null=m.get('status') != 'valid')
         if m.get('status') == 'valid' and m.get('value') is None:
             self.f(p, 'status valid braucht einen Wert (R2)')
         if m.get('status') in STATUS and m.get('status') != 'valid' and m.get('value') is not None:
@@ -371,6 +371,21 @@ def pruefe(d):
                 p.text(x, q, 'status', auswahl=STATUS)
                 if x.get('status') == 'valid' and (x.get('captured_at_s') is None or x.get('frame_id') is None):
                     p.f(q, 'gueltige Detaildaten brauchen captured_at_s und frame_id')
+
+    # Messwert-source bezeichnet ausschliesslich einen sensors-Schluessel.
+    # source_id ist technische Metadaten, kein zweiter Referenz-Namensraum.
+    for bereich, felder in (('motion', ('measured_v_m_s', 'measured_w_rad_s',
+                                      'odometry_distance_m', 'heading_rad')),
+                            ('obstacles', ('front_clearance_m',)),
+                            ('diagnostics', ('battery_v',))):
+        block = d.get(bereich)
+        if not isinstance(block, dict):
+            continue
+        for feld in felder:
+            m = block.get(feld)
+            source = m.get('source') if isinstance(m, dict) else None
+            if isinstance(source, str) and source and (not isinstance(se, dict) or source not in se):
+                p.f(f'$.{bereich}.{feld}.source', 'muss ein registrierter sensors-Schluessel sein (R2)')
 
     if not p.fehler:
         _betrieb(p, rt, out)

@@ -27,7 +27,7 @@ Ein Roboter erzeugt **einen** Zustandsdatensatz. Panel und MQTT lesen genau dies
   | `missing` | keine Messung |
 
   „Frei“ ist **kein** Status. Ein nachgewiesen freier Fahrbereich ist `obstacles.corridor = "free"` mit gültiger Quelle. Unbekannt ist `"unknown"`.
-- **Messwert-Objekt** `{value, status, source}`: Bei `status = valid` ist `value` eine Zahl, sonst `null` (R2).
+- **Messwert-Objekt** `{value, status, source}`: Bei `status = valid` ist `value` eine Zahl und `source` ein nicht leerer, registrierter Schlüssel unter `sensors`, sonst ist `value` `null` (R2). Eine angegebene Quelle muss auch bei nicht verfügbarem Messwert ein registrierter Schlüssel sein; `source = null` bleibt dann erlaubt. Der Befehl ersetzt keine Messung.
 - **Identität:** `robot_id` (RM01–RM04) + `boot_id` (neu bei jedem Programmstart) + `seq` (ab 0 pro Start). Eine Sequenz gilt nur zusammen mit Gerät und Start. Ein Neustart ist nie eine Fortsetzung (`vergleiche()` → `anderer_start`).
 - **Zeit:** `generated_at` ist UTC im Format `YYYY-MM-DDTHH:MM:SS[.Bruchteil]Z` (RFC 3339, nur abschließendes `Z`, ASCII-Ziffern). Kalenderdatum einschließlich Schaltjahr muss gültig sein (Jahr 0001–9999); Stunden 00–23, Minuten und Sekunden 00–59. Optional sind 1–9 Nachkommastellen erlaubt, Schaltsekunden nicht. `generated_mono_s` ist die monotone Uhr des Starts für lokale Altersprüfung (`alter_s()`). `time_sync.status` zeigt, ob `generated_at` mit anderen Geräten vergleichbar ist. `unsynced` bleibt sichtbar.
 - **Änderung** eines Betriebs- oder Kommunikationszustands = neuer Datensatz mit neuer `seq`.
@@ -98,6 +98,8 @@ Ein ausgegebener Befehl ist kein Nachweis einer Bewegung. `output` und `measured
 
 ### `sensors` – Quellen
 
+Messwert-`source` verweist ausschließlich auf einen Schlüssel dieses Objekts, z. B. `odometry` oder `board`. `source_id` bezeichnet die technische Quelle (z. B. `odom_raw`); es gibt keine Alias- oder Fallbackauflösung. Die synthetischen Akkubeispiele registrieren deshalb ausdrücklich `sensors.board`. Diese Beispielquelle ist kein Nachweis einer realen Boardmessung.
+
 Objekt *Name → Quelle*, z. B. `camera`, `depth`, `lidar_0`, `lidar_1`, `imu`, `odometry`. Jede Quelle: `source_id`, `status`, `reason`, `captured_at_s` (Aufnahmezeit, Unix-s), `age_s`, `rate_hz`, `frame_id` (Frame-/Messungskennung), `coord_frame` (Koordinatenbezug).
 
 Zusätzlich ist `received_mono_s` ein **Pflichtschlüssel**: endliche, nicht negative Zahl in Sekunden oder `null`. Der Produzent erfasst ihn beim lokalen Empfang mit derselben Geräte-`time.monotonic()`-Basis wie `generated_mono_s`. Es ist kein pro Prozess auf null gesetzter Zähler und keine Rückrechnung aus UTC, `captured_at_s` oder `age_s`. Vergleiche gelten nur bei derselben bestätigten lokalen Zeitbasis.
@@ -128,7 +130,7 @@ Liste `{channel, data_id, format, captured_at_s, frame_id, status}`. Damit sind 
 | Regel | Inhalt |
 |---|---|
 | R1 | Kein `NaN`/Unendlich. `als_json()`/`lade_json()` lehnen es ab. |
-| R2 | Messwert/Spur: `valid` ⇔ Wert vorhanden. Unbekannt wird nie zur gültigen Null. |
+| R2 | Messwert/Spur: `valid` ⇔ Wert vorhanden. Gültige Messwerte brauchen einen auflösbaren `sensors`-Schlüssel als `source`; jede angegebene Messwertquelle verwendet diesen Namensraum. Unbekannt wird nie zur gültigen Null. |
 | R3 | STOPP-/Fehlersperre, `GESTOPPT`, `TEST`, `FEHLER` → `motor_enabled = false` und `output = 0`. TEST darf einen Fahrwunsch zeigen. |
 | R4 | `output ≠ 0` nur mit `motor_enabled` und in `SPURFOLGEN`, `KREUZUNG_ANNAEHERN`, `MANOEVER`, `AUSFAHRT_BESTAETIGEN`. |
 | R5 | `VERKEHRSHALT` → mindestens ein Haltegrund und `output = 0`. |

@@ -43,7 +43,7 @@
     "odometry_distance_m": {
       "value": 0.0,
       "status": "valid",
-      "source": "odom_raw"
+      "source": "odometry"
     },
     "heading_rad": {
       "value": null,
@@ -142,6 +142,17 @@
       "rate_hz": 100.0,
       "frame_id": null,
       "coord_frame": "imu_link"
+    },
+    "board": {
+      "source_id": "synthetic/board/voltage",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.98,
+      "received_mono_s": 1217.98,
+      "age_s": 0.02,
+      "rate_hz": 1.0,
+      "frame_id": null,
+      "coord_frame": null
     },
     "odometry": {
       "source_id": "odom_raw",
