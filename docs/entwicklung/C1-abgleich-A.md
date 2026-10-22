@@ -232,7 +232,8 @@ A-Abgleich auf `69da13138a9d1215dced02b8ca6b00b9c783c617` und
 Keine Anwendungscode-/PR-Diffprüfung und kein formales Review.
 
 **A nimmt die folgenden konkreten Datenbelegungen zur späteren Umsetzung an;
-vor Auftrag 5 bleibt genau die unten genannte Ergebnisbindung zu ergänzen.**
+vor Auftrag 5 bleiben die unten genannte Ergebnisbindung und die anschließend
+bekannt gewordenen zwei P1-Konsistenz-/Frischeregeln zu ergänzen.**
 Dies nimmt weder einen implementierten Gesamtcommit noch Gerätefunktion an.
 
 | V3a-Belegung | Fachliche A-Annahme und Begründung |
@@ -271,6 +272,38 @@ Dies sind Dokumentbeispiele, keine ausgeführten Softwarevalidatoren.
 Die offenen realen Uhr-, Frist-, Sensor-, Geometrie-, Arm-/STOPP- und
 Brokerbelege sowie die zweite Annahme des konkreten Gesamtliefercommits
 bleiben unverändert. Andere Abschnitte von #142 werden hier nicht neu angenommen.
+
+**Nachgereichte Einschränkung zum selben Bezugscommit:** Die nativen
+P1-Befunde [gesperrte Fahrt mit Nichtnull-Ausgabe](https://github.com/BBS-GuT/smartcity-roboter/pull/142#discussion_r4346793279)
+und [Freigabe nach Wunschablauf](https://github.com/BBS-GuT/smartcity-roboter/pull/142#discussion_r4346793287)
+wurden vollständig fachlich gelesen. `a4c16698` ist damit ausdrücklich keine
+uneingeschränkt fertige Auftrag-5-Grundlage. Das obige Votum und die vier
+positiven Darstellungsfälle gelten zusätzlich unter diesen Korrekturbedingungen:
+
+- Bei `motion.release.decision=blocked` muss eine vorhandene aktuelle
+  Motorausgabe ausdrücklich `v_m_s=0` und `w_rad_s=0` führen. Jede nichtnull
+  lineare oder drehende Ausgabe ist ein Datenwiderspruch. Fehlende Ausgabe
+  bleibt fehlend und wird nicht als gesendete Null erfunden. Die Regel wird
+  nicht als ungeprüfte physische STOPP-/Haltepolitik auf den Arm übertragen.
+- Aktuelles `allowed` und eine fahrende Ausgabe benötigen einen belegten,
+  noch verwendbaren Wunsch sowohl zur Auswertung als auch zur Zustandserzeugung:
+  `generated_request <= evaluated <= issued <= generated_state < valid_until`
+  bei gemeinsamer bestätigter Uhr, zusätzlich zu V2s Kontext-/Anti-Replay-Regeln.
+  Gleichheit mit Ablauf ist bereits abgelaufen. Alte Pakete dürfen als
+  historische Diagnose bestehen, aber weder als aktuelle Freigabe noch als
+  aktuelle fahrende Ausgabe erscheinen; Empfang oder neue Zustandssequenz
+  verlängert keine Frist. Die entsprechende Armwunschfrist darf ebenfalls
+  keine aktuelle Armfreigabe nach Ablauf begründen; eigenständige belegte
+  Schutzaufträge ohne Wunsch bleiben der getrennt definierten Nullregel zugeordnet.
+
+Dokumentarische Gegenfälle: `blocked` mit v=0,1/w=0 oder v=0/w=0,1 ist
+widersprüchlich, `blocked` mit bestätigter Ausgabe 0/0 konsistent. Wunschablauf
+101 s, Auswertung/Ausgabe 100 s: Zustand bei 100,999999999 s liegt noch davor;
+bei 101 s oder 102 s darf dasselbe Paket nur historisch erscheinen. Diese
+Zahlen sind synthetisch, keine reale Frist. C korrigiert den Anhang; A wartet
+auf den ausdrücklich übergebenen neuen konkreten C-Head für dessen fachlichen
+Abgleich. Keine Zustimmung zum noch unbekannten Nachfolger, keine fremde
+Dateiänderung oder Implementierung. Angenommene Fundament-/V2-Regeln bleiben bestehen.
 
 ## Tatsächliche Dokumentprüfung
 
