@@ -124,6 +124,26 @@ class Gesamtvertrag(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     V.lade_json(V._json_wert(d), raeum_kontext=self.context)
 
+    def test_falsch_geladene_kontextcontainer_bleiben_validierungsfehler(self):
+        d = neutralisiere(read('tests/fixtures/grundbetrieb/stillstand.json'))
+        text = V.als_json(d)
+        empty = V.RaeumKontext()
+        self.assertEqual(V.pruefe(d, raeum_kontext=empty), [])
+        self.assertEqual(V.lade_json(text, raeum_kontext=empty), d)
+        invalid = [V.RaeumKontext(**{name: None}) for name in
+            ('frames', 'details', 'evidences', 'policy_evidences', 'requests', 'commands', 'evaluations')]
+        invalid.extend((V.RaeumKontext(evaluations=True), V.RaeumKontext(bindings=[]),
+                        V.RaeumKontext(component_units=[]), {'evaluations': []}))
+        for context in invalid:
+            with self.subTest(context=repr(context)):
+                errors = V.pruefe(d, raeum_kontext=context)
+                self.assertIsInstance(errors, list)
+                self.assertTrue(errors)
+                with self.assertRaises(ValueError):
+                    V.als_json(d, raeum_kontext=context)
+                with self.assertRaises(ValueError):
+                    V.lade_json(text, raeum_kontext=context)
+
     def test_sieben_beispiele_alle_oeffentlichen_eingaenge(self):
         for path in sorted((ROOT / 'tests/fixtures/grundbetrieb').glob('*.json')):
             with self.subTest(name=path.name):
