@@ -46,18 +46,17 @@ Es gibt **keine eingelernten Greif-Posen**. Die KI misst das Hindernis, rechnet 
 
 **Warum?** Maße, Servos und Kamera stimmen nie ganz genau. Schon 2° an einem Servo sind am Greifer fast 1 cm. Darum greift der Arm etwas daneben, auch wenn die Rechnung stimmt.
 
-**Wie lernt er?** Fachbegriff: *Reinforcement Learning* = Lernen durch Ausprobieren und Belohnung. Hier eine kleine, nachvollziehbare Form („Bayes-Lernen mit Thompson-Sampling“):
+**Wie lernt er?** (seit 22.10.2026 lageabhängig, Details und Begründung: [Arm-Gehirn](armgehirn.md#wie-das-lernen-funktioniert))
 
-- Er hat eine Liste mit ca. 2600 **Vermutungen**, welche Korrektur richtig ist (Gitter: −4 … +4 cm nach vorne/seitlich, −2 … +2 cm hoch, alle 5 mm). Jede hat eine Wahrscheinlichkeit.
-- **Vorher** (Vorwissen aus dem Vortraining): Vermutungen nahe am Vortraining sind wahrscheinlich.
-- **Ausprobieren:** Für jeden Versuch zieht er zufällig eine Vermutung, wahrscheinliche öfter. Am Anfang probiert er also verschiedene Korrekturen, später fast immer die beste. Nie außerhalb des Gitters (sicher begrenzt).
-- **Gewinner bleibt:** Hat der letzte Versuch geklappt, nimmt er in 70 % der Fälle genau dieselbe Korrektur nochmal (`WIEDERHOLEN`), sonst zieht er neu. Grund: In der ROS-Simulation hatte er nach einem Erfolg viermal hintereinander etwas Neues ausprobiert und verfehlt. Messung an 15 neuen Robotern (vortrainiert, Erfolg je 10 Versuche): M3 Pro 67 → 91 → 93 → 98 % vorher, 69 → 95 → 91 → 97 % nachher; Simulator-Arm 70 → 89 → 97 → 99 % vorher, 80 → 90 → 96 → 94 % nachher. Besser am Anfang, später gleich (die Unterschiede dort liegen im Zufall von nur 15 Robotern).
-- **Versuche:** Bis zu 4 Versuche je Hindernis, jeder Fehlversuch wird gelernt. Danach wartet er.
-- **Belohnung:** Nach dem Wegräumen prüft die Kamera den Weg. Frei = Erfolg, liegt noch da = Misserfolg.
-- **Lernen** (Satz von Bayes): Erfolg → alle Vermutungen, bei denen dieser Versuch auch geklappt hätte, werden wahrscheinlicher. Misserfolg → genau diese werden unwahrscheinlicher. Ein einzelner Fehlversuch zählt nicht voll (kann auch Pech sein). Ältere Versuche zählen etwas weniger.
-- Wie die Korrektur von der Lage des Würfels abhängt (weiter vorne, seitlich, höher), lernt das Vortraining (Ausgleichsgerade = lineare Regression). Auf dem Roboter lernt er die Grundkorrektur.
+- Fachbegriff: *Reinforcement Learning* = Lernen durch Ausprobieren und Belohnung, hier als „kontextueller Bandit“ mit Bayes-Lernen und Thompson-Sampling.
+- Die Korrektur besteht aus Vortraining **plus** gelernter Grundkorrektur (3 Zahlen) **plus** gelernter Lageabhängigkeit (wie sich die Korrektur je 5 cm weiter vorne / weiter links ändert, 6 Zahlen). Früher lernte der Roboter nur die feste Grundkorrektur; die Lageabhängigkeit kam allein aus dem Vortraining.
+- Er hat 3000 **Vermutungen** für diese 9 Zahlen. Jede wird danach gewichtet, wie gut sie alle gemerkten Versuche erklärt (Satz von Bayes). Danach zieht er neue Vermutungen dort, wo die guten liegen (5 Runden, „adaptives Importance Sampling“). Feste Zufallszahl: Nach einem Neustart kommt aus denselben Versuchen genau derselbe Lernstand heraus.
+- **Ausprobieren:** Für jeden Versuch zieht er zufällig eine Vermutung, wahrscheinliche öfter. Nie weiter als ±4 cm (vorne/seitlich) bzw. ±2 cm (hoch) vom Vortraining, und höchstens 40 % des Spielraums des Greifers neben der besten Korrektur. `Z_MIN` (Greifer nie tiefer als 6 mm) bleibt.
+- **Gewinner bleibt:** Nach einem Erfolg nimmt er in 70 % der Fälle dieselbe Korrektur nochmal (`WIEDERHOLEN`).
+- **Belohnung:** im Grundbetrieb weiter „Weg frei?“ (Erfolg/daneben). Das Arm-Gehirn prüft genauer: abgelegt / verschoben (knapp daneben) / unberührt / unklar (wird nicht gelernt). Siehe [Arm-Gehirn](armgehirn.md#erfolg-selbst-prüfen).
+- Ein einzelner Fehlversuch zählt nicht voll (kann Pech sein), ältere Versuche zählen etwas weniger, die letzten 150 werden gemerkt. Alte Dateien `config/lokal/greifen.json` werden weiterbenutzt.
 
-Jeder Versuch erscheint als Ereignis, z. B. „Greifversuch 7: Erfolg, Erfolgsquote 86 % (letzte 7), Korrektur jetzt +1,2 / −0,4 / +0,3 cm“.
+Jeder Versuch erscheint als Ereignis, z. B. „Greifversuch 7 (Modell eigene): Erfolg, Erfolgsquote 86 % (letzte 7), Korrektur jetzt +1,2 / −0,4 / +0,3 cm“.
 
 **Vortraining im Simulator** (`python3 sim/greifen_trainieren.py`, ca. 10 Minuten, `--schnell` ca. 2 Minuten, `--png datei.png` zeichnet die Lernkurve):
 
@@ -75,7 +74,7 @@ Jeder Versuch erscheint als Ereignis, z. B. „Greifversuch 7: Erfolg, Erfolgsqu
 
 Panel → Arm → „Greifen lernen“ zeigt den Lernstand. **„Gelerntes zurücksetzen“** löscht `config/lokal/greifen.json`, dann gilt wieder das Vortraining.
 
-### Ergebnisse des Lernens
+### Ergebnisse des Lernens (früheres Verfahren, bis 22.10.2026)
 
 Gemessen mit `python3 sim/greifen_trainieren.py` (Übungswelt, **nicht am echten Roboter**). Geprüft an **neuen** Zufallsrobotern, die das Vortraining nicht kannte (andere Zufallszahlen). Je Roboter dieselben 20 Testwürfel für alle Varianten, ohne Ausprobieren.
 
@@ -147,7 +146,7 @@ Was die KI nimmt, steht bei jedem Plan im Ereignis, z. B. „Greifer 118 -> 136,
 5. **Richtung von Servo 1 prüfen** (`servo1_links` in `config/arm.yaml`): Arm mit Servo 1 auf 120 schicken. Dreht er nach links, stimmt `1`, sonst `-1` in `config/lokal/arm.yaml` eintragen.
 6. Ersten Versuch mit kleinem Tempo machen, eine Hand am STOPP. Würfel mittig auf die Linie legen. Die ersten Versuche gehen eher daneben; nach 10–20 Versuchen sollte die Erfolgsquote im Panel steigen.
 
-**Ungeprüft auf dem Roboter:** Kinematik-Dienst, Umrechnung Kamerapunkt → Arm, Greifer-Werte (solange nicht eingemessen), die Standardmaße und das Lesen von Yahbooms URDF (getestet nur mit einem öffentlichen Nachbau), die Richtung von Servo 1, die Greiferöffnung (8,5 cm geschätzt, wichtig für das Ausprobieren beim Greif-Lernen), ob der Arm in Fahrstellung so steht, wie die eigene Rechnung denkt, und **das ganze Lernen**. Es wurde nur in der Simulation gemessen. Auf dem Roboter kann es Fehler geben, die die Simulation nicht kennt (z. B. Würfel rutscht aus dem Greifer, Kamera sieht den Würfel aus der Nähe nicht). Die Kontrolle „Weg frei?“ ist die einzige Belohnung: Schiebt der Arm den Würfel nur zur Seite aus dem Bild, zählt das auch als Erfolg. Der LiDAR könnte den Arm sehen, wenn er vorne bis zum Boden greift. Dann greift die Notbremse (unter 12 cm).
+**Ungeprüft auf dem Roboter:** Kinematik-Dienst, Umrechnung Kamerapunkt → Arm, Greifer-Werte (solange nicht eingemessen), die Standardmaße und das Lesen von Yahbooms URDF (getestet nur mit einem öffentlichen Nachbau), die Richtung von Servo 1, die Greiferöffnung (8,5 cm geschätzt, wichtig für das Ausprobieren beim Greif-Lernen), ob der Arm in Fahrstellung so steht, wie die eigene Rechnung denkt, und **das ganze Lernen**. Es wurde nur in der Simulation gemessen. Auf dem Roboter kann es Fehler geben, die die Simulation nicht kennt (z. B. Würfel rutscht aus dem Greifer, Kamera sieht den Würfel aus der Nähe nicht). Im Fahrbetrieb ist die Kontrolle „Weg frei?“ die einzige Belohnung: Schiebt der Arm den Würfel nur zur Seite aus dem Bild, zählt das auch als Erfolg (das Arm-Gehirn prüft genauer, siehe [Arm-Gehirn](armgehirn.md)). Der LiDAR könnte den Arm sehen, wenn er vorne bis zum Boden greift. Dann greift die Notbremse (unter 12 cm).
 
 ## Im Panel (Seite "Arm")
 

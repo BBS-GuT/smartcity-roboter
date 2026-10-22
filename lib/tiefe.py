@@ -105,7 +105,8 @@ class Bodenmodell:
         xs, ys, zs = x[treffer], y[treffer], z[treffer] - self.korrektur[np.nonzero(treffer)[0]]
         naechster = float(np.percentile(xs, 5))
         vorne = xs < naechster + 0.05          # nur die Vorderseite fuer Lage und Breite
-        objekt = {'vor': naechster, 'seite': float(np.median(ys[vorne])),
+        laenge = float(np.percentile(xs, 95) - naechster)    # von vorne nach hinten sichtbar (Oberseite)
+        objekt = {'vor': naechster, 'seite': float(np.median(ys[vorne])), 'laenge': laenge,
                   'breite': float(np.percentile(ys[vorne], 95) - np.percentile(ys[vorne], 5)),
                   'hoehe': float(np.percentile(zs, 95)), 'punkte': n}
         # Mitte im Bild (Anteil 0..1 von Breite/Hoehe) und Tiefe dort: damit rechnet Yahbooms Kinematik
@@ -114,6 +115,8 @@ class Bodenmodell:
         hz, wz = treffer.shape
         objekt['pixel'] = [float((np.median(spalten) + 0.5) / wz), float((np.median(zeilen) + 0.5) / hz)]
         objekt['tiefe_m'] = float(np.median(self._t[treffer]))
+        # beruehrt es den Bildrand? Dann ist nur ein Teil zu sehen (Breite/Lage unsicher)
+        objekt['rand'] = bool(zeilen.max() >= hz - 2 or spalten.min() <= 1 or spalten.max() >= wz - 2)
         if quer_karte is not None:   # wie weit neben der Linie (Mitte des Fahrwegs) liegt es?
             objekt['quer'] = float(np.median(quer_karte[treffer][vorne]))
         return True, objekt
