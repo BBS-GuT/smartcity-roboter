@@ -99,10 +99,11 @@ def check(host, port, timeout):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host', default=os.getenv('MQTT_HOST', '10.0.10.11'))
+    parser.add_argument('--host', default=os.getenv('MQTT_HOST', '10.0.40.100'))
     parser.add_argument('--port', type=int, default=int(os.getenv('MQTT_PORT', '1883')))
     parser.add_argument('--timeout', type=float, default=5)
     args = parser.parse_args()
     if not 1 <= args.port <= 65535 or not 0 < args.timeout <= 60:
         parser.error('port must be 1..65535 and timeout > 0 and <= 60 seconds')
     raise SystemExit(check(args.host, args.port, args.timeout))
+
