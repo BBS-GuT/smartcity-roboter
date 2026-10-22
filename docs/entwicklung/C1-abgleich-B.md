@@ -135,7 +135,7 @@ reale Kartenkennungen und Erkennungs-/Abschlusskriterien sind B2-Nachweise.
 
 Die folgenden Tabellen dokumentieren den B-Eingangsvorschlag. Für die spätere
 öffentliche Auftrag-5-Belegung gilt die unten ausdrücklich angenommene
-V3a-Konsolidierung auf `a4c16698ecca19b04a86636783a7ca3c2d26a4ff` vorrangig,
+V3a-Konsolidierung auf `41e46e054af3fb58e4c2e6f1695b7088e494d9d2` vorrangig,
 einschließlich ihrer vollständigen Referenz-/Qualitätsobjekte. Frühere
 Kurzbezeichnungen hier sind keine zusätzliche konkurrierende Schnittstelle.
 
@@ -206,29 +206,36 @@ löscht keine andere. Odometrieschätzung ersetzt keine Schutzbeobachtung.
 
 ## B-Annahme des konkreten V3a-Datenanhangs für Auftrag 5
 
-**B stimmt V3a aus [PR #142 auf exakt
-`a4c16698ecca19b04a86636783a7ca3c2d26a4ff`](https://github.com/BBS-GuT/smartcity-roboter/blob/a4c16698ecca19b04a86636783a7ca3c2d26a4ff/docs/entwicklung/C1-vertragsentscheidungen.md)
-als Datenmodell zur späteren Auftrag-5-Implementierung nur unter den folgenden
-beiden Korrekturvorbehalten zu; keine uneingeschränkt fertige Grundlage.**
-Die vom Manager nachgereichten nativen P1-Befunde zu diesem Head bleiben offen:
+**B nimmt den korrigierten V3a-Datenanhang aus [PR #142 auf exakt
+`41e46e054af3fb58e4c2e6f1695b7088e494d9d2`](https://github.com/BBS-GuT/smartcity-roboter/blob/41e46e054af3fb58e4c2e6f1695b7088e494d9d2/docs/entwicklung/C1-vertragsentscheidungen.md)
+als Datenmodell zur späteren Auftrag-5-Implementierung an.** Die beiden
+Vorbehalte gegenüber `a4c16698` sind in diesem konkreten Dokumentstand
+fachlich erfüllt:
 
-- Kommentar 4346793279: Ein `blocked`-Motion-Paket darf keine Nonzero-Ausgabe
-  als dazugehörige aktuelle Ausgabe führen. B verlangt diese Datenkonsistenz;
-  der Validator erzeugt daraus selbst keinen Nullbefehl.
-- Kommentar 4346793287: Ein `allowed`-Paket darf nach Ablauf der zugeordneten
-  Requestfrist nicht mehr als aktuell verwendbar gelten. B verlangt den
-  Frischebezug gemäß V2, ohne Fristverlängerung durch Auswertung oder Übertragung.
+- Zu 4346793279: `blocked` mit vorhandener gültiger/konsistenter Motion-Ausgabe
+  verlangt exakt `v_m_s=0` und `w_rad_s=0`. Eine abweichende Komponente ist
+  ein Widerspruch, auch historisch. Fehlende Ausgabe bleibt fehlend; keine
+  Erzeugung eines Nullbefehls und kein Stillstandsnachweis durch den Validator.
+- Zu 4346793287: Das äußere `motion.package_use` trennt
+  `current/historical/unknown` vom unveränderlichen Auswertungspaket. Aktuelles
+  `allowed` oder aktuelle Nonzero-Ausgabe verlangt aufgelösten, gebundenen,
+  nicht überholten Wunsch mit `request.generated <= evaluated <= generated <
+  request.valid_until`; die tatsächliche Ausgabe liegt dazwischen. Nonzero
+  verlangt zusätzlich geliefertes `allowed`. Fehlender Kontext bleibt
+  `unknown`, Fristablauf erlaubt nur historische Diagnose ohne aktuelle
+  Laufzeitprojektion. Historische Etikettierung repariert keine schon bei
+  Auswertung ungültige Erlaubnis. Der äußere Verwendungswechsel erfindet keine
+  neue A-Auswertung und verlängert keine Wunschfrist.
 
-C korrigiert diese Regeln. Erst am ausdrücklich neu gelieferten C-Head erfolgt
-der erneute fachliche Abgleich und ein konkretes Votum zur korrigierten Fassung.
-Bis dahin ist `a4c16698` nicht als fertige Auftrag-5-Grundlage bestätigt.
-Fundament-/V2-Annahmen bleiben unverändert bestehen. Abgeglichen wurden
-ausschließlich dieser Datenanhang und seine vier tabellarischen Fälle mit den
+Aus B bleibt an diesem konkreten Datenanhang keine weitere nötige Feld-/
+Semantikkorrektur für Auftrag 5 offen. Fundament-/V2-Annahmen bestehen fort.
+Abgeglichen wurden ausschließlich der neue Datenanhang, seine vier Fälle
+und die gezielten Konsistenz-/Fristgegenbeispiele mit den
 B-Vorgaben einschließlich `1a1a3e8c22dd52b1adbcd031a482b25b37a720d1` sowie
 den im Anhang beschriebenen A-Vorgaben auf
 `69da13138a9d1215dced02b8ca6b00b9c783c617`. Dies ist keine Anwendungscode-/
-PR-Diffprüfung und keine Zustimmung im Namen von A/C/O. Der sonstige B-Abgleich
-der folgenden Datenbereiche und vier Fälle bleibt unter diesem Vorbehalt stehen.
+PR-Diffprüfung und keine Zustimmung im Namen von A/C/O. Die folgende fachliche
+Annahme bezieht sich auf den korrigierten Head `41e46e0`.
 
 | Datenentscheidung | B-Annahme und Begründung |
 |---|---|
@@ -237,6 +244,7 @@ der folgenden Datenbereiche und vier Fälle bleibt unter diesem Vorbehalt stehen
 | Atomare Pakete | Vollständige `evaluation_ref` bindet Ergebnis, Sperrbild und vorhandene Ausgabe. Änderungen verlangen neue Auswertung; kein Zusammenmischen jeweils neuester Teile durch C. `domain=motion/arm` bezeichnet den Auswertungsbereich, ausschließlich `effect=motion/arm/both` die Sperrwirkung. |
 | Kontrollierter Nullwunsch | Eigene `request_reason`/`command_reason` kollidieren nicht mit Qualitäts-`reason=null`. `NO_REQUEST`, `NO_ARM_REQUEST` und `PROTECTIVE_ACTION_WITHOUT_REQUEST` unterscheiden belegte Fälle; unbekannte Referenzen bleiben unbekannt und ergeben kein `allowed`. Keine Ausgabe aus Nullwunsch oder Phase erfinden. |
 | Inaktivität | Vollständige Nullbelegung erhält gebundene Produzenten-/Uhridentität; `arm.request=null` entwertet den alten Wunsch trotz Restfrist. Neuer Vorgang braucht neue Commandsequenz. Historische Ausgabe/Ack/Messung/Freigabe bleiben beim alten Bezug; kein aktueller Erfolg oder physischer Aktorstopp daraus. |
+| Paketfrische | `motion.package_use` hat eigene äußere Bewertung; nach Ablauf unveränderte historische Diagnose mit `REQUEST_EXPIRED`, keine aktuelle Freigabe/Ausgabe oder Runtimeprojektion. Aktuelle Nonzero-Ausgabe erfordert frischen B-Wunsch und geliefertes `allowed`; C berechnet keine Motorfreigabe. |
 
 | Synthetischer Fall | Fachliches B-Votum |
 |---|---|
@@ -250,6 +258,15 @@ zulässigen verkürzten JSON-IDs. Alle vier Beispiele sind tabellarische
 Projektionen, keine geprüften v2-Fixtures. Dokumentarisch geprüft: Rollen-/
 Vorgangs-/Objektbindung, Zeitfortschreibung, Qualitäts-/Nullbelegung sowie
 getrennte Wunsch-/Ausgabe-/Nachweisbedeutung; keine Softwaretests konstruiert.
+
+Auch die neuen Gegenbeispiele sind aus B-Sicht angenommen: `blocked` mit
+(0,0) ist konsistent, mit (0.1,0) oder (0,0.2) widersprüchlich. Beim rein
+synthetischen Ablaufzeitpunkt 101 ist ein bei 100 ausgewertetes/ausgegebenes
+`allowed` im Zustand 100.5 noch aktuell darstellbar, im Zustand 101 und 102
+nicht. Unverändertes Paket bei 102 nur historisch; erst bei 101 ausgewertetes
+`allowed` bleibt auch historisch als gültige Erlaubnis unzulässig. Der belegte
+Nullwunsch-Halt bleibt aktuell darstellbar, ohne erfundene Frist oder Bewegung.
+Diese dokumentarischen Vergleiche sind keine ausgeführten Vertragstests.
 
 Restbedingungen: A/O bestätigen ihre eigene Annahme; O vergibt Auftrag 5 mit
 Dateibesitz. Armfreigabebesitzer, Politik/#8, reale Pflichtquellen, Fristen,
@@ -266,7 +283,7 @@ Beispielen und funktionalen Nachweisen; keine Geräte-/Broker-/Handlungsfreigabe
 | 2 Details | Angenommen mit explizitem gegebenem Register-/Alterskontext und `age_budget_unknown` wie oben. Historische Registrierung und Farb-/Tiefenpaarung prüfen; kein Payloadspeicher oder Brokerbetrieb. |
 | 3 Fahrwunsch | Angenommen einschließlich Anti-Replay-Höchststand aus aktuellem #142. Unabhängigen B-/C-Start, A-Neubindung, Umordnung 8/10/9/11 und unveränderte Fristen funktional nachweisen. Reales Maximalbudget bleibt A/B/O-Entscheidung. |
 | 4 Historie | B nimmt 16 Einträge im Zustand, sichtbare Kapazitätsverwerfung, Status-/Reset-/Kartenregeln an; Ergänzung zur Lückenerholung oben. Kein B2-Wegwahl- oder Kartenabnahmenachweis. |
-| 5 Räumen/Arm | B stimmt V3a auf `a4c16698ecca19b04a86636783a7ca3c2d26a4ff` nur unter Korrekturvorbehalt zu den zwei oben genannten P1-Datenlücken zu. Neuer expliziter C-Head und dessen fachlicher Abgleich stehen aus; keine fertige Auftrag-5-Grundlage. Sonstige konsolidierte Datenbelegung hat Vorrang vor B-Kurzvorschlägen. A/O-Annahme und O-Vergabe bleiben separat. |
+| 5 Räumen/Arm | B nimmt den korrigierten V3a-Datenanhang auf `41e46e054af3fb58e4c2e6f1695b7088e494d9d2` einschließlich vier Fällen und Gegenbeispielen als Datenmodell an. Beide früheren P1-Vorbehalte sind fachlich erfüllt, keine weitere B-Datenkorrektur offen. Konsolidierte Belegung hat Vorrang vor B-Kurzvorschlägen. A/O-Annahme und O-Vergabe bleiben separat; keine Implementierungs-/Gesamtvertragsannahme. |
 | 6 Gesamtannahme | Vorgehen angenommen; erst am gesondert gelieferten Gesamtcommit Vertrag, v2-Schema, Beispiele und tatsächliche funktionale Nachweise fachlich abgleichen. Diese erste Entscheidung ersetzt diesen zweiten Schritt nicht. |
 
 Echte offene Entscheidung an den Manager: Armfreigabebesitzer A/B festlegen und
