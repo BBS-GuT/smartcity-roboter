@@ -105,6 +105,8 @@ class Lichter:
         """lf/ki: neueste Meldung (dict) oder None, wenn das Programm nicht laeuft/zu alt."""
         self.jetzt = jetzt
         richtung, grund = self.ausloeser(lf, ki) if lf else (None, '')   # ohne Linienfolger faehrt nichts
+        if not lf:
+            self.kandidat = None    # nach einem Ausfall wieder volle 'bestaetigen' s mit frischen Meldungen abwarten
         if richtung:
             if richtung != self.blinker:
                 self.blinker, self.seit = richtung, jetzt

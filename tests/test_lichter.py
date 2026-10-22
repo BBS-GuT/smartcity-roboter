@@ -111,6 +111,15 @@ class Blinker(unittest.TestCase):
         zurueck = {'aktion': 'manoever', 'manoever': {'lin': -0.05, 'dreh': 0.0, 'text': 'zurueck'}}
         self.assertIsNone(lichter.Lichter().schritt(0.0, lf(GERADE), zurueck)['blinker'])
 
+    def test_nach_ausfall_neu_bestaetigen(self):
+        # Codex #155: fehlt der Linienfolger-Status zwischendurch, darf die alte Bestaetigungszeit nicht weitergelten
+        li = lichter.Lichter()
+        fahre(li, 0.0, 0.3, ECKE_LINKS)
+        self.assertIsNone(li.schritt(0.3, None, None)['blinker'])
+        b = fahre(li, 5.0, 6.0, ECKE_LINKS)
+        self.assertIsNone(b[4])
+        self.assertEqual(b[5], 'links')
+
     def test_ohne_linienfolger_aus(self):
         li = lichter.Lichter(SOFORT)
         li.schritt(0.0, lf(ECKE_LINKS), None)
