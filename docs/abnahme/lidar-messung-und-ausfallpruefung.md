@@ -34,13 +34,16 @@ Parameter und die verbleibenden physikalischen Grenzen. Die im offenen
 Fahr-Gehirn-Simulatorergebnisse betreffen einen separaten Modus und sind kein
 realer Haltbeleg für den normalen Fahrablauf.
 
-**Offener Software-Nachtrag zur Basis:** Der #58-Orchestrator hat auf obiger
+**Software-Nachtrag zur Basis:** Der #58-Orchestrator hat auf obiger
 Basis mit ideal gültigen Vollscans reproduziert, dass vollständig fehlende
 Geometrie in beiden Verbrauchern auf den bisherigen Sensorursprungs-Pfad
-zurückfällt, auch nach Entfernen aller Geometrieangaben. Die Korrektur erfolgt
-separat im Elternpaket. Vor Geräteprüfung deren tatsächlichen Liefer-SHA und
-Regressionsergebnis nachtragen. Fehlende Pose/Hülle muss halten; S07 ist dieses
-Sollkriterium und keine Behauptung, dass die Basis es bereits vollständig erfüllt.
+zurückfällt, auch nach Entfernen aller Geometrieangaben. Die Korrektur aus
+[PR #176](https://github.com/BBS-GuT/smartcity-roboter/pull/176), geprüft am Head
+`ac56051b438375ea63220120d4158837d2b690cb`, ist inzwischen im Sammelbranch
+`fix/gb-58-lidar` integriert. Vor Geräteprüfung die Korrektur im tatsächlich
+installierten SHA bestätigen. Fehlende Pose/Hülle muss halten; die ursprüngliche
+Basis erfüllt S07 noch nicht vollständig. Auch dieser Softwarestand ist keine
+Gerätefreigabe.
 
 ## #66: Messung, Annahme und offene Größen getrennt führen
 
@@ -113,8 +116,12 @@ Offene Grenzen erlauben keinen bewegten Versuch.
 Alle Zeilen sind **vorbereitet/offen**, nicht durchgeführt. Pro Zeile und
 Wiederholung den Prüfkopf samt installiertem SHA referenzieren und das unten
 definierte Ergebnisblatt ausfüllen. Quelle A/B sind Platzhalter für die beiden
-privat bestätigten Pflichtquellen. Jeweils die andere Quelle gültig/frisch halten,
-damit sie den Fehler nicht verdecken kann. Statische Fehlerfälle nur im isolierten
+privat bestätigten Pflichtquellen. Bei einzelnen Quellenfehlern die jeweils andere
+Quelle gültig/frisch halten, um den Pflichtkanalfehler isoliert zu prüfen.
+Gültig/frisch bedeutet dabei nicht, dass diese Quelle jede benötigte Zelle frei
+misst. Für Abdeckungsfälle zählt das gemeinsame Messfeld: Eine von einer Quelle
+gemessene freie Zelle kann die Blindzone der anderen abdecken; beide Pflichtkanäle
+müssen weiterhin gültig/frisch sein. Statische Fehlerfälle nur im isolierten
 Prüfaufbau ohne Fahr-/Armbefehle erzeugen; keinen Test-Publisher an einen aktiven
 Motorweg anschließen. Eine Ausgangsmessung in einem getrennten Softwareaufbau
 als solche kennzeichnen.
@@ -128,7 +135,8 @@ als solche kennzeichnen.
 | S05 statisch | Frisch empfangen, Header alt, null, zukünftig; jeweils A/B | Aufnahme ungültig/alt, Halt trotz frischem Empfang |
 | S06 statisch | Doppelte bzw. rückläufige Header; Uhrsprung | Keine künstliche Frische; gültigen Fortschritt und Ablauf der bisherigen Aufnahme getrennt beobachten |
 | S07 statisch | Falscher/leerer Frame, unbekannte/widersprüchliche Pose oder Quellenliste | Kein geometrischer Freiraumnachweis; Halt statt Ersatzpose |
-| S08 statisch | Gültige Punkte neben Fahrbereich, Messlücke darin; äußerer Nahblindbereich | Unbekannter relevanter Bereich hält; globale Gültigkeitsquote reicht nicht |
+| S08 statisch, negative Kontrolle | Beide Kanäle frisch/gültig mit gültigen Punkten neben dem Fahrbereich; dieselbe benötigte Zelle im Fahrbereich bzw. äußeren Nahbereich wird von keiner Quelle gemessen | Gemeinsame Abdeckungslücke bleibt unbekannt und hält; globale Gültigkeitsquote reicht nicht |
+| S08+ statisch, positive Gegenkontrolle | Beide Kanäle frisch/gültig; eine Quelle ist für dieselbe benötigte Zelle blind, die zweite misst diese Zelle vollständig frei; übriger benötigter Bereich ebenfalls gemeinsam frei gemessen | Keine zusätzliche Abdeckungssperre wegen der Blindzone der einzelnen Quelle; übrige Schutz- und Freigabebedingungen bleiben erforderlich |
 | S09 statisch | Bekanntes Ziel vor/hinter der Hülle innerhalb und außerhalb des relevanten Bereichs | Transformation/Seite korrekt; innen Hindernishalt, außerhalb kein falscher Hindernisbeleg; übrige Freigabebedingungen weiter nötig |
 | S10 statisch | Ziel bei Seitwärtsfahrt/Drehung/Abbiegebogen an äußerer Ecke | Gesamte überstrichene Hülle prüfen; kritischer Treffer oder Lücke hält den betreffenden Vektor |
 | S11 statisch | Fehler entfernt, gültige frische Daten kehren zurück | Datenfehler darf erst nach vollständiger erneuter Prüfung entfallen; keine START-/STOPP-Sperre allein dadurch lösen |
