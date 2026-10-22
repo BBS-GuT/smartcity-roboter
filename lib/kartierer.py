@@ -764,7 +764,7 @@ class Kartierer:
 
     def warnungen(self):
         w = self.kal.warnungen()
-        if self.kalibrierung_hinweis:
+        if self.kalibrierung_hinweis and not (self.kal.einbau_gelernt or self.kal.spiegeln):
             w.append(self.kalibrierung_hinweis)
         anteil = self.sicher_anteil(30.0)
         if anteil is not None and len(self.diagnose) > 100 and anteil < 0.5:

@@ -100,6 +100,7 @@ class Kalibrierungsquelle(unittest.TestCase):
         k = self.node('/scan1')
         # Synthetisches Ergebnis einer neuen Einbauschaetzung, kein Messnachweis.
         k.kr.kal.einbau, k.kr.kal.einbau_gelernt = (0.1, 0.0, 0.0), True
+        self.assertFalse(any('passt nicht zu Hauptquelle' in w for w in k.kr.warnungen()))
         k._speichern()
         self.assertEqual(k.karte.kalibrierung['lidar_quelle'], '/scan1')
         neu = self.node('/scan1')
@@ -117,6 +118,13 @@ class Kalibrierungsquelle(unittest.TestCase):
         k.kr.kal.spiegeln = True
         k._speichern()
         self.assertTrue(self.node().kr.kal.spiegeln)
+
+    def test_neue_spiegelung_entfernt_alten_herkunftshinweis(self):
+        self.gelernt()
+        k = self.node('/scan1')
+        self.assertTrue(any('passt nicht zu Hauptquelle' in w for w in k.kr.warnungen()))
+        k.kr.kal.spiegeln = True
+        self.assertFalse(any('passt nicht zu Hauptquelle' in w for w in k.kr.warnungen()))
         fremd = self.node('/scan1')
         self.assertFalse(fremd.kr.kal.spiegeln)
         fremd._speichern()
