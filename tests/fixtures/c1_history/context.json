@@ -1,0 +1,39 @@
+{
+  "binding": {
+    "robot_id": "RM01",
+    "producer_id": "demo-b-navigation",
+    "producer_boot_id": "demo-b-history-a",
+    "time_basis_id": "demo-clock-a",
+    "initialized": true
+  },
+  "map": {
+    "map_version": "demo-history-map-v1",
+    "sections": [
+      {
+        "section": "demo-S-AB",
+        "node": "demo-B",
+        "approach_from": "demo-A",
+        "allowed_exits": [
+          "demo-C"
+        ]
+      },
+      {
+        "section": "demo-S-BC",
+        "node": "demo-C",
+        "approach_from": "demo-B",
+        "allowed_exits": [
+          "demo-A"
+        ]
+      },
+      {
+        "section": "demo-S-CA",
+        "node": "demo-A",
+        "approach_from": "demo-C",
+        "allowed_exits": [
+          "demo-B"
+        ]
+      }
+    ]
+  },
+  "confirmed_new_history_start": false
+}

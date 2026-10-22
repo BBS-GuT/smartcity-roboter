@@ -1,0 +1,18 @@
+{
+  "context_id": "synthetic-c1j-context-1",
+  "robot_id": "RM02",
+  "state_boot_id": "state-B-0001",
+  "time_basis_id": "clock-1",
+  "age_budgets_s": {"color": 0.2, "scan": 0.2},
+  "registrations": [
+    {"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-A","time_basis_id":"clock-1"},
+    {"robot_id":"RM02","source":"lidar_0","source_id":"scan-test","producer_id":"lidar-driver","producer_boot_id":"lidar-A","time_basis_id":"clock-1"},
+    {"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-old","time_basis_id":"clock-old"}
+  ],
+  "records": [
+    {"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-A","frame_id":"rgb-10","channel":"color","data_id":"color-10","format":"example/rgb","captured_at_s":1792653604.8,"time_basis_id":"clock-1","captured_mono_s":104.8,"received_mono_s":104.9},
+    {"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-A","frame_id":"rgb-8","channel":"color","data_id":"color-8","format":"example/rgb","captured_at_s":1792653603,"time_basis_id":"clock-1","captured_mono_s":103,"received_mono_s":103.1},
+    {"robot_id":"RM02","source":"lidar_0","source_id":"scan-test","producer_id":"lidar-driver","producer_boot_id":"lidar-A","frame_id":"scan-23","channel":"scan","data_id":"scan-data-23","format":"example/scan","captured_at_s":1792653604.9,"time_basis_id":"clock-1","captured_mono_s":104.9,"received_mono_s":104.95},
+    {"robot_id":"RM02","source":"camera","source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-old","frame_id":"rgb-9","channel":"color","data_id":"color-9","format":"example/rgb","captured_at_s":1792650000,"time_basis_id":"clock-old","captured_mono_s":104.9,"received_mono_s":104.95}
+  ]
+}

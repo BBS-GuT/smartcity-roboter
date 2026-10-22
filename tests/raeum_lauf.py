@@ -50,7 +50,8 @@ class Lauf:
         self.t = round(self.t + 0.1, 3)
         if neu:                          # neues Bild: Nummer und Aufnahmezeit neu; sonst beides eingefroren
             self.nr, self.bild_zeit = self.nr + 1, self.t
-        daten = {'bild_nr': self.nr, 'bild_zeit': self.bild_zeit, 'ampel': None, 'stoppschild': False,
+        daten = {'bild_nr': self.nr, 'bild_zeit': self.bild_zeit, 'aufnahme': self.bild_zeit, 'ampel': None,
+                 'stoppschild': False,
                  'lidar': float('inf'), 'lidar_hinten': 1.0, 'tiefe_hindernis': False, 'strecke': self.strecke,
                  'strecke_gemessen': True, 'weg': [(0.05 * k, 0.0) for k in range(1, 12)],
                  'objekte': [] if akteur is None else [{'name': akteur, 'im_weg': im_weg}]}
