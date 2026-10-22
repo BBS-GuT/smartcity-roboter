@@ -42,7 +42,8 @@ class Lauf:
         for _ in range(n):
             self.t += 0.1
             self.nr += 1
-            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None, 'stoppschild': False,
+            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'aufnahme': self.t, 'objekte': [], 'ampel': None,
+                     'stoppschild': False,
                      'lidar': float('inf'), 'lidar_breit': 1.0, 'lidar_hinten': 1.0,
                      'lidar_xy': WAND, 'lidar_luecken': GEMESSEN, 'zebra': {'abstand': self.abstand}}
             daten.update(w)
@@ -104,7 +105,7 @@ class Zebrazone(unittest.TestCase):
                 folge = []
                 for nr in range(1, 61):
                     t += 0.1
-                    folge.append(z.schritt(t, {'bild_nr': nr, 'bild_zeit': t, 'objekte': [], 'lidar_breit': 1.0,
+                    folge.append(z.schritt(t, {'bild_nr': nr, 'bild_zeit': t, 'aufnahme': t, 'objekte': [], 'lidar_breit': 1.0,
                                                'lidar_xy': WAND, 'lidar_luecken': luecken}))
                 if frei:
                     self.assertIsNone(folge[-1])                       # Ablauf fertig: Ueberweg frei
