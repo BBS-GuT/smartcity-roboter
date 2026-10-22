@@ -206,6 +206,11 @@ class Sicht:
         """
         length += self.hull[0]  # the body front sweeps beyond the base_link path endpoint
         half_width = max(half_width, self.hull[2], self.hull[3])
+        if weg and any(abs(p[1]) > 1e-9 for p in weg):
+            # During turns, corners sweep outwards along the whole path, not
+            # merely beyond its endpoint. The circumscribed disk covers every
+            # intermediate orientation, including rear corners.
+            half_width = max(half_width, math.hypot(max(self.hull[:2]), max(self.hull[2:])))
         reach = max(length, 0.2) + half_width
         try:
             low, high = _zellen((-half_width, length + half_width, -reach, reach), self.hull)

@@ -117,6 +117,15 @@ class FreeSpace(unittest.TestCase):
         self.assertAlmostEqual(obj['abstand'], .9)
         self.assertIsNone(gap)
 
+    def test_corners_sweep_outside_centerline_width_during_a_curve(self):
+        path = [(0.4, 0.0), (0.4, 0.4)]
+        points = np.array([[.62, .05]])
+        self.assertIsNone(lidar.fahrschlauch(points, path, halbe_breite=.15, laenge=1.0))
+        view = fusion.Sicht((self.field(scan(start=-180, count=360)),), (.2, .2, .15, .15), points)
+        obj, gap = view.pfad(path, .15, .8)
+        self.assertIsNotNone(obj)
+        self.assertIsNone(gap)
+
     def test_rear_wall_leaves_shorter_proven_retreat(self):
         # Full synthetic view with a wall 0.5 m behind a 0.2 m rear body extent.
         f = self.field(scan(start=-180, count=360))

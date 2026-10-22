@@ -29,6 +29,8 @@ einem Treffer wird dabei niemals als frei freigegeben.
 Der frühere Nahkegel zum Ausblenden vermuteter eigener Teile entfällt in diesem
 Pfad: Außerhalb der bestätigten Fahrzeugfläche zählt der ganze Fahrkorridor.
 Die Vorschau reicht um die Fahrzeugfront über den Pfad der Fahrzeugmitte hinaus.
+In Kurven schützt ein Korridor mit mindestens dem umschriebenen Eckradius der
+ganzen Hülle alle Zwischenorientierungen entlang des Pfads, einschließlich Heck.
 Die Rückraumprüfung liefert nur die tatsächlich belegte freie Strecke bis zur
 ersten unbekannten Zelle oder zum ersten Treffer; ein entferntes Hindernis löscht
 den davor gemessenen kurzen Rückweg nicht.

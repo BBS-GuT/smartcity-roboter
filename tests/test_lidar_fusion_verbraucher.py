@@ -207,6 +207,20 @@ class ConsumerGeometry(unittest.TestCase):
         self.assertLessEqual(distance, .61)
         self.assertAlmostEqual(obj['vor'], .6, delta=.01)
 
+    def test_actual_ki_sees_outer_curve_corner(self):
+        z = self.central()
+        z.weg_voraus = lambda: [(0.4, 0.0), (0.4, 0.4)]
+        feed(z)
+        m = message(1)
+        angle = math.atan2(.1, .52)
+        k = round((angle - m.angle_min) / m.angle_increment)
+        m.ranges[k] = math.hypot(.52, .1)
+        z._scan(m, '/scan1', 1)
+        distance, obj, _ = z.lidar_pruefen()
+        self.assertIsNotNone(distance)
+        self.assertIsNotNone(obj)
+        self.assertLess(distance, float('inf'))
+
     def test_a_genuine_gap_before_an_obstacle_still_holds_unknown(self):
         z = self.central()
         feed(z)
