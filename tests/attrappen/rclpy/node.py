@@ -5,6 +5,12 @@ class _Log:
 class _Pub:
     def __init__(self, t): self.t = t; self.n = 0; self.letzte = None
     def publish(self, m): self.n += 1; self.letzte = m
+class _Zeitpunkt:
+    def __init__(self, ns): self.nanoseconds = ns
+class _Uhr:  # wie die ROS-Uhr ohne use_sim_time: Systemzeit (time.time, in Tests patchbar)
+    def now(self):
+        import time
+        return _Zeitpunkt(int(round(time.time() * 1e9)))
 class _Wert:
     def __init__(self, v): self.value = v
 class Node:
@@ -20,6 +26,7 @@ class Node:
     def destroy_subscription(self, s): pass
     def create_timer(self, p, cb, **k): return None
     def get_logger(self): return _Log()
+    def get_clock(self): return _Uhr()
     def get_node_names(self): return ['YB_Node', 'joy_node']
     def get_topic_names_and_types(self): return []
     def count_publishers(self, t): return 1
