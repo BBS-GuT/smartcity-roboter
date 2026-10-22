@@ -1,0 +1,156 @@
+{
+  "robot_id": "RM02",
+  "time_basis_id": "clock",
+  "generated_mono_s": 100,
+  "runtime": {
+    "evaluation_ref": null,
+    "stop_latched": null,
+    "fault_latched": null,
+    "hold_reasons": []
+  },
+  "motion": {
+    "request": null,
+    "output": null,
+    "release": {
+      "owner_ref": null,
+      "decision_seq": null,
+      "evaluation_ref": null,
+      "time_basis_id": null,
+      "evaluated_mono_s": null,
+      "request_ref": null,
+      "output_ref": null,
+      "decision": "unknown",
+      "request_reason": "REQUEST_REFERENCE_UNKNOWN",
+      "output_reason": "OUTPUT_UNKNOWN",
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "blocks": {
+      "producer_id": null,
+      "producer_boot_id": null,
+      "seq": null,
+      "evaluation_ref": null,
+      "time_basis_id": null,
+      "evaluated_mono_s": null,
+      "entries": null,
+      "stop_latched": {
+        "value": null,
+        "status": "unknown",
+        "reason": "NOT_INITIALIZED"
+      },
+      "fault_latched": {
+        "value": null,
+        "status": "unknown",
+        "reason": "NOT_INITIALIZED"
+      },
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "package_use": {
+      "mode": "unknown",
+      "reason": "NOT_INITIALIZED",
+      "evaluation_ref": null
+    }
+  },
+  "arm": {
+    "request": null,
+    "output": null,
+    "release": {
+      "owner_ref": null,
+      "decision_seq": null,
+      "evaluation_ref": null,
+      "time_basis_id": null,
+      "evaluated_mono_s": null,
+      "command_ref": null,
+      "output_ref": null,
+      "decision": "unknown",
+      "command_reason": "COMMAND_REFERENCE_UNKNOWN",
+      "output_reason": "OUTPUT_UNKNOWN",
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "blocks": {
+      "producer_id": null,
+      "producer_boot_id": null,
+      "seq": null,
+      "evaluation_ref": null,
+      "time_basis_id": null,
+      "evaluated_mono_s": null,
+      "entries": null,
+      "stop_latched": {
+        "value": null,
+        "status": "unknown",
+        "reason": "NOT_INITIALIZED"
+      },
+      "fault_latched": {
+        "value": null,
+        "status": "unknown",
+        "reason": "NOT_INITIALIZED"
+      },
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "package_use": {
+      "mode": "unknown",
+      "reason": "NOT_INITIALIZED",
+      "evaluation_ref": null
+    },
+    "ack": null,
+    "measured": {
+      "measurements": null,
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "load": {
+      "measurements": null,
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    }
+  },
+  "clearing": {
+    "producer_id": "b",
+    "producer_boot_id": "b-start",
+    "time_basis_id": "clock",
+    "status": "valid",
+    "reason": null,
+    "phase": "greifen",
+    "execution_status": "laufend",
+    "result": "offen",
+    "operation_id": "op",
+    "started_mono_s": 98,
+    "updated_mono_s": 100,
+    "object_ref": {
+      "robot_id": "RM02",
+      "producer_id": "objects",
+      "producer_boot_id": "objects-start",
+      "object_id": "object"
+    },
+    "abort_reason": null,
+    "result_reason": null,
+    "interruption_reason": null,
+    "interrupted_mono_s": null,
+    "verification_ref": null,
+    "travel_pose_ref": null,
+    "observation": null,
+    "estimate": null
+  },
+  "camera_pose": {
+    "measurements": null,
+    "status": "unknown",
+    "reason": "NOT_INITIALIZED"
+  },
+  "protection": {
+    "policy_id": null,
+    "policy_version": null,
+    "evidence_ref": null,
+    "status": "unknown",
+    "reason": "NOT_INITIALIZED"
+  },
+  "sensor_requirements": {
+    "matrix_id": null,
+    "matrix_version": null,
+    "evidence_ref": null,
+    "status": "unknown",
+    "reason": "NOT_INITIALIZED"
+  }
+}
