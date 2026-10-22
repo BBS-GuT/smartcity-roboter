@@ -202,9 +202,19 @@ laufende Empfangsschleife oder A-/B-Adapter. Ein formal gültiger Wunsch
 im Zustand, ältester zuerst. Diese Puffergröße ist ein Vorschlag, keine
 Anforderung oder gemessene Größe. `section`, `node`, `approach_from`, `exit_to`
 beziehen sich auf dieselbe `map_version`; ausgehender Abschnitt zählt noch
-nicht als befahren. `entry_seq` streng aufsteigend, Bestätigungszeiten nicht
+nicht als befahren. `entry_seq` lückenlos aufeinanderfolgend, Bestätigungszeiten nicht
 abnehmend und nicht nach Zustandserzeugung. Kapazitätsverlust ist sichtbar
 in `dropped_entries`, ohne Neunummerierung. Erfassungslücken sind davon getrennt.
+
+Präzisierung zu C1g: In einem gültigen nichtleeren Puffer gilt für jedes
+Indexelement `i` ab 0: `entries[i].entry_seq = dropped_entries + i`.
+Die älteste Sequenz entspricht also exakt der Zahl ausschließlich wegen
+Kapazität verworfener Einträge. Bei weniger als 16 Einträgen ist
+`dropped_entries = 0`; bei positiver Verwerfungszahl sind genau 16 Einträge
+vorhanden. Gültig leer hat immer Zähler 0. Andere Löschungen oder Lücken
+werden als Erfassungslücke `invalid`, nicht als Kapazitätsverlust kaschiert.
+Beispiele: `[0, 2]` ist ungültig; nach dem 17. Abschluss sind `[1, ..., 16]`
+mit `dropped_entries=1` gültig, dieselbe Folge mit Zähler 0 nicht.
 
 Initialisiert leer: `valid`, `entries=[]`, `dropped_entries=0`. Nicht verfügbar:
 `missing`, Grund, Nutzwerte `null`; widersprüchlich/Erfassungslücke: `invalid`,
@@ -342,7 +352,9 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    bestehende Zustandsfixtures nur dieses Feld; neue
    `tests/test_c1_fahrhistorie.py`, `tests/fixtures/c1_history/*.json`.
    Prüfen: gültig leer versus fehlend, 16/17 Einträge, sichtbare Verwerfung,
-   doppelte/rückläufige Sequenz/Zeit, fremde Karte/Uhr, B-Reset und reiner
+   doppelte/rückläufige Sequenz/Zeit, Sequenzlücke `[0, 2]`, falsche Zuordnung
+   älteste Sequenz/Verwerfungszahl, gültige Folge 1–16 mit Verwerfungszahl 1,
+   fremde Karte/Uhr, B-Reset und reiner
    C-Neustart ohne neue Einträge. Gegebene synthetische Kartenreferenzen;
    keine Erzeugung bestätigter Fahrten oder B2-Wegwahl implementieren.
 5. **Räum-/Armzustand als Daten (#18, C mit A/B/O).**
