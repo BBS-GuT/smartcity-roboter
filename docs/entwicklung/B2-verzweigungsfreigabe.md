@@ -21,6 +21,7 @@ freigegebene gerichtete Regelkarte und keine reale Knoten-/Zufahrtsbrücke.
 | Bezug | Gerätekennung, eindeutige Startkennung, Quellen-/Belegkennung einschließlich Karten-/Regelversion, bestätigter Knoten, bestätigte eigene Zufahrt, eindeutige Anfahrtkennung. Alle sind nichtleere interne Kennungen; synthetische Kennungen nur im Test. |
 | Beobachtung | Monoton steigende Sequenz, lokale monotone Aufnahmezeit und explizite Gültigkeitsdauer. Endliche Zeitwerte; Zukunft, überschrittene Gültigkeit, rückläufige Sequenz oder abweichender erwarteter Geräte-/Start-/Quellenbezug sperren. Duplikate erneuern keine Frische. |
 | Geometrie | Menge stabil zugeordneter sichtbarer Ausgangskennungen, getrennt von Erlaubnis; nur bestätigte Verzweigung, kein Überwegquerbalken. Die Zuordnung Ausgang zu Bildast muss eindeutig sein. |
+| Vollständigkeit vor Wahl | Positiver belegter Nachweis, dass die erwartete Verzweigungsgeometrie vollständig und eindeutig zugeordnet ist. Solange ein erlaubter Ausgang noch nicht geometrisch bestätigt ist oder dieser Nachweis fehlt, `geometrie_unvollstaendig`: keine erste Wahl und kein Zufallszug. Ein einzelnes frühes Bild, Zeitablauf oder Ausbleiben weiterer Arme ist kein Nachweis. |
 | Eigene Spur | Separat positiv bestätigte aktuelle eigene Spur und gültiger Manöverfortschritt im selben Bezug; bleibt nach Einfahrt erforderlich, auch wenn die Verzweigungsform nicht mehr sichtbar ist. Fehlender oder ungültiger Nachweis hält. Keine Ableitung aus Timeout oder Fahrbefehl. |
 | Erlaubnis | `None` bedeutet unbekannt; sonst die für genau diesen Bezug bestätigte Menge nach Regelkarte und Beschilderung, auch leer zulässig. Einfahrtsfreigabe wird separat geprüft. Geometrie ist kein Erlaubnisbeleg. |
 | Einfahrt | Separate aktuelle passende Signal-/Infrastrukturfreigabe und positiv bestätigtes Einfahrtereignis mit identischem Bezug und gewähltem Ausgang. Vor Einfahrt sperrt unbekannte/rote Freigabe. Das bestätigte Ereignis bindet die erteilte Räumfreigabe bis zum Abschluss. |
@@ -53,7 +54,12 @@ C1-Schema noch öffentliche Nachrichten und behauptet keine Laufzeitabbildung.
 ## Zustandsregeln
 
 1. Nur bei gültigem bestätigtem Anfahrtsbezug wird aus
-   `Geometrie ∩ Erlaubnis` gewählt. Ein Ausgang ist eindeutig; mehrere werden mit
+   `Geometrie ∩ Erlaubnis` gewählt. Vor der ersten Wahl müssen die erwartete
+   Geometrie positiv vollständig bestätigt und alle erlaubten Ausgänge
+   geometrisch zugeordnet sein. Ein frühes Bild mit nur A bei erlaubten
+   `{A,B}` wartet ohne Zufallszug; erst die bestätigte vollständige Menge darf
+   wählen. Eine gültig leere erlaubte Schnittmenge bleibt ein eigener Haltgrund.
+   Ein Ausgang ist eindeutig; mehrere werden mit
    eigenem injizierbarem Zufallszustand aus stabil sortierter Menge gewichtet
    gewählt: Gewicht je Ausgang `1 / (1 + bestaetigte_Besuche)`.
    Alle erlaubten Ausgänge bleiben möglich, selten befahrene werden bevorzugt.
