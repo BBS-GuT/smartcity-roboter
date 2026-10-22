@@ -86,6 +86,7 @@ class Auswahl:
         self._verarbeitet = None
         self._jetzt = None
         self.ergebnis = Ergebnis('bereit', None, None)
+        self._fachergebnis = self.ergebnis
 
     @property
     def historie(self):
@@ -140,8 +141,16 @@ class Auswahl:
         if haltgruende:
             return self._halt('schutzstopp')
         if self._verarbeitet == e:
-            return self.ergebnis  # keine neue Frische, kein RNG, kein Zaehler
+            # Das temporaere Schutz-Overlay aendert das fachliche Ergebnis
+            # nicht. Frische/Sequenz wurden oben erneut geprueft; hier wird
+            # weder neu gewaehlt noch ein Abschluss nochmals verarbeitet.
+            self.ergebnis = self._fachergebnis
+            return self.ergebnis
         self._verarbeitet = e
+        self._fachergebnis = self._verarbeiten(e)
+        return self._fachergebnis
+
+    def _verarbeiten(self, e):
         b = e.bezug
         if self._historie is None:
             return self._halt('historie_unbekannt')
@@ -152,7 +161,7 @@ class Auswahl:
             return self._halt('zufall_ungueltig')
         if self._bezug is not None and b != self._bezug:
             return self._halt('anfahrt_konflikt')
-        if self._phase == 'raeumen' and e.spur_bestaetigt is not True:
+        if e.spur_bestaetigt is not True:
             return self._halt('spur_unbestaetigt')
         if e.art == 'abschluss':
             if (self._phase != 'raeumen' or e.bestaetigt is not True

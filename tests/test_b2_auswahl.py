@@ -291,7 +291,7 @@ class Wegwahl(unittest.TestCase):
         a = automat(zufall=Zufall())
         a.schritt(bild(), 1)
         self.assertEqual(a.schritt(bild(2, art='einfahrt', ausgang='A', bestaetigt=True,
-                                       spur_bestaetigt=False), 2).grund, 'einfahrt_unpassend')
+                                       spur_bestaetigt=False), 2).grund, 'spur_unbestaetigt')
         a.schritt(bild(3, art='einfahrt', ausgang='A', bestaetigt=True), 3)
         for seq, spur in ((4, False), (5, None)):
             self.assertEqual(a.schritt(bild(seq, erkannt=False, geometrie=frozenset(),
@@ -377,6 +377,56 @@ class Wegwahl(unittest.TestCase):
         self.assertEqual(a.schritt(replace(e, einfahrtsfreigabe=False), 3).grund,
                          'duplikat_widerspruechlich')
         self.assertEqual(a.schritt(e, 3.1).lage, 'gewaehlt')
+
+    def test_annaeherung_braucht_positiven_spurnachweis_vor_wahl(self):
+        for spur in (False, None):
+            with self.subTest(spur=spur):
+                rng = Zufall()
+                a = automat(zufall=rng)
+                r = a.schritt(bild(spur_bestaetigt=spur), 1)
+                self.assertEqual((r.lage, r.ausgang, r.grund),
+                                 ('halt', None, 'spur_unbestaetigt'))
+                self.assertEqual((rng.zuege, a.historie), (0, {}))
+                self.assertEqual(a.schritt(bild(2), 2).lage, 'gewaehlt')
+                self.assertEqual(rng.zuege, 1)
+                r = a.schritt(bild(3, spur_bestaetigt=spur), 3)
+                self.assertEqual((r.lage, r.ausgang, r.grund),
+                                 ('halt', 'A', 'spur_unbestaetigt'))
+                self.assertEqual(rng.zuege, 1)
+
+    def test_temporaeres_hindernisoverlay_stellt_duplikatergebnis_wieder_her(self):
+        rng = Zufall()
+        a, e = automat(zufall=rng), bild()
+        fachlich = a.schritt(e, 1)
+        for jetzt in (1.1, 1.2):
+            self.assertEqual(a.schritt(e, jetzt, haltgruende=('Hindernis',)).grund, 'schutzstopp')
+        self.assertEqual(a.schritt(e, 1.3), fachlich)
+        self.assertEqual(a.ergebnis, fachlich)
+        self.assertEqual((rng.zuege, a.historie), (1, {}))
+        self.assertEqual(a.schritt(e, 1.4, haltgruende=('externe_STOPP_Sperre',)).grund,
+                         'schutzstopp')  # Automat quittiert externe Sperre niemals
+        self.assertEqual(a.schritt(e, 2.01).grund, 'beobachtung_veraltet')
+        self.assertEqual(rng.zuege, 1)
+
+    def test_overlay_erhaelt_fachlichen_halt_und_einmaligen_abschluss(self):
+        a = automat(zufall=Zufall())
+        a.schritt(bild(), 1)
+        luecke = bild(2, erkannt=False)
+        fachhalt = a.schritt(luecke, 2)
+        self.assertEqual(fachhalt.grund, 'erkennung_fehlt')
+        a.schritt(luecke, 2.1, haltgruende=('Hindernis',))
+        self.assertEqual(a.schritt(luecke, 2.2), fachhalt)
+        a.schritt(bild(3, art='einfahrt', ausgang='A', bestaetigt=True), 3)
+        aus = bild(4, art='abschluss', ausgang='A', bestaetigt=True)
+        fertig = a.schritt(aus, 4)
+        self.assertEqual(fertig.lage, 'abgeschlossen')
+        a.schritt(aus, 4.1, haltgruende=('Hindernis',))
+        self.assertEqual(a.schritt(aus, 4.2), fertig)
+        self.assertEqual(sum(a.historie.values()), 1)
+        self.assertEqual(a.schritt(replace(aus, ausgang='C'), 4.3).grund,
+                         'duplikat_widerspruechlich')
+        self.assertEqual(a.schritt(aus, 5.01).grund, 'beobachtung_veraltet')
+        self.assertEqual(sum(a.historie.values()), 1)
 
 
 if __name__ == '__main__':
