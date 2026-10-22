@@ -7,7 +7,7 @@
 #   lade_json(text)    -> dict, wirft bei NaN/Unendlich oder ungueltigem Datensatz
 #   Start              -> Startkennung + Sequenz eines Programmlaufs
 #   vergleiche(a, b)   -> wie zwei Datensaetze zueinander stehen (Geraet/Start/Sequenz)
-#   alter_s(d, jetzt)  -> Datenalter nach monotoner Uhr desselben Starts
+#   alter_s(d, jetzt)  -> exaktes Datenalter in bestaetigter gleicher Uhreninstanz
 # Feldbeschreibung: docs/schnittstellen-grundbetrieb.md. JSON-Schema (nur Struktur, fuer externe Leser):
 # schemas/grundbetrieb-v2.schema.json. Die fachlichen Regeln (R1-R11) prueft nur pruefe().
 # Alle Beispiele sind synthetisch (tests/fixtures/grundbetrieb/), keine Messwerte eines Geraets.

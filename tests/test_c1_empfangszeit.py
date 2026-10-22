@@ -28,7 +28,7 @@ def beispiel():
     with (ROOT / 'tests/fixtures/grundbetrieb/fahrt.json').open(encoding='utf-8') as f:
         d = V.lade_json(f.read())
     # Eigene Testeingabe, unabhaengig von der spaeteren Fixture-Ergaenzung.
-    # Ein Empfang 0.125 s vor Erzeugung ist hier ausdruecklich synthetisch gesetzt.
+    # Ein Empfang 0.005 s vor Erzeugung ist hier ausdruecklich synthetisch gesetzt.
     for q in d['sensors'].values():
         q[FIELD] = None if q['status'] == 'missing' else d['generated_mono_s'] - Decimal('0.005')
     return d
