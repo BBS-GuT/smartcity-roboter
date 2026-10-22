@@ -31,6 +31,17 @@ def bild(linien, cfg=None):
     return cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
 
+def bild_bei_pose(linien, pose):
+    """Dieselbe synthetische Welt aus einer neuen Pose aufnehmen (keine Fahrphysik/Messung)."""
+    x, y, gier = pose
+
+    def lokal(p):
+        dx, dy = p[0] - x, p[1] - y
+        return math.cos(gier) * dx + math.sin(gier) * dy, -math.sin(gier) * dx + math.cos(gier) * dy
+
+    return bild([(lokal(a), lokal(b)) for a, b in linien])
+
+
 # Die Kamera sieht den Boden ca. 25-47 cm vor der Robotermitte
 T = bild([((0.0, 0.0), (0.36, 0.0)), ((0.36, -0.5), (0.36, 0.5))])
 ABZWEIG = bild([((0.0, 0.0), (0.9, 0.0)), ((0.33, 0.0), (0.6, 0.4))])
@@ -98,11 +109,28 @@ class Kreuzung(unittest.TestCase):
                         # Keine neue Gerade hinter der gewaehlten Abzweigung ins Gedaechtnis.
                         self.assertLess(max(g.punkte[:, 0]), 0.42, (p, erg.get('kreuzung')))
                         self.assertGreater(max(g.punkte[:, 1] * seite), 0.10)
-                # Nach tatsaechlichem Einlenken ist die gewaehlte Strasse lokal geradeaus.
-                erg = s.suche(GERADE, seite * math.pi / 2, pos=(0.36, seite * 0.08))
-                self.assertTrue(erg['gefunden'])
+                wahl = s.wahl
+                # Halt und weggedrehte Kamera loeschen weder Wahl noch gespeicherten Ast.
+                for _ in range(40):
+                    erg = s.suche(np.full_like(GERADE, 255), 0.0, kamera_ok=False, pos=(0.16, 0.0))
+                    g.bewegen(0.0, 0.0, 0.1)
+                    g.hinzufuegen(erg['boden'])
+                self.assertEqual(s.wahl, wahl)
+                self.assertGreater(max(g.punkte[:, 1] * seite), 0.10)
+                welt = [((0.0, 0.0), (0.9, 0.0)), ((0.36, 0.0), (0.36, seite * 0.6))]
+                # Dieselbe Welt mit fortschreitender Position UND Drehung aufnehmen.
+                for p in ((0.22, 0.0, 0.0), (0.30, seite * 0.02, seite * math.pi / 6),
+                          (0.36, seite * 0.04, seite * math.pi / 3),
+                          (0.36, seite * 0.12, seite * math.pi / 2)):
+                    g.pose = list(p)
+                    erg = s.suche(bild_bei_pose(welt, p), p[2], pos=p[:2])
+                    g.hinzufuegen(erg['boden'])
+                    self.assertEqual(s.wahl, wahl)
+                    self.assertLess(max(g.punkte[:, 0]), 0.42)
+                self.assertTrue(erg['gefunden'])  # gewaehlte Strasse nach dem Einlenken wieder sichtbar
                 for _ in range(20):
-                    s.suche(GERADE, seite * math.pi / 2, pos=(0.36, seite * 0.30))
+                    p = (0.36, seite * 0.30, seite * math.pi / 2)
+                    s.suche(bild_bei_pose(welt, p), p[2], pos=p[:2])
                 self.assertIsNone(s.wahl)
 
     def test_plus_und_seitliches_t_mit_spiegelung(self):
