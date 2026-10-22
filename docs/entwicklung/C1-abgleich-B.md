@@ -133,6 +133,12 @@ reale Kartenkennungen und Erkennungs-/Abschlusskriterien sind B2-Nachweise.
 
 ## V3: Räumen und Arm – konkrete B-Datenbelegung
 
+Die folgenden Tabellen dokumentieren den B-Eingangsvorschlag. Für die spätere
+öffentliche Auftrag-5-Belegung gilt die unten ausdrücklich angenommene
+V3a-Konsolidierung auf `a4c16698ecca19b04a86636783a7ca3c2d26a4ff` vorrangig,
+einschließlich ihrer vollständigen Referenz-/Qualitätsobjekte. Frühere
+Kurzbezeichnungen hier sind keine zusätzliche konkurrierende Schnittstelle.
+
 B nimmt die getrennten V3-Bereiche an. Für Auftrag 5 schlägt B folgende enge
 Feld-/Codebelegung zur gemeinsamen Annahme durch A/C/O vor; sie ist keine neue
 Ablaufsteuerung. Jeder Qualitätsblock hat `status` und `reason`; bei fehlenden
@@ -147,7 +153,7 @@ Werten bleiben Nutzwerte `null`, bekannte Identitäten bleiben sichtbar.
 | Objekt | `object_ref`: Gerät, Objektproduzent/Start, `object_id`. `observation`: tatsächlicher Quellen-/Frame-/Detailbezug, Klasse/Qualität, Lage/Geometrie in m/rad mit `coord_frame` und Kalibrierbezug. `estimate` separat: ursprüngliche `observation_ref`, Odometriequelle/Start/Uhr, Schätzzeit, Lage, Unsicherheit samt Qualität. Fehlende Unsicherheit bleibt unbekannt. Schätzung erneuert niemals die Aufnahmezeit. |
 | Armziel | `arm.request`: eigene Produzentenidentität, `command_seq`, Erzeugung/Ablauf/Uhr, `operation_ref`, `object_ref`, `action`, `target` samt Einheit/Koordinatenbezug/Qualität. `arm.output` referenziert tatsächlich ausgegebenen Auftrag; `ack` separat mit Zeit/Status. Empfang bestätigt keine erreichte Stellung. |
 | Messung/Freigabe | `arm.measured` und `camera_pose` führen echte Quelle, Frame/Messungskennung, Aufnahmezeit/Uhr, Einheit und Kalibrierbezug. Ohne Messung Nutzwerte `null`. Fahrt-/Armfreigabe getrennt mit Besitzer, Request-/Commandreferenz, Prüfzeit, Ergebnis/Gründen; fehlendes Ergebnis `unknown`. Wunsch, Phase und Parameter ersetzen keine Freigabe. |
-| Politik/Sperren | `protection` mit `policy_id`, `policy_version`, `evidence_ref`, `status`, `reason`; bei fehlendem Beleg `unknown`, unbekannte Werte `null`. Pflichtquellenreferenz separat. Sperrliste mit `code`, `source`, Zeit/Uhr, Qualität und `scope=drive/arm/both`; mehrere Ursachen bleiben gleichzeitig erhalten. |
+| Politik/Sperren | `protection` mit `policy_id`, `policy_version`, `evidence_ref`, `status`, `reason`; bei fehlendem Beleg `unknown`, unbekannte Werte `null`. Pflichtquellenreferenz separat. Sperrliste mit `code`, Herkunft, Zeit/Uhr, Qualität; konsolidiert nach V3a ausschließlich `effect=motion/arm/both`, kein paralleles `scope`-Feld. Mehrere Ursachen bleiben gleichzeitig erhalten. |
 
 Für einen **gültig inaktiven** B-Räumzustand muss B initialisiert und seine
 Produzenten-/Uhrbindung belegt sein. Ohne diesen Beleg bleibt die Qualität
@@ -198,6 +204,46 @@ unbestätigter Greiferstellung und unbekannter Last. Personenhalt ist eine
 Unterbrechung, kein Erfolg und nicht automatisch Abbruch. Wegfall einer Sperre
 löscht keine andere. Odometrieschätzung ersetzt keine Schutzbeobachtung.
 
+## B-Annahme des konkreten V3a-Datenanhangs für Auftrag 5
+
+**B nimmt V3a aus [PR #142 auf exakt
+`a4c16698ecca19b04a86636783a7ca3c2d26a4ff`](https://github.com/BBS-GuT/smartcity-roboter/blob/a4c16698ecca19b04a86636783a7ca3c2d26a4ff/docs/entwicklung/C1-vertragsentscheidungen.md)
+als Datenmodell zur späteren Auftrag-5-Implementierung an.** Abgeglichen wurden
+ausschließlich dieser Datenanhang und seine vier tabellarischen Fälle mit den
+B-Vorgaben einschließlich `1a1a3e8c22dd52b1adbcd031a482b25b37a720d1` sowie
+den im Anhang beschriebenen A-Vorgaben auf
+`69da13138a9d1215dced02b8ca6b00b9c783c617`. Dies ist keine Anwendungscode-/
+PR-Diffprüfung und keine Zustimmung im Namen von A/C/O. Aus B bleibt **keine
+nötige Feld- oder Semantikkorrektur an diesem konkreten Anhang** vor Auftrag 5.
+
+| Datenentscheidung | B-Annahme und Begründung |
+|---|---|
+| Vollständige Referenzen | Operation, Objekt, Beobachtung, Schätzung, Frame, Detail und Nachweis bewahren ihre unabhängigen Herkunftsschlüssel. Historische Aufnahmezuordnung ersetzt keinen aktuellen Sensorbeleg; C-Neustart erzeugt keine neue Herkunft. |
+| Beobachtung/Schätzung/Erfolg | Echte Aufnahmezeit bleibt unverändert; Schätzung führt eigene Zeit, Odometrieherkunft und Unsicherheit. Erfolg verlangt gültige Nachweise `verification` und `travel_pose` zum selben Vorgang mit Quellen-/Zeitbezug. V3a-Nachweislinks `{ref, status, reason}` konkretisieren die bisherigen B-Kurzreferenzen; Ausgabe, Ack und Timer genügen nicht. |
+| Atomare Pakete | Vollständige `evaluation_ref` bindet Ergebnis, Sperrbild und vorhandene Ausgabe. Änderungen verlangen neue Auswertung; kein Zusammenmischen jeweils neuester Teile durch C. `domain=motion/arm` bezeichnet den Auswertungsbereich, ausschließlich `effect=motion/arm/both` die Sperrwirkung. |
+| Kontrollierter Nullwunsch | Eigene `request_reason`/`command_reason` kollidieren nicht mit Qualitäts-`reason=null`. `NO_REQUEST`, `NO_ARM_REQUEST` und `PROTECTIVE_ACTION_WITHOUT_REQUEST` unterscheiden belegte Fälle; unbekannte Referenzen bleiben unbekannt und ergeben kein `allowed`. Keine Ausgabe aus Nullwunsch oder Phase erfinden. |
+| Inaktivität | Vollständige Nullbelegung erhält gebundene Produzenten-/Uhridentität; `arm.request=null` entwertet den alten Wunsch trotz Restfrist. Neuer Vorgang braucht neue Commandsequenz. Historische Ausgabe/Ack/Messung/Freigabe bleiben beim alten Bezug; kein aktueller Erfolg oder physischer Aktorstopp daraus. |
+
+| Synthetischer Fall | Fachliches B-Votum |
+|---|---|
+| Anschauen | Angenommen: O/X bleibt zugeordnet, Sichtung 99 wird durch Zustand 10 nicht verjüngt. Klasse, Kamerapose, Politik und Armfreigabebesitzer bleiben unbekannt; C10 ist Wunsch, kein bestätigter Blick. |
+| Ausrichten | Angenommen: Objektaufnahme 99 bleibt von neuen echten Arm-/Kameramessungen getrennt. `arm.request=null` hat einen eigenen begründeten Arm-Ergebnisbezug. Seitliche Schutzlücke erzeugt im Alternativfall ein neues vollständiges motion-Paket; keine neue Ausgabe mit altem Ergebnis mischen. Hypothetische Freigabe ist keine Gerätefreigabe. |
+| Greifen | Angenommen: Est erneuert Obs/F nicht; unbekannte Unsicherheit verhindert gültige Schätzwerte. Fehlende Greiferstellung/Last sowie fehlende Ausgabe/Ack ergeben keinen Griffnachweis. Ergebnis `offen`, Erfolgsbelege `null`. |
+| Personenhalt | Angenommen: `greifen` und O/X bleiben bei `pausiert/offen` mit Unterbrechungsgrund/-zeit erhalten. Person und alte Tiefe bleiben mit gleicher jeweiliger Blockreferenz in beiden Domänen sichtbar. Wegfall der Person löscht weder Tiefe noch STOPP; neue Sperrstände brauchen neue Pakete. Keine Behauptung von Abbruch, Erfolg oder physischem Lasthalten. |
+
+Die Makros sind ausschließlich Lesekürzel vollständiger Referenzen, keine
+zulässigen verkürzten JSON-IDs. Alle vier Beispiele sind tabellarische
+Projektionen, keine geprüften v2-Fixtures. Dokumentarisch geprüft: Rollen-/
+Vorgangs-/Objektbindung, Zeitfortschreibung, Qualitäts-/Nullbelegung sowie
+getrennte Wunsch-/Ausgabe-/Nachweisbedeutung; keine Softwaretests konstruiert.
+
+Restbedingungen: A/O bestätigen ihre eigene Annahme; O vergibt Auftrag 5 mit
+Dateibesitz. Armfreigabebesitzer, Politik/#8, reale Pflichtquellen, Fristen,
+Geometrie und Stellungs-/Last-/STOPP-Nachweise bleiben offen darstellbar.
+Dies ist ausschließlich B-Annahme des Datenmodells. Zweite fachliche Annahme
+erst am vollständig implementierten Gesamtcommit mit Vertrag, Schema,
+Beispielen und funktionalen Nachweisen; keine Geräte-/Broker-/Handlungsfreigabe.
+
 ## Abgleich der sechs Folgeaufträge und offene Entscheidung an den Manager
 
 | Auftrag aus #142 | Fachliches B-Votum / konkret nötige Ergänzung |
@@ -206,7 +252,7 @@ löscht keine andere. Odometrieschätzung ersetzt keine Schutzbeobachtung.
 | 2 Details | Angenommen mit explizitem gegebenem Register-/Alterskontext und `age_budget_unknown` wie oben. Historische Registrierung und Farb-/Tiefenpaarung prüfen; kein Payloadspeicher oder Brokerbetrieb. |
 | 3 Fahrwunsch | Angenommen einschließlich Anti-Replay-Höchststand aus aktuellem #142. Unabhängigen B-/C-Start, A-Neubindung, Umordnung 8/10/9/11 und unveränderte Fristen funktional nachweisen. Reales Maximalbudget bleibt A/B/O-Entscheidung. |
 | 4 Historie | B nimmt 16 Einträge im Zustand, sichtbare Kapazitätsverwerfung, Status-/Reset-/Kartenregeln an; Ergänzung zur Lückenerholung oben. Kein B2-Wegwahl- oder Kartenabnahmenachweis. |
-| 5 Räumen/Arm | B nimmt Datentrennung an und liefert obige Feld-/Codebelegung. Vor Umsetzung gemeinsame A/C/O-Annahme dieser Belegung, insbesondere Ergebnisbelege und Freigabedarstellung. Armfreigabebesitzer darf offen sichtbar bleiben. |
+| 5 Räumen/Arm | B nimmt jetzt V3a auf `a4c16698ecca19b04a86636783a7ca3c2d26a4ff` einschließlich der vier Fälle an; die konsolidierte Belegung hat Vorrang vor B-Kurzvorschlägen. A/O-Annahme und O-Vergabe bleiben separat. Armfreigabebesitzer darf offen sichtbar bleiben. |
 | 6 Gesamtannahme | Vorgehen angenommen; erst am gesondert gelieferten Gesamtcommit Vertrag, v2-Schema, Beispiele und tatsächliche funktionale Nachweise fachlich abgleichen. Diese erste Entscheidung ersetzt diesen zweiten Schritt nicht. |
 
 Echte offene Entscheidung an den Manager: Armfreigabebesitzer A/B festlegen und
