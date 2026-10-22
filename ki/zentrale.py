@@ -308,7 +308,7 @@ class Zentrale(Node):
             xy = lidar.punkte_xy(msg, front, self.p('obstacle_min_range'))
             breit = lidar.naechster_vorne(msg, front, 60.0, self.p('obstacle_min_range'))   # fuer Zebrastreifen
         with self.lock:
-            self.scans[topic] = (time.time(), xy, breit, grund)
+            self.scans[topic] = (time.monotonic(), xy, breit, grund)   # Empfang monoton (Uhrsprung egal)
 
     def _imu(self, msg):
         # Drehung um die Hochachse aufsummieren (fuer das Wenden)
@@ -395,15 +395,15 @@ class Zentrale(Node):
     def lidar_pruefen(self):
         """(Abstand im Fahrschlauch: m, inf = frei, None = keine LiDAR-Daten; Objekt oder None;
         Abstand im breiten Bereich vorne fuer den Zebrastreifen)."""
-        jetzt = time.time()
+        topics = self.p('scan_topics')
         with self.lock:
-            frisch = [(t, xy, b, g) for t, (z, xy, b, g) in self.scans.items() if jetzt - z < 1.0]
-        ungueltig = [f'{t}: {g}' for t, _, _, g in frisch if g]
-        if not frisch or ungueltig:
-            # Unbrauchbarer frischer Scan: wie keine LiDAR-Daten (Entscheider haelt), nicht als frei werten
+            # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
+            frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
+        ungueltig = [f'{t}: {g}' for t, (_, _, _, g) in zip(topics, frisch) if g]
+        if grund or ungueltig:
+            # Fehlender/alter Pflichtkanal oder unbrauchbarer Scan: wie keine LiDAR-Daten (Entscheider haelt)
             self.lidar_xy = None
-            if ungueltig:
-                self.get_logger().warn('LiDAR unbekannt: ' + '; '.join(ungueltig), throttle_duration_sec=2.0)
+            self.get_logger().warn('LiDAR unbekannt: ' + (grund or '; '.join(ungueltig)), throttle_duration_sec=2.0)
             return None, None, None
         frisch = [(xy, b) for _, xy, b, _ in frisch]
         self.lidar_xy = np.vstack([xy for xy, _ in frisch])   # alle Punkte (fuer den Zebrastreifen)

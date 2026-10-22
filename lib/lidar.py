@@ -32,6 +32,29 @@ def scan_pruefen(msg):
     return None
 
 
+def pflichtkanaele(scans, topics, jetzt, max_alter=1.0):
+    """Liegen ALLE Pflichtkanaele (scan_topics) frisch vor? Ein frischer zweiter Kanal ersetzt keinen fehlenden.
+
+    scans: {topic: (empfangszeit, ...)}, Empfangszeit und jetzt monoton (time.monotonic).
+    Rueckgabe: (Eintraege der Pflichtkanaele in deren Reihenfolge, Grund oder None). Bei einem Grund ist die
+    Liste leer: dann gilt der LiDAR als unbekannt (Halt). Kanaele ausserhalb von topics zaehlen nicht.
+    """
+    topics = list(topics or [])
+    if not topics:
+        return [], 'keine LiDAR-Kanaele eingestellt (scan_topics leer)'
+    gruende = []
+    for t in topics:
+        if t not in scans:
+            gruende.append(f'{t}: noch nie ein Scan')
+            continue
+        alter = jetzt - scans[t][0]
+        if not 0.0 <= alter < max_alter:
+            gruende.append(f'{t}: letzter Scan vor {alter:.1f} s')
+    if gruende:
+        return [], '; '.join(gruende)
+    return [scans[t] for t in topics], None
+
+
 def winkel_und_abstand(msg, front_deg=0.0):
     """Gueltige Messpunkte eines LaserScan.
 

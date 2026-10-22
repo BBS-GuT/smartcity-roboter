@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""L1 (#60): vollstaendig ungueltige LiDAR-Scans sind unbekannt, nie frei - in KI-Zentrale und Linienfolger.
+"""LiDAR-Datenqualitaet in KI-Zentrale und Linienfolger:
+L1 (#60) vollstaendig ungueltige Scans sind unbekannt, nie frei.
+L2 (#61) jeder Kanal in scan_topics ist Pflicht; ein frischer zweiter Kanal verdeckt keinen fehlenden/alten.
 
 Nur ROS-Attrappen und die lokale Publisherattrappe, kein Motor/Geraet.
 Aufruf: python3 tests/test_lidar_qualitaet.py
@@ -71,22 +73,41 @@ class ReineQualitaet(unittest.TestCase):
         self.assertIsNone(lidar.scan_pruefen(scan([0.0] * 359 + [3.0])))
 
 
-class Linienfolger(unittest.TestCase):
-    def neu(self, m=None):
-        n = lf.LineFollower()
-        n._p.update(show=False, publish_image=False)
-        jetzt = time.time()
-        n.gedaechtnis.hinzufuegen([(0.05 + 0.02 * k, 0.0) for k in range(30)])
-        n.bild_zeit, n.stempel_ok = jetzt, True             # gueltige Kamera/Linie
-        n.ki = (jetzt, {'aktion': 'fahren', 'faktor': 1.0, 'grund': 'Weg frei'})   # KI gibt frei
-        for t, i in KANAELE:
-            n.on_scan(m if m is not None else scan(3.0), t, i)
-        return n
+def linienfolger(m=None):
+    """Linienfolger mit gueltiger Kamera/Linie und KI-Freigabe; beide Kanaele bekommen Scan m (Standard 3 m frei)."""
+    n = lf.LineFollower()
+    n._p.update(show=False, publish_image=False)
+    jetzt = time.time()
+    n.gedaechtnis.hinzufuegen([(0.05 + 0.02 * k, 0.0) for k in range(30)])
+    n.bild_zeit, n.stempel_ok = jetzt, True             # gueltige Kamera/Linie
+    n.ki = (jetzt, {'aktion': 'fahren', 'faktor': 1.0, 'grund': 'Weg frei'})   # KI gibt frei
+    for t, i in KANAELE:
+        n.on_scan(m if m is not None else scan(3.0), t, i)
+    return n
 
+
+def ki_zentrale(m=None):
+    z = zentrale.Zentrale()
+    z.wahrnehmung['bild_zeit'] = time.time()           # frische Kamerabilder
+    for t, i in KANAELE:
+        z._scan(m if m is not None else scan(3.0), t, i)
+    return z
+
+
+def befehl(z):
+    z._entscheiden()
+    return json.loads(z.pubs['/ki/befehl'].letzte.data)
+
+
+class Halt(unittest.TestCase):
     def halt(self, n, text):
         lin, quer, dreh, status = n.entscheide()
         self.assertEqual((lin, quer, dreh), (0.0, 0.0, 0.0), status)
         self.assertIn(text, status)
+
+
+class Linienfolger(Halt):
+    neu = staticmethod(linienfolger)
 
     def test_ungueltig_haelt_trotz_gueltiger_kamera_und_ki(self):
         for name, m in UNGUELTIG.items():
@@ -135,16 +156,8 @@ class Linienfolger(unittest.TestCase):
 
 
 class KiZentrale(unittest.TestCase):
-    def neu(self, m=None):
-        z = zentrale.Zentrale()
-        z.wahrnehmung['bild_zeit'] = time.time()           # frische Kamerabilder
-        for t, i in KANAELE:
-            z._scan(m if m is not None else scan(3.0), t, i)
-        return z
-
-    def befehl(self, z):
-        z._entscheiden()
-        return json.loads(z.pubs['/ki/befehl'].letzte.data)
+    neu = staticmethod(ki_zentrale)
+    befehl = staticmethod(befehl)
 
     def test_ungueltig_ist_unbekannt_und_haelt(self):
         for name, m in UNGUELTIG.items():
@@ -182,6 +195,67 @@ class KiZentrale(unittest.TestCase):
         for t, i in KANAELE:
             z._scan(scan(3.0), t, i)
         self.assertEqual(z.lidar_pruefen()[0], float('inf'))
+
+
+def veraltet(sekunden):
+    """Nur die monotone Empfangsuhr vorstellen (Kamera/KI bleiben frisch, sie laufen auf time.time)."""
+    echt = time.monotonic
+    return mock.patch.object(time, 'monotonic', lambda: echt() + sekunden)
+
+
+class Pflichtkanaele(Halt):
+    def test_reine_regel(self):
+        jetzt = 100.0
+        ok = {'/scan0': (99.9, 'a'), '/scan1': (99.8, 'b')}
+        self.assertEqual(lidar.pflichtkanaele(ok, ['/scan0', '/scan1'], jetzt), ([(99.9, 'a'), (99.8, 'b')], None))
+        for name, scans, teil in [
+                ('fehlt', {'/scan0': (99.9, 'a')}, '/scan1: noch nie'),
+                ('20 s alt', {'/scan0': (99.9, 'a'), '/scan1': (80.0, 'b')}, '/scan1: letzter Scan vor 20.0 s'),
+                ('beide alt', {'/scan0': (90.0, 'a'), '/scan1': (80.0, 'b')}, '/scan0'),
+                ('keiner', {}, '/scan0: noch nie'),
+                ('Zukunft (Uhr)', {'/scan0': (99.9, 'a'), '/scan1': (101.0, 'b')}, '/scan1')]:
+            with self.subTest(name):
+                frisch, grund = lidar.pflichtkanaele(scans, ['/scan0', '/scan1'], jetzt)
+                self.assertEqual(frisch, [])
+                self.assertIn(teil, grund)
+        self.assertIsNotNone(lidar.pflichtkanaele(ok, [], jetzt)[1])          # keine Pflichtquelle festgelegt
+        # ein Kanal ausserhalb von scan_topics ist nicht Pflicht (und zaehlt nicht)
+        self.assertEqual(lidar.pflichtkanaele(ok, ['/scan0'], jetzt), ([(99.9, 'a')], None))
+
+    def test_linienfolger(self):
+        n = linienfolger()
+        n.scans.pop('/scan1')                                   # Pflichtkanal fehlt, /scan0 frisch 3 m
+        self.halt(n, 'KEIN LIDAR: /scan1: noch nie')
+        n = linienfolger()
+        with veraltet(20.0):
+            n.on_scan(scan(3.0), '/scan0', 0)                   # /scan0 frisch, /scan1 20 s alt
+            self.halt(n, 'KEIN LIDAR: /scan1: letzter Scan vor 20')
+            n.on_scan(scan(3.0), '/scan1', 1)                   # gueltige Rueckkehr -> wieder frei
+            self.assertGreater(n.entscheide()[0], 0)
+        n = linienfolger()
+        with veraltet(20.0):
+            self.halt(n, '/scan0')                # beide alt
+        n = linienfolger()
+        n.on_scan(hindernis_vorne(0.10), '/scan1', 1)           # beide frisch: tatsaechliches Hindernis zaehlt
+        self.halt(n, 'NOTBREMSE')
+        n = linienfolger()
+        n.on_scan(scan(0.10), '/scan9', 2)                      # kein Pflichtkanal -> egal
+        self.assertGreater(n.entscheide()[0], 0)
+
+    def test_ki_zentrale(self):
+        z = ki_zentrale()
+        z.scans.pop('/scan1')
+        self.assertEqual(z.lidar_pruefen(), (None, None, None))
+        self.assertEqual(befehl(z)['aktion'], 'stopp')
+        z = ki_zentrale()
+        with veraltet(20.0):
+            z._scan(scan(3.0), '/scan0', 0)
+            self.assertEqual(z.lidar_pruefen(), (None, None, None))
+            z._scan(scan(3.0), '/scan1', 1)                     # gueltige Rueckkehr
+            self.assertEqual(z.lidar_pruefen()[0], float('inf'))
+        z = ki_zentrale()
+        z._scan(hindernis_vorne(0.10), '/scan1', 1)
+        self.assertLess(z.lidar_pruefen()[0], 0.12)
 
 
 if __name__ == '__main__':

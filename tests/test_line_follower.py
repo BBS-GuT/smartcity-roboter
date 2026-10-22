@@ -45,6 +45,7 @@ def neu():
     n.stempel_ok = True  # gueltiges frisches Bild fuer diese Entscheidungspruefungen
     n.ki = (jetzt, {'aktion': 'fahren', 'faktor': 1.0, 'grund': 'Weg frei'})
     n.on_scan(scan(1.0), '/scan0', 0)
+    n.on_scan(scan(1.0), '/scan1', 1)    # beide Kanaele in scan_topics sind Pflicht
     return n
 
 

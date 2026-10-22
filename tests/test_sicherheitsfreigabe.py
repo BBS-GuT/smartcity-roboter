@@ -22,6 +22,9 @@ class Sensorfreigabe(unittest.TestCase):
         self.uhr = patch.object(lf.time, 'time', return_value=1000.0)
         self.zeit = self.uhr.start()
         self.addCleanup(self.uhr.stop)
+        self.mono = patch.object(lf.time, 'monotonic', return_value=1000.0)   # Empfangszeit der Scans
+        self.mono.start()
+        self.addCleanup(self.mono.stop)
 
     def neu(self):
         n = lf.LineFollower()
@@ -34,10 +37,10 @@ class Sensorfreigabe(unittest.TestCase):
         return n
 
     def lidar(self, n, abstand=1.0, zeit=1000.0):
-        self.zeit.return_value = zeit
-        n.scans.clear()
-        n.on_scan(scan(abstand), '/scan0', 0)
-        self.zeit.return_value = 1000.0
+        with patch.object(lf.time, 'monotonic', return_value=zeit):
+            n.scans.clear()
+            n.on_scan(scan(abstand), '/scan0', 0)
+            n.on_scan(scan(abstand), '/scan1', 1)
 
     def bild(self, n, alter=0.1, stamp=None):
         if stamp is None:
