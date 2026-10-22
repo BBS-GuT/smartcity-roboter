@@ -227,7 +227,36 @@ Runde). Der Simulator misst **selbst** (Wahrheit) und vergleicht mit der Selbstm
 Roboter vom Weg ab, setzt ihn ein „Helfer“ hinter die Kreuzung und schickt `fahrplan <nr>`.
 Antrieb, Sensorverzögerungen und Kamera sind **geschätzt** (siehe `docs/linie.md`), nicht am Roboter gemessen.
 
-ERGEBNISSE_SIM
+### Ergebnisse (Simulator, 22.10.2026, nur Software, Antrieb `echt`)
+
+| Lauf | Runden | Abbiegen je 10 Runden (Selbstmessung) | Wertung je 10 Runden | Pendeln cm | Wahrheit |
+|---|---|---|---|---|---|
+| fest (Startwerte, kein Lernen) | 15 | 100 % / 100 % (5 Runden) | 83,7 / 84,0 | 0,64 / 0,54 | 89/89 Kreuzungen richtig, Abweichung Ø 0,76 cm, 95 % < 2,4 cm |
+| Lernen ab Startwerten | 30 | 100 / 100 / 100 % | 83,6 / 82,0 / 83,0 | 0,59 / 1,18 / 0,55 | 179/179 richtig, Ø 0,79 cm, 95 % < 2,5 cm |
+| Lernen ab verstimmten Werten (`speed=0.25 regel_richtung=6 regel_abstand=80 kreuzung_tempo=1.0`) | 30 | 95 / 100 / 100 % | **78,0 / 83,6 / 83,0** | **1,72 / 1,32 / 1,35** | 173/179 richtig (6× vom Weg / festgehalten), Ø 0,86 cm |
+
+Was das heißt (ehrlich):
+
+- **Mit den Startwerten** klappen im Simulator alle Kreuzungen; das Lernen findet nichts Besseres und verwirft fast
+  alle Versuche (das ist richtig so). Ein Versuch (`quer_beschl` 0,15 → 0,138) wurde angenommen, obwohl der Unterschied
+  im Rauschen liegt: Die Wertung einer Runde streut um ca. ±1,5 Punkte, die Schwelle ist 0,5. Auf dem Roboter (mehr
+  Streuung) eher `RUNDEN_JE_VERSUCH = 3` oder `VORSPRUNG = 1.5` nehmen.
+- **Von verstimmten Werten aus** wird es messbar besser: Es erhöht die Dämpfung (`regel_richtung` 6 → 11) und senkt
+  `regel_abstand` (80 → 65), Pendeln sinkt von 1,7 auf 1,3 cm, Wertung von 78 auf 83. Nach 30 Runden ist es aber
+  **noch nicht** so gut wie die Startwerte (Pendeln 0,55 cm), und im dritten Block stagniert es. Schneller fahren
+  verwirft es: Auf dieser Strecke bremsen Kurven und Kreuzungen, mehr Grundtempo bringt kaum Zeit und mehr Abweichung.
+- **Selbstmessung** (nur Roboter-Sensoren) und Wahrheit stimmten bei 179/179 bzw. 176/179 Kreuzungen überein. Die 3
+  Abweichungen: Er bog richtig ab und hielt danach wegen eines Hauses dicht neben der Strecke (Simulator zählt das als
+  Fehlschlag, das Fahr-Gehirn als geklappte Kreuzung).
+- `unsauber` (Selbstmessung > 4 cm an der Kreuzung) steht bei fast jedem Abbiegen, obwohl die Wahrheit an den
+  Kreuzungen meist 3–5 cm zeigt: An scharfen 90°-Ecken überschätzt die eigene Messung.
+- **Hindernis** (`--hindernis`, 2 Runden): Figur 60 cm vor ihm auf die Linie gestellt, er hielt 28 cm davor (Mitte
+  bis Figur), fuhr 1,2 s nach dem Wegnehmen weiter, 0 Berührungen.
+- Gefundene und behobene Fehler durch die Messung: Abbiegen von einer durchgehenden Linie (0/4 → 100 %,
+  `abbiegen_halten`), Dauerhalt vor einem Haus hinter einem T (Fahrschlauch an Kreuzungen), „geradeaus“-Ast bei +35°
+  geschätzt (fälschlich `richtung_fehlt`), Absturz der Pendel-Rechnung bei kurzen Geraden.
+- Rechenzeit: ca. 1 min je Runde (ein Kern). Lernen braucht viele Runden: je Versuch 3 Runden (2 Herausforderer + 1
+  Kontrolle), also ca. 10 Versuche je 30 Runden.
 
 ## Was die Softwaretests belegen und was nicht
 
