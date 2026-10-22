@@ -251,7 +251,9 @@ class Wegwahl(unittest.TestCase):
         a.schritt(bild(3, art='einfahrt', ausgang='A', bestaetigt=True), 3)
         aus = bild(4, art='abschluss', ausgang='A', bestaetigt=True)
         self.assertEqual(a.schritt(aus, 4, haltgruende=('Hindernis',)).grund, 'schutzstopp')
-        self.assertEqual(a.historie, {})
+        # Der bestaetigte Abschluss beschreibt erfolgte Ausfahrt trotz Halt;
+        # nur die Ausgabe bleibt gesperrt, der Nachweis darf nicht verfallen.
+        self.assertEqual(sum(a.historie.values()), 1)
         self.assertEqual(a.schritt(aus, 4.1).lage, 'abgeschlossen')
         self.assertEqual(sum(a.historie.values()), 1)
 
@@ -427,6 +429,90 @@ class Wegwahl(unittest.TestCase):
                          'duplikat_widerspruechlich')
         self.assertEqual(a.schritt(aus, 5.01).grund, 'beobachtung_veraltet')
         self.assertEqual(sum(a.historie.values()), 1)
+
+    def test_einmalige_einfahrt_im_schutzstopp_bleibt_bestaetigt(self):
+        for halt in ('Hindernis', 'externe_STOPP_Sperre'):
+            with self.subTest(halt=halt):
+                rng = Zufall()
+                a = automat(zufall=rng)
+                a.schritt(bild(), 1)
+                ein = bild(2, art='einfahrt', ausgang='A', bestaetigt=True)
+                self.assertEqual(a.schritt(ein, 2, haltgruende=(halt,)).grund, 'schutzstopp')
+                # Das Ereignis kommt nur einmal, danach normale Beobachtungen.
+                rot = bild(3, einfahrtsfreigabe=False)
+                self.assertEqual(a.schritt(rot, 3, haltgruende=(halt,)).grund, 'schutzstopp')
+                r = a.schritt(bild(4, einfahrtsfreigabe=False), 4)
+                self.assertEqual((r.lage, r.ausgang, r.grund), ('raeumen', 'A', None))
+                self.assertEqual((rng.zuege, a.historie), (1, {}))
+                self.assertEqual(a.schritt(ein, 4).grund, 'beobachtung_veraltet')
+
+    def test_ungueltige_einfahrt_im_schutzstopp_bestaetigt_nichts(self):
+        faelle = (
+            {'bestaetigt': False}, {'einfahrtsfreigabe': False},
+            {'spur_bestaetigt': False}, {'ausgang': 'C'},
+            {'bezug': replace(B, anfahrt='fremd')},
+            {'bezug': replace(B, quelle='fremd')},
+            {'geometrie': frozenset({'C'})},
+            {'aufnahme': 0.5}, {'aufnahme': 3}, {'sequenz': 0},
+        )
+        for werte in faelle:
+            with self.subTest(werte=werte):
+                a = automat(zufall=Zufall())
+                a.schritt(bild(), 1)
+                ein = replace(bild(2, art='einfahrt', ausgang='A', bestaetigt=True), **werte)
+                self.assertEqual(a.schritt(ein, 2, haltgruende=('Hindernis',)).lage, 'halt')
+                r = a.schritt(bild(4, einfahrtsfreigabe=False), 4)
+                self.assertEqual((r.lage, r.ausgang, r.grund),
+                                 ('halt', 'A', 'einfahrt_gesperrt'))
+                self.assertEqual(a.historie, {})
+
+    def test_einfahrtnachweis_im_halt_ersetzt_keine_pflichtdaten_oder_wahl(self):
+        rng = Zufall()
+        a = automat(zufall=rng)
+        ein = bild(1, art='einfahrt', ausgang='A', bestaetigt=True)
+        self.assertEqual(a.schritt(ein, 1, haltgruende=('Hindernis',)).lage, 'halt')
+        self.assertEqual((rng.zuege, a.historie), (0, {}))
+        a.schritt(bild(2), 2)
+        a.schritt(bild(3, art='einfahrt', ausgang='A', bestaetigt=True), 3,
+                  haltgruende=('Hindernis',))
+        self.assertEqual(a.schritt(bild(4, spur_bestaetigt=False), 4).grund,
+                         'spur_unbestaetigt')
+        self.assertEqual(a.schritt(bild(5, einfahrtsfreigabe=False), 5,
+                                   haltgruende=('externe_STOPP_Sperre',)).grund, 'schutzstopp')
+        self.assertEqual(a.historie, {})
+
+    def test_einmaliger_abschluss_im_schutzstopp_zaehlt_genau_einmal(self):
+        rng = Zufall()
+        a = automat(zufall=rng)
+        a.schritt(bild(), 1)
+        a.schritt(bild(2, art='einfahrt', ausgang='A', bestaetigt=True), 2)
+        aus = bild(3, art='abschluss', ausgang='A', bestaetigt=True)
+        self.assertEqual(a.schritt(aus, 3, haltgruende=('Hindernis',)).grund, 'schutzstopp')
+        self.assertEqual(sum(a.historie.values()), 1)
+        # Kein zweites Ereignis: danach kommen ausschliesslich neue Bilder.
+        self.assertEqual(a.schritt(bild(4), 4).grund, 'anfahrt_abgeschlossen')
+        neue = replace(B, anfahrt='neue-bestaetigte-anfahrt')
+        self.assertEqual(a.schritt(bild(5, bezug=neue), 5,
+                                   haltgruende=('externe_STOPP_Sperre',)).grund, 'schutzstopp')
+        self.assertEqual(rng.zuege, 1)  # kein Fahrfortschritt/neue Wahl unter Stopp
+        self.assertEqual(a.schritt(bild(6, bezug=neue), 6).lage, 'gewaehlt')
+        self.assertEqual(sum(a.historie.values()), 1)
+        self.assertEqual(rng.zuege, 2)
+
+    def test_ungueltiger_abschluss_im_schutzstopp_loest_bindung_nicht(self):
+        faelle = ({'bestaetigt': False}, {'spur_bestaetigt': False}, {'ausgang': 'C'},
+                  {'bezug': replace(B, anfahrt='fremd')},
+                  {'bezug': replace(B, quelle='fremd')}, {'aufnahme': 1}, {'aufnahme': 4})
+        for werte in faelle:
+            with self.subTest(werte=werte):
+                a = automat(zufall=Zufall())
+                a.schritt(bild(), 1)
+                a.schritt(bild(2, art='einfahrt', ausgang='A', bestaetigt=True), 2)
+                aus = replace(bild(3, art='abschluss', ausgang='A', bestaetigt=True), **werte)
+                self.assertEqual(a.schritt(aus, 3, haltgruende=('Hindernis',)).lage, 'halt')
+                self.assertEqual(a.historie, {})
+                r = a.schritt(bild(5, bezug=replace(B, anfahrt='andere')), 5)
+                self.assertEqual((r.ausgang, r.grund), ('A', 'anfahrt_konflikt'))
 
 
 if __name__ == '__main__':
