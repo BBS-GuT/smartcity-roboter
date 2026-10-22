@@ -11,7 +11,7 @@ und behauptet keine Gerätefreigabe. Geprüfte Ausgangsbasis ist main
 | Lieferung | Exakter Kandidat | Prüfung / Integrationsgrenze |
 |---|---|---|
 | [#172: Mess- und Ausfallmatrix](https://github.com/BBS-GuT/smartcity-roboter/pull/172) | `a3c81259d69990183ca4eb20f6d9eae9774b243f` | Linux-CI 43/43; [nativer Review](https://github.com/BBS-GuT/smartcity-roboter/pull/172#issuecomment-6349216160) beim Statusabgleich noch laufend. Noch nicht integriert. |
-| [#176: fehlende Geometrie sperren](https://github.com/BBS-GuT/smartcity-roboter/pull/176) | `b5a608e019ddbab57ad3a5f716876056ae0524db` | Lokaler Windows-Gesamtlauf 42/43, ausschließlich bekannter Prozessnamenfall in `test_systemlast.py`; alle betroffenen Prüfungen bestanden. [Linux-CI](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39839393132) separat am Head prüfen. [Nativer Review abgebrochen wegen Nutzungslimit](https://github.com/BBS-GuT/smartcity-roboter/pull/176#issuecomment-6349330384), daher noch nicht integrierbar. |
+| [#176: fehlende Geometrie sperren und explizite Simulationsgeometrie](https://github.com/BBS-GuT/smartcity-roboter/pull/176) | `ac56051b438375ea63220120d4158837d2b690cb` | Aktuell 22 Fusionsverbraucher- und sechs neue Simulationskonfigurationstests bestanden; frische Gesamt-CI am neuen Head ausstehend. Vorgänger `b5a608e`: lokal 42/43 (nur bekannter Windowsfall `test_systemlast.py`), [Linux-CI-Log 43/43](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39839393132/job/120036098290). [Nativer Review des Vorgängers wegen Nutzungslimit abgebrochen](https://github.com/BBS-GuT/smartcity-roboter/pull/176#issuecomment-6349330384); aktueller Review fehlt, daher noch nicht integrierbar. |
 
 Die Unter-PRs zielen auf `fix/gb-58-lidar`. Erst nach den geforderten tatsächlichen
 Prüfergebnissen integrieren; für den abschließenden Haupt-PR zählen erneut dessen
@@ -41,6 +41,14 @@ Transformationsprüfungen erhalten Nullpose, `base_link` und radiale Abstände.
 Positive Kontrollen verwenden ausdrücklich synthetische Pose/Hülle; keine
 Gerätemaße stehen in den Produktdefaults. Qualitäts-, Pflichtkanal-, Headerzeit-,
 Abdeckungs-, Richtungs- und Überwegprüfungen bleiben erhalten.
+
+Der genehmigte Kompatibilitätsnachtrag übergibt auch dem Simulator ausdrücklich
+seine bekannten synthetischen Sensorposen und seine Modellhülle einschließlich
+Arm in Fahrstellung. Diese Daten kommen allein aus dem vorhandenen Modell und
+werden nur beim ausdrücklichen Simulationsstart in Domain 77 ausgewählt.
+Gerätewerte und Produktdefaults bleiben davon getrennt. Konfigurationstests,
+Python-3.10- und Bash-Syntax sind bestanden; eine vollständige ROS-Simulation
+wurde nicht ausgeführt.
 
 ## Verbleibende Geräte- und Informationsgrenzen
 
