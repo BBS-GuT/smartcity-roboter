@@ -91,6 +91,14 @@ class ReineAbdeckung(unittest.TestCase):
         self.assertIsNotNone(lidar.sektor_abdeckung(halb, rueckwaerts=True))
         self.assertIsNotNone(lidar.hinten_luecke(lidar.ungueltige_winkel(halb)))
 
+    def test_winziger_winkelschritt_begrenzt_das_raster(self):
+        # Codex-Befund zu PR #143: angle_increment 1e-6 (kaputt, aber endlich) darf kein Riesenraster erzeugen
+        m = q.scan(3.0, angle_increment=1e-6)
+        self.assertLessEqual(len(lidar.ungueltige_winkel(m)), 3600)
+        self.assertIsNotNone(lidar.sektor_abdeckung(m))
+        self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
+        self.assertEqual(len(lidar.ungueltige_winkel(q.scan(3.0, angle_increment=1e-12))), 3600)
+
     def test_rueckwaerts_zaehlende_lidars(self):
         # angle_increment negativ (Uhrzeigersinn): gleiche Abdeckung
         r = [3.0] * N
@@ -101,6 +109,9 @@ class ReineAbdeckung(unittest.TestCase):
 
 
 class Linienfolger(unittest.TestCase):
+    def test_winziger_winkelschritt_haelt(self):
+        self.halt(q.linienfolger(q.scan(3.0, angle_increment=1e-6)), 'LIDAR UNBEKANNT')
+
     def halt(self, n, text):
         lin, quer, dreh, status = n.entscheide()
         self.assertEqual((lin, quer, dreh), (0.0, 0.0, 0.0), status)
@@ -142,6 +153,10 @@ class KiZentrale(unittest.TestCase):
         z = q.ki_zentrale(gegenbeispiel())
         self.assertEqual(z.lidar_pruefen(), (None, None, None))
         self.assertEqual(q.befehl(z)['aktion'], 'stopp')
+
+    def test_winziger_winkelschritt_unbekannt(self):
+        z = q.ki_zentrale(q.scan(3.0, angle_increment=1e-6))
+        self.assertEqual(z.lidar_pruefen(), (None, None, None))
 
     def test_luecke_im_fahrschlauch(self):
         z = q.ki_zentrale()

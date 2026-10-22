@@ -135,7 +135,9 @@ def ungueltige_winkel(msg, front_deg=0.0):
     a = np.arctan2(np.sin(a), np.cos(a))
     ordnung = np.argsort(a)
     a, gut = a[ordnung], gut[ordnung]
-    n = int(math.ceil(2 * math.pi / min(inc, math.radians(1.0))))
+    # Raster hoechstens 1 Grad, aber nie feiner als 0,1 Grad: ein kaputter winziger angle_increment (z. B. 1e-6)
+    # erzeugt sonst Millionen Pruefrichtungen. Solche Scans decken dann nur winzige Bereiche ab -> unbekannt/Halt.
+    n = int(math.ceil(2 * math.pi / max(min(inc, math.radians(1.0)), math.radians(0.1))))
     w = -math.pi + (np.arange(n) + 0.5) * 2 * math.pi / n           # Pruefrichtungen rundherum
     if not len(a):
         return w
