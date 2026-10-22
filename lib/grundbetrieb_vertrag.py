@@ -63,8 +63,29 @@ def vergleiche(a, b):
 
 
 def alter_s(d, jetzt_mono_s):
-    """Alter des Datensatzes in s nach der monotonen Uhr DESSELBEN Starts (lokal, z. B. im Panel)."""
-    return max(0.0, jetzt_mono_s - d['generated_mono_s'])
+    """Alter des Datensatzes in s nach der monotonen Uhr DESSELBEN Starts (lokal, z. B. im Panel).
+    Wirft ValueError bei ungueltigem Zeitbezug: fehlendes, nicht numerisches (auch bool), nicht endliches oder
+    negatives generated_mono_s/jetzt_mono_s sowie Erzeugung nach jetzt. Ungueltige Zeit wird nie zu Alter 0."""
+    if not isinstance(d, dict) or 'generated_mono_s' not in d:
+        raise ValueError('generated_mono_s: fehlt')
+    zeiten = []
+    for name, wert in (('generated_mono_s', d['generated_mono_s']), ('jetzt_mono_s', jetzt_mono_s)):
+        if isinstance(wert, bool) or not isinstance(wert, (int, float)):
+            raise ValueError(f'{name}: muss eine Zahl sein, ist {wert!r}')
+        try:
+            endlich = math.isfinite(wert)
+        except OverflowError:  # int, zu gross fuer float
+            endlich = False
+        if not endlich:
+            raise ValueError(f'{name}: muss endlich sein, ist {wert!r}')
+        if wert < 0:
+            raise ValueError(f'{name}: kleiner als 0 ({wert!r})')
+        zeiten.append(float(wert))
+    erzeugt, jetzt = zeiten
+    if jetzt < erzeugt:
+        raise ValueError(f'generated_mono_s ({erzeugt}) liegt nach jetzt_mono_s ({jetzt}): Erzeugung in der '
+                         'Zukunft oder andere Uhr/anderer Start')
+    return jetzt - erzeugt
 
 
 # ------------------------------------------------------------------ JSON
