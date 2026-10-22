@@ -117,7 +117,7 @@ class _Pruefer:
     def f(self, pfad, text):
         self.fehler.append(f'{pfad}: {text}')
 
-    def obj(self, d, pfad, felder):
+    def obj(self, d, pfad, felder, optional=()):
         """d muss ein dict mit genau diesen Feldern sein. Rueckgabe: True, wenn es ein dict ist."""
         if not isinstance(d, dict):
             self.f(pfad, 'muss ein Objekt sein')
@@ -126,7 +126,7 @@ class _Pruefer:
             if k not in d:
                 self.f(f'{pfad}.{k}', 'fehlt')
         for k in d:
-            if k not in felder:
+            if k not in felder and k not in optional:
                 self.f(f'{pfad}.{k}', 'unbekanntes Feld')
         return True
 
@@ -269,7 +269,8 @@ def pruefe(d):
 
     ro = d.get('route')
     if p.obj(ro, '$.route', ('section', 'node', 'approach_from', 'direction', 'allowed_exits', 'selected_exit',
-                             'maneuver', 'maneuver_progress', 'localization_status', 'localization_quality')):
+                             'maneuver', 'maneuver_progress', 'localization_status', 'localization_quality'),
+             optional=('history',)):
         for k in ('section', 'node', 'approach_from', 'direction', 'selected_exit', 'maneuver'):
             p.text(ro, '$.route', k, null=True)
         ausgaenge = p.liste(ro, '$.route', 'allowed_exits')
@@ -278,6 +279,8 @@ def pruefe(d):
         p.zahl(ro, '$.route', 'maneuver_progress', null=True, mini=0, maxi=1)
         p.text(ro, '$.route', 'localization_status', auswahl=STATUS)
         p.zahl(ro, '$.route', 'localization_quality', null=True, mini=0, maxi=1)
+        if 'history' in ro and not prfe_fahrhistorie(ro['history']):
+            p.f('$.route.history', 'muss hoechstens 16 Eintraege mit lueckenlosen Sequenzen enthalten')
 
     tr = d.get('traffic')
     if p.obj(tr, '$.traffic', ('signal_id', 'signal', 'signal_status', 'signal_confidence', 'signs', 'crossings')):
