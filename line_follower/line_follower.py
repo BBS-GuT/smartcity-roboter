@@ -167,7 +167,7 @@ class LineFollower(Node):
         d = None if grund else lidar.naechster_vorne(msg, fronts[i] if i < len(fronts) else 0.0,
                                                      self.p('obstacle_half_deg'), self.p('obstacle_min_range'),
                                                      rueckwaerts=self.p('direction') < 0)
-        self.scans[topic] = (time.time(), d, grund)
+        self.scans[topic] = (time.monotonic(), d, grund)   # Empfang monoton (Uhrsprung egal)
 
     def on_odom(self, msg):
         t = msg.twist.twist
@@ -244,13 +244,14 @@ class LineFollower(Node):
         Kanal wieder einen verwertbaren Scan liefert (dann sofort wieder frei, kein Nachlauf)."""
         if not self.p('obstacle_check'):
             return None
-        jetzt = time.time()
-        frisch = [(t, d, g) for t, (z, d, g) in self.scans.items() if jetzt - z < 1.0]
-        if not frisch:
+        topics = self.p('scan_topics')
+        # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
+        frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
+        if grund:
             if not self.scans:
-                return 'KEIN LIDAR: noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
-            alter = min(jetzt - z for z, _, _ in self.scans.values())
-            return f'KEIN LIDAR: letzter Scan vor {alter:.1f} s'
+                grund = 'noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
+            return 'KEIN LIDAR: ' + grund
+        frisch = [(t, d, g) for t, (_, d, g) in zip(topics, frisch)]
         ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
         if ungueltig:
             return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'

@@ -6,6 +6,8 @@
     # LiDAR. "Vorne" je LiDAR ist NOCH NICHT GEPRUEFT:
     # Panel -> LiDAR-Radar, Gegenstand vor die Kamera-Seite stellen und mit den Pfeilen drehen,
     # bis er oben im Bild erscheint, dann "Speichern".
+    # Jeder Eintrag in scan_topics ist PFLICHT (KI-Zentrale und Notbremse): fehlt einer oder ist sein letzter
+    # Scan aelter als 1 s, haelt der Roboter - auch wenn der andere LiDAR frische Daten liefert (#61).
     scan_topics: ['/scan0', '/scan1']
     scan_front_deg: [0.0, 0.0]
     obstacle_half_deg: 30.0
