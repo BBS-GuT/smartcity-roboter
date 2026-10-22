@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BKoewenig/smartcity-roboter/blob/feat/mqtt-panel-telemetrie/schemas/m1-v1.schema.json",
+  "title": "Smart City M1 MQTT message v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "geraet", "start_id", "seq", "erzeugt_utc", "karten_bezug", "kind", "data"],
+  "properties": {
+    "schema_version": {"const": "m1/1"},
+    "geraet": {"type": "string", "pattern": "^RM0[1-4]$"},
+    "start_id": {"type": "string", "pattern": "^[a-f0-9]{32}$"},
+    "seq": {"type": "integer", "minimum": 0, "maximum": 9223372036854775807},
+    "erzeugt_utc": {"type": "string", "format": "date-time"},
+    "karten_bezug": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$"},
+        "version": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "pattern": "^[a-f0-9]{16}$"}]}
+      }
+    },
+    "kind": {"enum": ["position", "intention", "map_state"]},
+    "data": {"type": "object"}
+  }
+}
