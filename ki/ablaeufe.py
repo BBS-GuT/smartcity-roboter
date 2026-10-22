@@ -71,12 +71,13 @@ class Zebrastreifen(Ablauf):
     keinen Schwenk am Ueberweg, vorhandene Posen allein sind keine Erlaubnis. Dieser Ablauf gibt nie Armbefehle aus.
 
     Frei ist der Ueberweg nur nach mindestens anschauen_bilder NEUEN, FRISCHEN Kamerabildern im Beobachtungsfenster,
-    zu denen jeweils LiDAR-Daten fuer den Ueberweg vorliegen (lidar_xy oder lidar_breit) und die keine Belegung zeigen.
+    zu denen jeweils LiDAR-Daten den Ueberweg vollstaendig messen (lidar_xy mit lidar_luecken) und keine Belegung zeigen.
     Ablaufende Zeit, leere Objektlisten, fehlende oder alte Daten zaehlen nicht als frei: dann bleibt er stehen.
     Ganz ungueltige Scans, fehlende/alte Kanaele und Luecken im Fahrschlauch meldet die Zentrale als keine LiDAR-Daten
-    (#60/#61/#62/#79) -> Halt. Vertragsluecke (#156): ob die Ueberwegzone SEITLICH neben dem Fahrschlauch (bis
-    zebra_seite) gemessen ist, sagt die Wahrnehmung nicht - Strahlen ohne Messung dort sind hier nicht von frei zu
-    unterscheiden."""
+    (#60/#61/#62/#79) -> Halt. Die Ueberwegzone selbst (seitlich bis zebra_seite, in der Tiefe bis abstand +
+    zebra_tiefe) prueft dieser Ablauf mit w['lidar_luecken'] (Richtungen ohne gueltige Messung, #156): geht eine davon
+    durch die Zone, ist sie dort nicht gemessen -> unbekannt, kein freies Bild. Ohne lidar_xy UND lidar_luecken
+    ist die Zone nicht nachweisbar gemessen."""
     name = 'zebra'
     braucht_arm = False     # bewegt den Arm nie (#70)
 
@@ -111,21 +112,57 @@ class Zebrastreifen(Ablauf):
             self.weg = w['weg']
         if xy is not None:
             xy = np.asarray(xy).reshape(-1, 2)
-            if self.weg:
-                # entlang der Linie messen: steht der Roboter (noch) schraeg, zaehlt trotzdem nur der Bereich
-                # am Zebrastreifen, nicht Waende/Haeuser daneben
-                quer, entlang = abstand_zum_weg(xy, self.weg, self.abstand + self.c['zebra_tiefe'] + 0.2)
-                zone = ((entlang > self.abstand - 0.10) & (entlang < self.abstand + self.c['zebra_tiefe'])
-                        & (quer < self.c['zebra_seite']))
-            else:
-                zone = ((xy[:, 0] > self.abstand - 0.10) & (xy[:, 0] < self.abstand + self.c['zebra_tiefe'])
-                        & (np.abs(xy[:, 1]) < self.c['zebra_seite']))
+            zone = self._zone(xy)[0]
             if zone.any():
                 x, y = xy[zone][np.argmin(xy[zone][:, 0])]
                 seite = 'links' if y > 0 else 'rechts'
                 self.jemand = f'etwas am Zebrastreifen, {abs(y) * 100:.0f} cm {seite} (LiDAR)'
         elif w.get('lidar_breit') is not None and w['lidar_breit'] < self.c['zebra_lidar']:
             self.jemand = f"etwas {w['lidar_breit'] * 100:.0f} cm vor mir (LiDAR)"
+
+    def _zone(self, xy):
+        """(Maske: Punkt liegt AUF oder direkt NEBEN dem Zebrastreifen, Abstand entlang/nach vorne) je Punkt."""
+        if self.weg:
+            # entlang der Linie messen: steht der Roboter (noch) schraeg, zaehlt trotzdem nur der Bereich
+            # am Zebrastreifen, nicht Waende/Haeuser daneben
+            quer, entlang = abstand_zum_weg(xy, self.weg, self.abstand + self.c['zebra_tiefe'] + 0.2)
+        else:
+            quer, entlang = np.abs(xy[:, 1]), xy[:, 0]
+        zone = ((entlang > self.abstand - 0.10) & (entlang < self.abstand + self.c['zebra_tiefe'])
+                & (quer < self.c['zebra_seite']))
+        return zone, entlang
+
+    def _zone_ungemessen(self, w):
+        """None = die ganze Ueberwegzone ist gemessen, sonst Grund (Text). Fehlen Punkte in der Zone, weil Strahlen
+        dort keinen gueltigen Messwert haben (0, NaN, inf ...), ist sie nicht frei, sondern unbekannt (#156).
+
+        Jeder Zonenpunkt liegt auf dem LiDAR-Strahl in seiner Richtung: eine Richtung ohne Messung trifft die Zone
+        genau dann, wenn Zonenpunkte in dieser Richtung liegen. Die Zone wird dafuer einmal auf einem 3-cm-Raster
+        ausgewertet (Richtungen je Grad, 1 Grad Rand) - gleiche Rechenzeit, egal wie viele Strahlen fehlen."""
+        if w.get('lidar_xy') is None or w.get('lidar_luecken') is None:
+            return 'Abdeckung des Ueberwegs unbekannt (keine LiDAR-Punkte/Luecken)'
+        winkel = np.asarray(w['lidar_luecken'], dtype=float).reshape(-1)
+        if not len(winkel):
+            return None
+        reichweite = self.abstand + self.c['zebra_tiefe'] + self.c['zebra_seite'] + 0.2
+        g = np.arange(-reichweite, reichweite + 0.015, 0.03)
+        raster = np.stack(np.meshgrid(g, g), axis=-1).reshape(-1, 2)
+        # Zone liegt hoechstens 'reichweite' entfernt und nicht weiter als zebra_seite hinter dem Roboter
+        raster = raster[(np.hypot(raster[:, 0], raster[:, 1]) <= reichweite) & (raster[:, 0] > -self.c['zebra_seite'])]
+        raster = raster[self._zone(raster)[0]]
+        if not len(raster):
+            return None
+        grad = np.round(np.degrees(np.arctan2(raster[:, 1], raster[:, 0]))).astype(int) % 360
+        unbekannt = np.zeros(360, dtype=bool)
+        lw = np.round(np.degrees(winkel)).astype(int) % 360
+        for d in (-1, 0, 1):
+            unbekannt[(lw + d) % 360] = True
+        treffer = unbekannt[grad]
+        if not treffer.any():
+            return None
+        p = raster[treffer][np.argmin(np.hypot(raster[treffer, 0], raster[treffer, 1]))]
+        seite = 'links' if p[1] > 0 else 'rechts'
+        return f'Ueberweg {seite} nicht gemessen (LiDAR-Strahlen ohne Messwert)'
 
     def schritt(self, jetzt, w):
         c, d = self.c, self.dauer(jetzt)
@@ -148,8 +185,11 @@ class Zebrastreifen(Ablauf):
                     self.bilder, self.luecke = 0, 'Kamera schaut nicht nach vorne'
                 else:
                     self._beobachten(w)    # Person/Tier im Bild haelt auch ohne LiDAR-Daten
+                    ungemessen = self._zone_ungemessen(w)
                     if w.get('lidar_xy') is None and w.get('lidar_breit') is None:
                         self.bilder, self.luecke = 0, 'keine LiDAR-Daten am Ueberweg'
+                    elif ungemessen:
+                        self.bilder, self.luecke = 0, ungemessen     # nicht gemessen ist nicht frei (#156)
                     else:
                         self.bilder += 1
             if d >= c['zebra_schauen'] + 1.0 and (self.jemand or self.bilder >= c['anschauen_bilder']):

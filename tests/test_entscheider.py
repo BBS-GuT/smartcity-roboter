@@ -6,6 +6,8 @@ import os
 import sys
 import time
 
+import numpy as np
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'ki'))
 from entscheider import Entscheider, STANDARD  # noqa: E402
 
@@ -185,8 +187,10 @@ def arm_befehle(lauf, n, **w):
 
 # #70 / Scopeentscheidung #8: am Zebrastreifen kein eigenstaendiger Arm-/Kameraschwenk. Ersetzt den frueheren Test
 # "umschauen links, rechts, zurueck" (blick_links, blick_rechts, fahrstellung), der genau diesen Schwenk verlangte.
-# Freigabe nur mit gueltiger Beobachtung: neue, frische Bilder MIT LiDAR-Daten am Ueberweg (hier lidar_breit, frei).
-FREI = {'lidar_breit': 1.0}
+# Freigabe nur mit gueltiger Beobachtung: neue, frische Bilder MIT LiDAR-Daten am Ueberweg, die den Ueberweg
+# vollstaendig messen (#156): keine Punkte dort und keine Richtungen ohne Messwert (lidar_luecken leer) = frei.
+GEMESSEN = np.zeros(0)
+FREI = {'lidar_breit': 1.0, 'lidar_xy': np.zeros((0, 2)), 'lidar_luecken': GEMESSEN}
 l = Lauf(arm_erlaubt=True, posen=POSEN)
 pruefe('Zebrastreifen 50 cm -> noch fahren', l.schritt(2, zebra={'abstand': 0.5}, **FREI), 'fahren')
 pruefe('Zebrastreifen 30 cm -> anhalten', l.schritt(1, zebra={'abstand': 0.3}, **FREI), 'stopp')
@@ -228,23 +232,22 @@ fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Posen ohne ausdrueckliche Freigabe -> kein Arm: {arme}")
 >>>>>>> 61c7031 (B1d)
 # LiDAR-Punkte: nur der Bereich am Zebrastreifen zaehlt (Haus/Wand daneben nicht)
-import numpy as np  # noqa: E402
 wand = np.array([[0.3 + 0.02 * k, -0.40] for k in range(20)])       # 40 cm rechts: Wand/Haus
 fussgaenger = np.array([[0.36, -0.20], [0.37, -0.21]])               # wartet rechts am Zebrastreifen
 l = Lauf(arm_erlaubt=True, posen=POSEN)
-l.schritt(1, zebra={'abstand': 0.3}, lidar_xy=wand)
-arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=wand)
+l.schritt(1, zebra={'abstand': 0.3}, lidar_xy=wand, lidar_luecken=GEMESSEN)
+arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=wand, lidar_luecken=GEMESSEN)
 pruefe('nur Wand neben der Strasse -> weiter', b, 'fahren')
 l = Lauf(arm_erlaubt=True, posen=POSEN)
-l.schritt(1, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, fussgaenger]))
-arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, fussgaenger]))
+l.schritt(1, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, fussgaenger]), lidar_luecken=GEMESSEN)
+arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, fussgaenger]), lidar_luecken=GEMESSEN)
 pruefe('Fussgaenger am Zebrastreifen (LiDAR) -> wartet', b, 'stopp')
-arme, b = arm_befehle(l, 120, zebra={'abstand': 0.3}, lidar_xy=wand)
+arme, b = arm_befehle(l, 120, zebra={'abstand': 0.3}, lidar_xy=wand, lidar_luecken=GEMESSEN)
 pruefe('Fussgaenger weg -> weiter', b, 'fahren')
 links = np.array([[0.36, 0.20], [0.37, 0.21]])                     # wartet links am Zebrastreifen
 l = Lauf(arm_erlaubt=True, posen=POSEN)
-l.schritt(1, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, links]))
-arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, links]))
+l.schritt(1, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, links]), lidar_luecken=GEMESSEN)
+arme, b = arm_befehle(l, 80, zebra={'abstand': 0.3}, lidar_xy=np.vstack([wand, links]), lidar_luecken=GEMESSEN)
 ok = b['aktion'] == 'stopp' and 'links' in b['grund'] and arme == []
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Fussgaenger links am Zebrastreifen (LiDAR) -> wartet, kein Arm ({b['grund']})")
@@ -342,7 +345,7 @@ ok = ok and not any(b['arm'] for b in bs if b)
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} #70 Ablauf direkt, gueltige freie Beobachtung -> frei ({a.bilder} Bilder)")
 # positiv im ganzen Entscheider: gueltige freie Beobachtung mit LiDAR-Punkten (lidar_xy) -> weiter, ohne Arm
-lauf, folge = zebra_lauf(80, lidar_xy=wand)
+lauf, folge = zebra_lauf(80, lidar_xy=wand, lidar_luecken=GEMESSEN)
 ok = folge[-1]['aktion'] == 'fahren' and not any(x['arm'] for x in folge)
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} #70 gueltige freie Beobachtung (LiDAR-Punkte) -> weiter ohne Arm ({folge[-1]['grund']})")
