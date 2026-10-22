@@ -111,6 +111,67 @@ lin, quer, dreh, status = n.entscheide()
 ok = lin == 0 and quer == 0 and dreh == 0
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} GB-14: Notbremse sperrt auch Drehen auf der Stelle: {status}")
+
+
+# ---- L6 (#65): Notbremse prueft den TATSAECHLICHEN Befehl (nicht den Parameter direction) ----
+def hinten_10cm(n):
+    for t, i in (('/scan0', 0), ('/scan1', 1)):
+        n.on_scan(scan(0.10, index_vorne=0), t, i)          # hinten 10 cm, vorne 2 m
+
+
+def manoever(n, **wunsch):
+    n.ki = (time.time(), {'aktion': 'manoever', 'grund': 'test', 'manoever': dict(wunsch, text='test')})
+
+
+def halt_mit(name, ergebnis, text):
+    global fehler
+    lin, quer, dreh, status = ergebnis
+    ok = (lin, quer, dreh) == (0.0, 0.0, 0.0) and text in status
+    fehler += not ok
+    print(f"{'OK  ' if ok else 'FEHLER'} {name}: {lin:.2f} m/s - {status}")
+
+
+n = neu()
+hinten_10cm(n)
+manoever(n, lin=-0.05)
+halt_mit('direction=+1, hinten 10 cm, KI-Manoever rueckwaerts -> Null + Grund hinten', n.entscheide(),
+         'NOTBREMSE 10 cm hinten')
+n._p['drive'] = True
+n.steuern()
+cmd = n.pub.letzte
+ok = (cmd.linear.x, cmd.linear.y, cmd.angular.z) == (0.0, 0.0, 0.0)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} ... und die Publisherattrappe bekommt den Nullbefehl")
+n = neu()
+n._p['direction'] = -1.0
+hinten_10cm(n)
+halt_mit('direction=-1, hinten 10 cm -> stoppt weiterhin', n.entscheide(), 'hinten')
+n = neu()
+hinten_10cm(n)
+check('direction=+1, hinten 10 cm, Linie vorwaerts -> faehrt (vorne frei)', n.entscheide(), True)
+n._p['direction'] = -1.0                  # Richtungswechsel OHNE neuen Scan
+halt_mit('Richtungswechsel ohne neuen Scan -> richtiger Bereich (hinten)', n.entscheide(), 'hinten')
+n = neu()
+hinten_10cm(n)
+manoever(n, lin=0.05)
+check('hinten 10 cm, KI-Manoever vorwaerts -> faehrt', n.entscheide(), True)
+for wunsch in ({'dreh': 0.8}, {'quer': 0.05}, {'quer': -0.05, 'dreh': -0.5}):
+    n = neu()
+    hinten_10cm(n)
+    manoever(n, **wunsch)
+    halt_mit(f'hinten 10 cm, KI-Manoever {wunsch} auf der Stelle -> Halt', n.entscheide(), 'hinten')
+n = neu()
+hinten_10cm(n)
+manoever(n)
+ergebnis = n.entscheide()
+ok = ergebnis[:3] == (0.0, 0.0, 0.0)
+fehler += not ok
+print(f"{'OK  ' if ok else 'FEHLER'} Haltwunsch (Manoever 0) bleibt Null: {ergebnis[3]}")
+n = neu()
+n.on_scan(scan(0.10), '/scan1', 1)
+manoever(n, lin=-0.05)
+halt_mit('vorne 10 cm (direction=+1), KI-Manoever rueckwaerts -> haelt wie bisher', n.entscheide(), 'vorne')
+
 n = neu()
 n.set_parameters([lf.Parameter('kamera_neigung', value=30.0)])
 ok = n.sucher.c['kamera_neigung'] == 30.0 and n.sucher.groesse is None
