@@ -25,6 +25,38 @@ class Gesamtvertrag(unittest.TestCase):
         self.context = synthetischer_raeumkontext()
         self.schema = read('schemas/grundbetrieb-v2.schema.json')
 
+    def test_aktuelle_erlaubnis_ignoriert_keine_unbrauchbare_relevante_sperre(self):
+        for status in ('invalid', 'unknown', 'missing', 'stale'):
+            d = read('tests/fixtures/grundbetrieb/fahrt.json')
+            owner = d['motion']['release']['owner_ref']
+            d['motion']['blocks']['entries'] = [dict(
+                block_ref={**owner, 'block_id': 'front-check'}, code='FRONT_BLOCKED',
+                effect='both', frame_ref=None, time_basis_id='synthetic-device-clock-0001',
+                reported_mono_s=d['generated_mono_s'], status=status, reason='NOT_TRUSTED')]
+            with self.subTest(status=status):
+                errors = V.pruefe(d, raeum_kontext=self.context)
+                self.assertIsInstance(errors, list)
+                self.assertTrue(errors)
+                with self.assertRaises(ValueError):
+                    V.als_json(d, raeum_kontext=self.context)
+                with self.assertRaises(ValueError):
+                    V.lade_json(V._json_wert(d), raeum_kontext=self.context)
+                if jsonschema:
+                    self.assertTrue(list(jsonschema.Draft202012Validator(self.schema).iter_errors(d)))
+
+    def test_falsch_typisierte_haltgruende_bleiben_validierungsfehler(self):
+        for value in (True, [{}], [[]]):
+            with self.subTest(value=value):
+                d = read('tests/fixtures/grundbetrieb/fahrt.json')
+                d['runtime']['hold_reasons'] = value
+                errors = V.pruefe(d, raeum_kontext=self.context)
+                self.assertIsInstance(errors, list)
+                self.assertTrue(errors)
+                with self.assertRaises(ValueError):
+                    V.als_json(d, raeum_kontext=self.context)
+                with self.assertRaises(ValueError):
+                    V.lade_json(V._json_wert(d), raeum_kontext=self.context)
+
     def test_sieben_beispiele_alle_oeffentlichen_eingaenge(self):
         for path in sorted((ROOT / 'tests/fixtures/grundbetrieb').glob('*.json')):
             with self.subTest(name=path.name):

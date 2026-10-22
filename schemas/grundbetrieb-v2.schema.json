@@ -2327,6 +2327,68 @@
               "request"
             ]
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "package_use": {
+                "properties": {
+                  "mode": {
+                    "const": "current"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "release": {
+                "properties": {
+                  "decision": {
+                    "const": "allowed"
+                  }
+                },
+                "required": [
+                  "decision"
+                ]
+              }
+            },
+            "required": [
+              "package_use",
+              "release"
+            ]
+          },
+          "then": {
+            "properties": {
+              "blocks": {
+                "properties": {
+                  "entries": {
+                    "items": {
+                      "if": {
+                        "properties": {
+                          "effect": {
+                            "enum": [
+                              "arm",
+                              "both"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "effect"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "status": {
+                            "const": "valid"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -3519,6 +3581,68 @@
             "required": [
               "request"
             ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "package_use": {
+                "properties": {
+                  "mode": {
+                    "const": "current"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "release": {
+                "properties": {
+                  "decision": {
+                    "const": "allowed"
+                  }
+                },
+                "required": [
+                  "decision"
+                ]
+              }
+            },
+            "required": [
+              "package_use",
+              "release"
+            ]
+          },
+          "then": {
+            "properties": {
+              "blocks": {
+                "properties": {
+                  "entries": {
+                    "items": {
+                      "if": {
+                        "properties": {
+                          "effect": {
+                            "enum": [
+                              "motion",
+                              "both"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "effect"
+                        ]
+                      },
+                      "then": {
+                        "properties": {
+                          "status": {
+                            "const": "valid"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       ]
