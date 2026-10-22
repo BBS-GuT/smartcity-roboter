@@ -39,13 +39,21 @@ def validate_file(relative, body):
         with tempfile.TemporaryDirectory() as directory:
             staged = Path(directory) / 'check.sh'
             staged.write_bytes(body)
-            subprocess.run(['bash', '-n', str(staged)], check=True, capture_output=True, text=True)
+            result=subprocess.run(['bash', '-n', str(staged)], capture_output=True, text=True)
+            if result.returncode:
+                raise RuntimeError('Shell-Syntaxfehler in '+relative+': '+result.stderr.strip()[:300])
+
+def normalize_file(relative, body):
+    # Windows checkout serves CRLF, but bash on the Jetson requires LF.
+    if relative.endswith('.sh'):
+        body=body.replace(b'\r\n',b'\n')
+    return body
 
 def download_all():
     result = {}
     for remote, relative in FILES.items():
         with urllib.request.urlopen(BASE_URL + remote, timeout=15) as response:
-            body = response.read(MAX_SIZE + 1)
+            body = normalize_file(relative,response.read(MAX_SIZE + 1))
         validate_file(relative, body); result[relative] = body
     return result
 
