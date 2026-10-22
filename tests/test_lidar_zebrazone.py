@@ -131,6 +131,23 @@ class Zebrazone(unittest.TestCase):
                 folge = zebra(200, **w)
                 self.assertTrue(all(b['aktion'] == 'stopp' for b in folge))
 
+    def test_luecke_waehrend_die_kamera_stockt(self):
+        # wie Codex-Befund zu PR #158 fuer die Belegung: genug freie Bilder, dann stockt die Kamera und die Zone
+        # wird ungemessen -> keine Freigabe (Abdeckung zaehlt in jedem Zyklus, nicht nur bei neuen Bildern)
+        lauf = Lauf()
+        lauf.schritt(1)
+        lauf.schritt(17)                                              # Halt + genug freie, gemessene Bilder
+        nr, t_bild = lauf.nr, lauf.t
+        winkel = lidar.ungueltige_winkel(scan_mit_luecke(45))
+        folge = []
+        for _ in range(12):
+            lauf.t += 0.1
+            folge.append(lauf.e.update(lauf.t, {
+                'bild_nr': nr, 'bild_zeit': t_bild, 'aufnahme': t_bild, 'objekte': [], 'ampel': None,
+                'stoppschild': False, 'lidar': float('inf'), 'lidar_breit': 1.0, 'lidar_hinten': 1.0,
+                'lidar_xy': WAND, 'lidar_luecken': winkel, 'zebra': {'abstand': 0.3}}))
+        self.assertTrue(all(b['aktion'] == 'stopp' for b in folge))
+
     def test_wiederkehr_der_messung_gibt_frei(self):
         lauf = Lauf()
         lauf.schritt(1)

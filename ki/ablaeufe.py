@@ -197,14 +197,16 @@ class Zebrastreifen(Ablauf):
                     self.bilder, self.luecke = 0, 'Kamera schaut nicht nach vorne'
                 else:
                     self._beobachten(w)    # Person/Tier im Bild haelt auch ohne LiDAR-Daten
-                    ungemessen = self._zone_ungemessen(w)
                     if w.get('lidar_xy') is None and w.get('lidar_breit') is None:
                         self.bilder, self.luecke = 0, 'keine LiDAR-Daten am Ueberweg'
-                    elif ungemessen:
-                        self.bilder, self.luecke = 0, ungemessen     # nicht gemessen ist nicht frei (#156)
                     else:
                         self.bilder += 1
             self._lidar_belegung(w)     # auch ohne neues Bild: aktuelle LiDAR-Belegung vor jeder Entscheidung
+            ungemessen = self._zone_ungemessen(w)     # ebenso in jedem Zyklus: ist die Zone gerade gemessen?
+            if ungemessen:
+                keine = w.get('lidar_xy') is None and w.get('lidar_breit') is None
+                self.bilder = 0                                  # nicht gemessen ist nicht frei (#156)
+                self.luecke = 'keine LiDAR-Daten am Ueberweg' if keine else ungemessen
             if d >= c['zebra_schauen'] + 1.0 and (self.jemand or self.bilder >= c['anschauen_bilder']):
                 return self._entscheiden(jetzt)
             if d >= c['zebra_schauen'] + 1.0:
