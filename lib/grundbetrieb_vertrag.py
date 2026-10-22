@@ -482,7 +482,7 @@ def pruefe(d, *, detail_kontext=None, historie_kontext=None, vorherige_historie=
     if not p.fehler:
         # Historische Ausgaben bleiben Diagnose und werden nicht aktuell projiziert.
         aktuell = isinstance(mo, dict) and isinstance(mo.get('package_use'), dict) and mo['package_use'].get('mode') == 'current'
-        _betrieb(p, rt, out if aktuell else {})
+        _betrieb(p, rt, out if aktuell and out.get('status') == 'valid' else None)
     if isinstance(ro, dict):
         p.fehler.extend('$.route.' + f for f in pruefe_historie(
             ro.get('history'), robot_id=d.get('robot_id'), map_version=d.get('map_version'),
@@ -759,8 +759,10 @@ def _kommunikation(p, d, co):
 
 def _betrieb(p, rt, out):
     """Fachliche Regeln zum Betrieb (R3-R5, R8). Nur, wenn die Struktur stimmt."""
-    v, w = out.get('v_m_s', 0), out.get('w_rad_s', 0)
-    bewegt = v != 0 or w != 0
+    # Fehlende/nicht bestaetigte Ausgabe ist kein Bewegungsnachweis und kein
+    # ausgegebener Nullbefehl. Die Originalwerte und ihre Qualitaet bleiben erhalten.
+    v, w = (out.get('v_m_s'), out.get('w_rad_s')) if out is not None else (None, None)
+    bewegt = v is not None and w is not None and (v != 0 or w != 0)
     zustand, gruende = rt['state'], rt['hold_reasons']
     gesperrt = rt['stop_latched'] or rt['fault_latched'] or zustand in ('GESTOPPT', 'TEST', 'FEHLER')
     if gesperrt and rt['motor_enabled']:

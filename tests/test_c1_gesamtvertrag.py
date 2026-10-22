@@ -58,6 +58,42 @@ class Gesamtvertrag(unittest.TestCase):
         self.context = synthetischer_raeumkontext()
         self.schema = read('schemas/grundbetrieb-v2.schema.json')
 
+    def test_unbestaetigte_ausgabe_ist_keine_falsche_bewegung_im_halt(self):
+        for filename in ('stillstand', 'rot_und_hindernis', 'test'):
+            for status in ('unknown', 'invalid'):
+                d = read('tests/fixtures/grundbetrieb/' + filename + '.json')
+                d['motion']['output'].update(v_m_s=None, w_rad_s=None, status=status, reason='UNCONFIRMED_OUTPUT')
+                before = copy.deepcopy(d)
+                with self.subTest(filename=filename, status=status):
+                    self.assertEqual(V.pruefe(d, raeum_kontext=self.context), [])
+                    text = V.als_json(d, raeum_kontext=self.context)
+                    self.assertEqual(V.lade_json(text, raeum_kontext=self.context), before)
+                    self.assertEqual(d, before)
+                    if jsonschema:
+                        self.assertEqual(list(jsonschema.Draft202012Validator(self.schema).iter_errors(d)), [])
+                d['motion']['output'].update(v_m_s=Decimal('.1'), w_rad_s=0, status='valid', reason=None)
+                self.assertTrue(V.pruefe(d, raeum_kontext=self.context))
+                with self.assertRaises(ValueError): V.als_json(d, raeum_kontext=self.context)
+                with self.assertRaises(ValueError): V.lade_json(V._json_wert(d), raeum_kontext=self.context)
+
+    def test_nicht_gueltige_historie_bewahrt_die_bestaetigte_herkunft(self):
+        for status in ('missing', 'unknown', 'invalid'):
+            for field in ('producer_id', 'producer_boot_id', 'time_basis_id'):
+                d = neutralisiere(read('tests/fixtures/grundbetrieb/stillstand.json'))
+                context = read('tests/fixtures/c1_history/context.json')
+                context['binding']['robot_id'] = 'RM02'
+                history = dict(producer_id=context['binding']['producer_id'],
+                    producer_boot_id=context['binding']['producer_boot_id'],
+                    time_basis_id=context['binding']['time_basis_id'], status=status,
+                    reason='UNCONFIRMED_HISTORY', entries=None, dropped_entries=None)
+                d['route']['history'] = history
+                self.assertEqual(V.pruefe(d, historie_kontext=context), [])
+                history[field] = 'foreign-binding'
+                with self.subTest(status=status, field=field):
+                    self.assertTrue(V.pruefe(d, historie_kontext=context))
+                    with self.assertRaises(ValueError): V.als_json(d, historie_kontext=context)
+                    with self.assertRaises(ValueError): V.lade_json(V._json_wert(d), historie_kontext=context)
+
     def test_aktuelle_armziele_und_ausgabeinhalt_durch_alle_einstiege(self):
         d, context = arm_bauwert()
         ctx = V.RaeumKontext(**context)
