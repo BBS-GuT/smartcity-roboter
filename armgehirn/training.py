@@ -91,7 +91,8 @@ def schleife(g, protokoll, frage, n_max, sim=None):
                 print('  nichts gesehen')
             else:
                 print(f"  gemessen: Mitte {(o['vor'] + o['breite'] / 2) * 100:.1f} cm vor der Robotermitte, "
-                      f"{o['seite'] * 100:+.1f} cm links, {o['breite'] * 100:.1f} cm breit, {o['hoehe'] * 100:.1f} cm hoch")
+                      f"{o['seite'] * 100:+.1f} cm links, {o['breite'] * 100:.1f} cm breit, {o['hoehe'] * 100:.1f} cm hoch, "
+                      f"{o.get('laenge', float('nan')) * 100:.1f} cm tief; Vorderkante {o['vor'] * 100:.1f} cm")
             continue
         if eingabe in ('g', 'f'):
             print('  ' + str((g.grundstellung if eingabe == 'g' else g.fahrstellung)() or 'ok'))

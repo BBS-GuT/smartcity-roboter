@@ -87,6 +87,8 @@ def _nein(art, grund, objekt):
 
 def _mittel(m):
     aus = {k: float(np.median([x[k] for x in m])) for k in ('vor', 'seite', 'breite', 'hoehe')}
+    if all(x.get('laenge') is not None for x in m):
+        aus['laenge'] = float(np.median([x['laenge'] for x in m]))
     for k in ('pixel', 'tiefe_m'):
         werte = [x[k] for x in m if x.get(k) is not None]
         if werte:
