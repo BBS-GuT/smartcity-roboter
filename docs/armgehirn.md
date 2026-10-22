@@ -65,6 +65,19 @@ Ergebnis: Der größte Einzelfehler ist die **Kinematik** (vor allem die Höhe),
 - **Sichere Grenzen** (wie bisher): gelernte Korrektur höchstens ±4 cm (vorne/seitlich) bzw. ±2 cm (hoch) vom Vortraining, Ausprobieren höchstens 40 % des Spielraums des Greifers neben der besten Korrektur, `Z_MIN` 6 mm über dem Boden, Servos höchstens 60°/s, Winkel außerhalb der Grenzen werden abgelehnt.
 - **Lage-Kalibrierung (bei Bedarf):** Gegenstand auf Markierungen mit bekannter Lage legen (`--kalibrieren`). Ausgleichsrechnung *wahre Lage = M · (1, gemessen vorne, gemessen seitlich)*. Zeigt, wie groß der Kamerafehler ist, und korrigiert ihn vor dem Greifen.
 
+### Messung in der Übungswelt (vorher / nachher)
+
+`python3 sim/armgehirn_messen.py --roboter 10`: 10 neue Zufallsroboter (Bauart M3 Pro), je 60 Lernversuche (jeder 7. eine Spielfigur), danach 20 gleiche Prüfwürfel ohne Ausprobieren. Würfelmitte 15–20 cm vorne, ±5 cm seitlich. **Nur Simulation.**
+
+| Variante | Lernen je 10 Versuche | Prüfung | mittlerer Zielfehler | Figur angefasst |
+|---|---|---|---|---|
+| bisheriges Verfahren (Gitter, nur Grundkorrektur, Belohnung „alter Ort frei“) | 77 70 72 85 85 80 % | 84,0 % | 0,98 cm | 0 |
+| feste Grundkorrektur, Belohnung „alter Ort frei“ | 77 80 77 85 83 90 % | 86,0 % | 0,83 cm | 0 |
+| feste Grundkorrektur, feine Belohnung | 82 82 83 88 88 90 % | 88,0 % | 0,72 cm | 0 |
+| **lageabhängig + feine Belohnung (Arm-Gehirn)** | 65 84 81 84 83 75 % | 87,5 % | 0,82 cm | 0 |
+
+**Ehrlich:** In diesem kleinen Bereich ist in der Übungswelt **kein Vorteil** des lageabhängigen Lernens messbar. Alle Varianten liegen innerhalb des Zufalls von 10 Robotern × 20 Würfeln, und am Anfang probiert es mehr aus (erste 10 Versuche schlechter). Der Vorteil zeigt sich, wenn der Fehler stark von der Lage abhängt (Test `LageabhaengigesLernen`: 79–100 % statt 40–50 % mit fester Korrektur). Ob das am echten Roboter so ist (Kameramaßstab, Neigung), zeigen erst die Markierungsversuche. Die feine Belohnung verhindert vor allem, dass weggeschobene Würfel als Erfolg gelernt werden. Die übrigen Fehlversuche in der Übungswelt sind überwiegend Höhenfehler (Arm hängt durch) und knapp daneben gegriffene Würfel. **Niemand erreicht hier 90 %**: Das Ziel ist anspruchsvoll und muss am Gerät gezeigt werden.
+
 ### Erfolg selbst prüfen
 
 Nach dem Ablegen schaut die Kamera an den alten Ort und zur Ablagestelle (`armgehirn/pruefung.py`):
