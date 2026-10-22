@@ -264,9 +264,54 @@ class Raeumdaten(unittest.TestCase):
 
     def test_arm_protective_commandless_output(self):
         s = state(); b = package(s, 'arm')
+        b['arm_command'] = {'targetless_actions': ['greifen']}
         for k in ('release', 'output'):
             s['arm'][k]['command_reason'] = 'PROTECTIVE_ACTION_WITHOUT_REQUEST'
         self.assertEqual(self.check(s, bindings=b), [])
+
+    def target_bound_arm(self, output=True):
+        s, kw = self.allowed('arm', output=output)
+        target = {'coord_frame': 'robot', 'calibration_version': 'v', 'status': 'valid', 'reason': None,
+                  'values': {'x': {'value': Decimal('.2'), 'unit': 'm'}}}
+        kw['bindings']['arm_command'] = {'targetless_actions': []}
+        kw['component_units'] = {('robot', 'v'): {'x': 'm'}}
+        kw['commands'][0]['target'] = copy.deepcopy(target)
+        s['arm']['request']['target'] = copy.deepcopy(target)
+        if output:
+            s['arm']['output']['target'] = copy.deepcopy(target)
+        return s, kw
+
+    def test_target_bound_arm_requires_usable_command_and_output_targets(self):
+        for output in (False, True):
+            s, kw = self.target_bound_arm(output)
+            self.assertEqual(self.check(s, **kw), [])
+            unknown = {'coord_frame': 'robot', 'calibration_version': 'v', 'status': 'unknown', 'reason': 'TARGET_UNKNOWN', 'values': None}
+            kw['commands'][0]['target'] = copy.deepcopy(unknown)
+            s['arm']['request']['target'] = copy.deepcopy(unknown)
+            if output:
+                s['arm']['output']['target'] = copy.deepcopy(unknown)
+            self.assertTrue(any('Zielkomponenten' in e for e in self.check(s, **kw)))
+
+    def test_valid_arm_output_preserves_exact_command_payload(self):
+        for field, value in (('action', 'ablegen'), ('target', {'coord_frame': 'robot', 'calibration_version': 'v', 'status': 'valid', 'reason': None, 'values': {'x': {'value': Decimal('.3'), 'unit': 'm'}}}), ('operation_ref', ref('operation_id', 'another-operation', 'b')), ('object_ref', ref('object_id', 'another-object', 'objects'))):
+            s, kw = self.target_bound_arm()
+            self.assertEqual(self.check(s, **kw), [])
+            s['arm']['output'][field] = value
+            self.assertTrue(any('Commandinhalt' in e for e in self.check(s, **kw)))
+
+    def test_explicit_targetless_arm_command_and_matching_output(self):
+        s, kw = self.allowed('arm', output=True)
+        self.assertEqual(self.check(s, **kw), [])
+
+    def test_unknown_arm_target_remains_diagnostic_without_release(self):
+        s, kw = self.target_bound_arm(False)
+        unknown = unbekannte_bloecke()['arm']
+        for field in ('release', 'blocks', 'package_use'):
+            s['arm'][field] = unknown[field]
+        command = s['arm']['request']
+        command['target'].update({'status': 'unknown', 'reason': 'TARGET_UNKNOWN', 'values': None})
+        s['arm']['release'].update({'command_ref': {k: command[k] for k in ('robot_id', 'producer_id', 'producer_boot_id', 'command_seq')}, 'command_reason': None})
+        self.assertEqual(self.check(s, **kw), [])
 
     def test_arm_current_expiry_equal_and_historical(self):
         s, kw = self.allowed('arm')

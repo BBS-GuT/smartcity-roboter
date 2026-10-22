@@ -205,6 +205,15 @@ class _Check:
             self.fail(p, 'historischer Framebeleg fehlt')
         return record
 
+    def usable_target(self, target, action, p):
+        targetless = (self.c.bindings or {}).get('arm_command', {}).get('targetless_actions', ())
+        if action in targetless:
+            return
+        if not isinstance(target, dict) or target.get('status') != 'valid' or not isinstance(target.get('values'), dict) or not target['values']:
+            self.fail(p, 'zielgebundene Aktion braucht gueltige nutzbare Zielkomponenten')
+        else:
+            self.components(target, p)
+
     def measurement_block(self, x, p):
         if not self.obj(x, p, ('measurements', 'status', 'reason')):
             return
@@ -524,6 +533,8 @@ class _Check:
                 self.text(out.get('action'), p + '.output.action', null=not ov)
                 if out.get('target') is not None:
                     self.components(out['target'], p + '.output.target')
+                if ov:
+                    self.usable_target(out.get('target'), out.get('action'), p + '.output.target')
                 for kind in ('operation', 'object'):
                     self.ref(out.get(kind + '_ref'), kind, p + '.output.' + kind + '_ref', null=ref is None)
                 if release.get('decision') == 'blocked' and ref is not None:
@@ -539,6 +550,12 @@ class _Check:
             if request is None or ref is None:
                 self.fail(p, 'Erlaubnis/Ausgabe braucht aufloesbaren bestaetigten Wunsch')
             else:
+                if domain == 'arm':
+                    self.usable_target(request.get('target'), request.get('action'), p + '.bound_request.target')
+                    if isinstance(out, dict) and out.get('status') == 'valid':
+                        for field in ('action', 'target', 'operation_ref', 'object_ref'):
+                            if out.get(field) != request.get(field):
+                                self.fail(p + '.output.' + field, 'weicht vom bestaetigten Commandinhalt ab')
                 generated = self.time(request.get('generated_mono_s'), p + '.bound_request.generated_mono_s')
                 until = self.time(request.get('valid_until_mono_s'), p + '.bound_request.valid_until_mono_s')
                 if request.get('time_basis_id') != self.clock or release.get('time_basis_id') != self.clock:
@@ -724,6 +741,8 @@ def _schema_defs():
             props.update({'action': nullable_text, 'target': ref('components', True), 'operation_ref': ref('operation_ref', True), 'object_ref': ref('object_ref', True)})
         defs['c1_' + domain + '_output'] = obj(props)
     defs['c1_arm_command'] = obj({'contract_version': {'const': '2.0'}, **{k: text for k in BASE}, 'command_seq': integer, 'time_basis_id': text, 'generated_mono_s': time, 'valid_until_mono_s': time, 'operation_ref': ref('operation_ref'), 'object_ref': ref('object_ref'), 'action': text, 'target': ref('components', True)})
+    defs['c1_arm_command']['$comment'] = 'Verwendbarkeit zielgebundener Aktionen verlangt validen Zielblock und expliziten Komponenten-/Kalibrierkontext. Zielwertfreie Aktionen sind ausschliesslich im bestaetigten Kontext deklariert; keine statische Aktions-Allowlist.'
+    defs['c1_arm_output']['$comment'] = 'Gueltige zielgebundene Ausgabe braucht nutzbare Zielkomponenten. Commandgebundene Ausgabe bewahrt action, target, operation_ref und object_ref exakt aus dem bestaetigten Command; relationale Laufzeitpruefung erforderlich.'
     defs['c1_arm_ack'] = obj({'output_ref': ref('output_ref', True), 'time_basis_id': nullable_text, 'received_mono_s': maybe(time), **q})
     defs['c1_arm'] = obj({'request': ref('arm_command', True), 'output': ref('arm_output', True), 'release': ref('arm_release'), 'blocks': ref('blocks'), 'package_use': ref('package_use'), 'ack': ref('arm_ack', True), 'measured': ref('measurements'), 'load': ref('measurements')})
     defs['c1_arm']['allOf'] = [_current_request_rule('command')]
