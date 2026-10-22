@@ -311,7 +311,7 @@ print(f"{'OK  ' if ok else 'FEHLER'} #70 veraltete Kamerabilder -> bleibt stehen
 # direkt am Ablauf (ohne den Frische-Halt des Entscheiders davor): alte Bilder, Kamera nicht vorne, keine neuen
 # Bilder geben nie frei; gueltige freie Beobachtung gibt frei. Nie ein Armbefehl.
 def ablauf_lauf(n, w_von):
-    a = Zebrastreifen(0.0, STANDARD, 0.3)
+    a = Zebrastreifen(0.0, STANDARD, {}, 0.3)
     bs = [a.schritt(0.0, {})]
     for k in range(1, n + 1):
         t = 0.1 * k
