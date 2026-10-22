@@ -489,7 +489,9 @@ class Kartierer:
                 self.imu_ersatz_bis = t
             self.imu_rest = 0.0
         else:
-            dw = 0.0 if self.steht else dw_odom + self.imu_rest
+            # Der Rest stammt noch aus dem vorherigen bewegten Intervall;
+            # ein inzwischen gemeldeter Stillstand darf ihn nicht loeschen.
+            dw = self.imu_rest + (0.0 if self.steht else dw_odom)
             self.imu_rest, self.imu_offen = 0.0, 0.0
             self.imu_ersatz_bis = t
             self.dreh = wz

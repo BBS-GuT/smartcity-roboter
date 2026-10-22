@@ -16,7 +16,7 @@ def referenz(t, v, omega):
             v / omega * (1 - math.cos(omega * t)), K.winkel(omega * t))
 
 
-def bogen(ausfall, omega=0.5, v=0.15, fenster=(2., 3.5), nur_twist=False):
+def bogen(ausfall, omega=0.5, v=0.15, fenster=(2., 3.5), nur_twist=False, stopp=None):
     kr = KR.Kartierer(K.Karte('/nicht/benutzt'), {'selbst_kalibrieren': False})
     start = 1000.
     events = [(start + i / 50, 'imu') for i in range(300)]
@@ -24,12 +24,14 @@ def bogen(ausfall, omega=0.5, v=0.15, fenster=(2., 3.5), nur_twist=False):
     for t, art in sorted(events):
         if fenster[0] <= t - start < fenster[1] and art in ausfall:
             continue
+        steht = stopp is not None and t - start > stopp + 1e-9
         if art == 'imu':
-            kr.imu(t, {'stamp': t, 'g': [0., 0., omega], 'a': [0., 0., 9.8]})
+            kr.imu(t, {'stamp': t, 'g': [0., 0., 0. if steht else omega], 'a': [0., 0., 9.8]})
         else:
-            daten = {'stamp': t, 'vx': v, 'vy': 0., 'wz': omega}
+            daten = {'stamp': t, 'vx': 0. if steht else v, 'vy': 0., 'wz': 0. if steht else omega}
             if not nur_twist:
-                daten.update(zip(('x', 'y', 'w'), referenz(t - start, v, omega)))
+                messzeit = min(t - start, stopp) if stopp is not None else t - start
+                daten.update(zip(('x', 'y', 'w'), referenz(messzeit, v, omega)))
             kr.odom(t, daten)
     return kr, [(t - start, pose) for t, pose, *_ in kr.verlauf]
 
@@ -100,6 +102,20 @@ class ImuLueckeTest(unittest.TestCase):
         for omega in (-0.5, 0.5):
             with self.subTest(omega=omega):
                 self.pruefe({'imu'}, omega, fenster=(2., 2.18))
+
+    def test_imu_ausfall_beim_uebergang_zum_stillstand(self):
+        for omega in (-0.5, 0.5):
+            with self.subTest(omega=omega):
+                kr, verlauf = bogen({'imu'}, omega, fenster=(2., 6.), stopp=2.003)
+                erwartet = referenz(2.003, 0.15, omega)
+                # Odometrie hat die gesamte Drehung bis zum Halt gemessen.
+                # Ihr Rest aus dem bewegten Intervall bleibt auch dann gueltig,
+                # wenn die naechste Nachricht bereits Stillstand meldet.
+                self.assertAlmostEqual(kr.roboter[2], erwartet[2], delta=1e-10)
+                nach_halt = [p for t, p in verlauf if t >= 2.053 - 1e-9]
+                self.assertGreater(len(nach_halt), 20)
+                for pose in nach_halt:
+                    self.assertEqual(pose, nach_halt[0])
 
     def test_reiner_twist_bei_imu_luecke(self):
         for omega in (-0.5, 0.5):
