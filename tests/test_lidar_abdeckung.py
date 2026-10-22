@@ -55,7 +55,7 @@ class ReineAbdeckung(unittest.TestCase):
         for wert in (0.0, float('nan'), float('inf'), 20.0):
             with self.subTest(wert=wert):
                 m = mit_luecke(5, wert)
-                self.assertIn('1 Strahl', lidar.sektor_abdeckung(m))
+                self.assertIn('ohne Messung', lidar.sektor_abdeckung(m))
                 self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
 
     def test_luecke_ausserhalb_des_bereichs(self):
@@ -74,7 +74,30 @@ class ReineAbdeckung(unittest.TestCase):
 
     def test_kein_strahl_im_sektor(self):
         m = q.scan([3.0, 3.0], angle_min=math.radians(80), angle_increment=math.radians(10))
-        self.assertEqual(lidar.sektor_abdeckung(m), 'kein Strahl im Bereich')
+        self.assertIsNotNone(lidar.sektor_abdeckung(m))
+        self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
+
+    def test_teilscan_deckt_sektor_nur_teilweise(self):
+        # Codex-Befund zu PR #143: nur Strahlen bei +20 und +30 Grad (gueltig) - links davon bis -30 Grad fehlt
+        # jede Messung. Ein gueltiger Strahl im Sektor reicht nicht.
+        m = q.scan([3.0, 3.0], angle_min=math.radians(20), angle_increment=math.radians(10))
+        self.assertIn('-29 bis +15 Grad', lidar.sektor_abdeckung(m))
+        self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
+        self.assertIsNone(lidar.sektor_abdeckung(m, front_deg=25.0, halb_deg=9.0))   # 16..34 Grad: gemessen
+        # dichter Teilscan nur -90..+90 Grad: vorne gemessen, hinten unbekannt
+        halb = q.scan([3.0] * 181, angle_min=-math.pi / 2, angle_increment=math.radians(1))
+        self.assertIsNone(lidar.sektor_abdeckung(halb))
+        self.assertIsNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(halb)))
+        self.assertIsNotNone(lidar.sektor_abdeckung(halb, rueckwaerts=True))
+        self.assertIsNotNone(lidar.hinten_luecke(lidar.ungueltige_winkel(halb)))
+
+    def test_rueckwaerts_zaehlende_lidars(self):
+        # angle_increment negativ (Uhrzeigersinn): gleiche Abdeckung
+        r = [3.0] * N
+        r[5] = 0.0                                                    # Strahl bei +175 Grad ... rueckwaerts gezaehlt
+        m = q.scan(r, angle_min=math.pi, angle_increment=-2 * math.pi / N)
+        self.assertIsNone(lidar.sektor_abdeckung(m))
+        self.assertIsNotNone(lidar.sektor_abdeckung(m, rueckwaerts=True))
 
 
 class Linienfolger(unittest.TestCase):
@@ -89,7 +112,7 @@ class Linienfolger(unittest.TestCase):
     def test_einzelne_luecke_vorne(self):
         n = q.linienfolger()
         n.on_scan(mit_luecke(-3, float('inf')), '/scan1', 1)
-        self.halt(n, '/scan1 vorne: 1 Strahl(en) ohne Messung')
+        self.halt(n, '/scan1 vorne: -4 bis -2 Grad teils ohne Messung')
 
     def test_echtes_hindernis_bleibt_haltgrund(self):
         r = [0.10 if 177 <= k <= 183 else 3.0 for k in range(N)]
@@ -111,7 +134,7 @@ class Linienfolger(unittest.TestCase):
         for wunsch in ({'lin': -0.05}, {'dreh': 0.8}, {'quer': 0.05}):
             with self.subTest(wunsch=wunsch):
                 n.ki = (time.time(), {'aktion': 'manoever', 'manoever': wunsch})
-                self.halt(n, 'hinten: 1 Strahl')
+                self.halt(n, 'hinten: ')
 
 
 class KiZentrale(unittest.TestCase):

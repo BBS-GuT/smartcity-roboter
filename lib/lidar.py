@@ -122,26 +122,42 @@ def naechster_vorne(msg, front_deg=0.0, halb_deg=30.0, min_abstand=0.08, rueckwa
 
 
 def ungueltige_winkel(msg, front_deg=0.0):
-    """Winkel (rad, relativ zu vorne, -pi..pi) aller Strahlen OHNE gueltige Messung (0 unter range_min, NaN, inf,
-    ausserhalb range_max). Dort weiss man nichts: auf dem ganzen Strahl kann ein Hindernis stehen. Auch +inf ist
-    kein bestaetigtes "frei bis zur Reichweite" (die Treiberkodierung dafuer ist nicht belegt)."""
+    """Richtungen (rad, relativ zu vorne, -pi..pi) OHNE gueltige Messung, rundherum in Schritten von hoechstens
+    einem Strahlabstand (und 1 Grad). Gemessen ist eine Richtung nur, wenn ein Strahl hoechstens einen halben
+    Strahlabstand entfernt liegt und alle so nahen Strahlen gueltig sind. Unbekannt sind also Strahlen ohne Messung (0 unter
+    range_min, NaN, inf, ausserhalb range_max) und Richtungen, die der Scan gar nicht enthaelt (Teilscan). Dort
+    weiss man nichts: in der ganzen Richtung kann ein Hindernis stehen. Auch +inf ist kein bestaetigtes "frei bis
+    zur Reichweite" (die Treiberkodierung dafuer ist nicht belegt)."""
     r = np.asarray(msg.ranges, dtype=np.float64)
+    inc = abs(float(msg.angle_increment))
+    gut = np.isfinite(r) & (r > msg.range_min) & (r < msg.range_max)
     a = msg.angle_min + np.arange(len(r)) * msg.angle_increment - math.radians(front_deg)
-    schlecht = ~(np.isfinite(r) & (r > msg.range_min) & (r < msg.range_max))
-    return np.arctan2(np.sin(a[schlecht]), np.cos(a[schlecht]))
+    a = np.arctan2(np.sin(a), np.cos(a))
+    ordnung = np.argsort(a)
+    a, gut = a[ordnung], gut[ordnung]
+    n = int(math.ceil(2 * math.pi / min(inc, math.radians(1.0))))
+    w = -math.pi + (np.arange(n) + 0.5) * 2 * math.pi / n           # Pruefrichtungen rundherum
+    if not len(a):
+        return w
+    j = np.searchsorted(a, w)
+    kandidaten = np.stack([(j - 1) % len(a), j % len(a)], axis=1)    # Nachbarstrahlen (auch ueber +-pi hinweg)
+    abstand = np.abs(np.arctan2(np.sin(w[:, None] - a[kandidaten]), np.cos(w[:, None] - a[kandidaten])))
+    nah = abstand <= inc / 2 + 1e-9
+    # gemessen: mindestens ein Strahl nah genug, und JEDER nahe Strahl gueltig (genau dazwischen: beide)
+    gemessen = nah.any(axis=1) & (gut[kandidaten] | ~nah).all(axis=1)
+    return w[~gemessen]
 
 
 def sektor_abdeckung(msg, front_deg=0.0, halb_deg=30.0, rueckwaerts=False):
     """Ist der Sektor vorne (bzw. hinten) +-halb_deg vollstaendig gemessen? None = ja, sonst Grund (Text).
-    Gueltige Punkte daneben ersetzen keine Messung IM Sektor: schon ein Strahl ohne Messung darin = unbekannt."""
-    r = np.asarray(msg.ranges)
-    a = msg.angle_min + np.arange(len(r)) * msg.angle_increment - math.radians(front_deg + (180.0 if rueckwaerts else 0.0))
-    im = np.abs(np.arctan2(np.sin(a), np.cos(a))) <= math.radians(halb_deg)
-    if not np.any(im):
-        return 'kein Strahl im Bereich'
+    Gueltige Punkte daneben ersetzen keine Messung IM Sektor: schon eine Richtung ohne Messung darin = unbekannt,
+    auch wenn der Scan diese Richtung gar nicht enthaelt."""
     a = ungueltige_winkel(msg, front_deg + (180.0 if rueckwaerts else 0.0))
-    n = int(np.sum(np.abs(a) <= math.radians(halb_deg)))
-    return f'{n} Strahl(en) ohne Messung' if n else None
+    im = np.abs(a) <= math.radians(halb_deg)
+    if not np.any(im):
+        return None
+    a = a[im]
+    return f'{math.degrees(a.min()):+.0f} bis {math.degrees(a.max()):+.0f} Grad teils ohne Messung'
 
 
 def luecke_im_bereich(winkel, im_bereich, reichweite, schritt=0.04):
