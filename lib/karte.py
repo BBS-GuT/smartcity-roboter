@@ -620,7 +620,8 @@ class Lokalisierung:
         self.guete = 0.0
         self.status = 'startet'
         self.letzter_eintrag = None     # (odom, zeit) beim letzten Eintragen in die Karte
-        self.puffer = []                # Scans, solange die Position unbekannt ist: (odom, punkte)
+        self.puffer = []                # Scans, solange Position unbekannt: (odom, punkte, messzeit)
+        self._scan_jetzt = None         # Verarbeitungszeit im selben Zeitbezug wie scan_zeit (auch Replay)
         self.pfad = []                  # gefahrene Strecke dieser Fahrt (Karte)
         self.unsicher_seit = None       # seit wann passt der Abgleich nicht (dann weiter suchen)
         self.zuletzt_sicher = None      # Zeit des letzten sicheren Abgleichs
@@ -669,6 +670,7 @@ class Lokalisierung:
         """Neuer LiDAR-Scan (N,2) im Roboter-System. eintragen=False: nur abgleichen (z. B. beim schnellen Drehen).
         scan_zeit: wann er gemessen wurde (None = jetzt). weitere: {Name: (zeit, punkte)} der anderen LiDARs."""
         bel = self.karte.belegung
+        self._scan_jetzt = jetzt
         odom_scan = self.odom_bei(scan_zeit)
         bis_jetzt = relativ(odom_scan, self.odom)          # Bewegung seit der Messung
         alle = [np.asarray(punkte, dtype=np.float64)]
@@ -690,7 +692,7 @@ class Lokalisierung:
                 self.pose, self.status = (0.0, 0.0, 0.0), 'neue Karte'
                 self.karte.fahrten += 1
             else:
-                self.puffer = (self.puffer + [(odom_scan, alle)])[-60:]
+                self.puffer = (self.puffer + [(odom_scan, alle, scan_zeit if scan_zeit is not None else jetzt)])[-60:]
                 return False
         pose_scan = verknuepfen(self.pose, relativ(self.odom, odom_scan))   # wo ich bei der Messung war
         sicher = not bekannt
@@ -740,7 +742,7 @@ class Lokalisierung:
 
     def _kurz_nach_sicher(self, jetzt, zeit=1.5, strecke=0.4, drehung=math.radians(15)):
         """Letzter sicherer Abgleich ist hoechstens 'zeit' s her und seitdem kaum gefahren/gedreht?"""
-        if self.zuletzt_sicher is None or self.odom_sicher is None or jetzt - self.zuletzt_sicher > zeit:
+        if self.zuletzt_sicher is None or self.odom_sicher is None or not 0 <= jetzt - self.zuletzt_sicher <= zeit:
             return False
         r = relativ(self.odom_sicher, self.odom)
         return math.hypot(r[0], r[1]) < strecke and abs(r[2]) < drehung
@@ -755,9 +757,10 @@ class Lokalisierung:
         """Position in der vorhandenen Karte suchen (dauert einige Sekunden). True = gefunden."""
         if self.pose is not None or not self.puffer:
             return self.pose is not None
-        odom_scan, punkte = self.puffer[-1]
+        gestartet, verarbeitungszeit = time.monotonic(), self._scan_jetzt
+        odom_scan, punkte, scanzeit = self.puffer[-1]
         # die letzten Scans zusammenlegen (mehr Punkte = sicherer), alles relativ zum neuesten
-        alle = [punkte] + [in_karte(relativ(odom_scan, o), p) for o, p in self.puffer[-8:-1]]
+        alle = [punkte] + [in_karte(relativ(odom_scan, o), p) for o, p, _ in self.puffer[-8:-1]]
         pose, guete, eindeutig = self.karte.belegung.global_suchen(np.concatenate(alle))
         self.guete = guete
         if pose is None or not eindeutig:
@@ -765,9 +768,22 @@ class Lokalisierung:
             return False
         # gefundene Position gilt fuer den Zeitpunkt des Scans -> Bewegung seither dazurechnen
         self.pose = verknuepfen(pose, relativ(odom_scan, self.odom))
+        self._globaler_anker(scanzeit, odom_scan, gestartet, verarbeitungszeit)
         self.status = f'Position gefunden ({guete:.0%})'
         self.karte.fahrten += 1
-        for o, p in self.puffer:           # gepufferte Scans nachtragen
+        for o, p, _ in self.puffer:        # gepufferte Scans nachtragen
             self.karte.belegung.eintragen(verknuepfen(pose, relativ(odom_scan, o)), p)
         self.puffer = []
         return True
+
+    def _globaler_anker(self, scanzeit, odom_scan, gestartet, verarbeitungszeit):
+        """Suchmessung bestaetigen; Rechenzeit und inzwischen verarbeitete Scans altern sie weiter.
+
+        Monotone Laufzeit erhaelt auch im Replay dessen eigenen Zeitbezug. Abschlusszeit
+        oder neu hinzugekommene Scans duerfen die bestaetigte Suchmessung nicht ersetzen.
+        """
+        jetzt = max(self._scan_jetzt, verarbeitungszeit + time.monotonic() - gestartet)
+        if 0 <= jetzt - scanzeit <= 1.5:
+            self.zuletzt_sicher, self.odom_sicher = scanzeit, odom_scan
+        else:
+            self.zuletzt_sicher, self.odom_sicher = None, None
