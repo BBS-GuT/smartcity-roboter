@@ -41,6 +41,8 @@ Eingestellt sind geschätzte Werte (`kamera_hoehe` 0,22 m, `kamera_neigung` 32°
 
 - [ ] Panel → System → „Ampel einstellen“: LED-Farben der SmartCity-Ampeln einlernen.
 
+Nach den Einrichtungsschritten 1–5 und mit den zugehörigen Gerätebelegen das [Startprotokoll vor jeder Fahrt](Startprotokoll) abarbeiten. Es gilt bereits vor der ersten Fahrt; erst danach folgt der Fahrversuch in Schritt 6 im vereinbarten betreuten Prüfumfang.
+
 ## 6. Erste Fahrt
 
 - [ ] Panel → **TEST**: Entscheidungen und Gründe im Dashboard ansehen, ohne dass er fährt.

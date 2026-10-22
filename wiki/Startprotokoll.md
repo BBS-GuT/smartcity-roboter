@@ -1,6 +1,6 @@
 # Startprotokoll vor jeder Fahrt
 
-Diese **manuelle Checkliste** wird vor TEST/START für den vereinbarten Prüf- oder Betriebsumfang abgearbeitet. Sie setzt eine abgeschlossene [Erste Inbetriebnahme](Erste-Inbetriebnahme) und passende Gerätebelege voraus. Ein Häkchen ersetzt keine Geräteabnahme und keinen Nachweis der tatsächlich wirksamen Motorsperre. Ein automatischer Gesamtcheck mit gemeinsamer Bereitschafts-/Motorfreigabe ist noch offene Entwicklungsarbeit.
+Diese **manuelle Checkliste** wird vor TEST/START für den vereinbarten Prüf- oder Betriebsumfang abgearbeitet, auch vor der ersten Fahrt. Voraussetzung sind die abgeschlossenen Einrichtungsschritte 1–5 der [Ersten Inbetriebnahme](Erste-Inbetriebnahme) und passende Gerätebelege; die erste Fahrt selbst steht dann noch aus. Ein Häkchen ersetzt keine Geräteabnahme und keinen Nachweis der tatsächlich wirksamen Motorsperre. Ein automatischer Gesamtcheck mit gemeinsamer Bereitschafts-/Motorfreigabe ist noch offene Entwicklungsarbeit.
 
 ## Vorbereiten und prüfen
 
