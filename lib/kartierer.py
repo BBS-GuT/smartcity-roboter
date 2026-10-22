@@ -340,6 +340,7 @@ class Kartierer:
         self.twist_gesehen = self.pose_gesehen = 0.0   # wann zuletzt Geschwindigkeit / Positionsaenderung
         self.imu_t = self.imu_empfang = None
         self.imu_offen = 0.0          # Drehung (korrigiert) seit der letzten Odometrie
+        self.odom_vorausdrehung = 0.0 # bereits verbuchte IMU-Drehung seit der letzten Odometrie
         self.imu_luecke = False       # seit der letzten Odometrie fehlten Lagesensor-Daten (Drehung unvollstaendig)
         self.imu_roh = 0.0            # Integral der rohen Drehrate (fuer die Kalibrierung)
         self.imu_winkel = 0.0         # Integral der korrigierten Drehrate
@@ -424,6 +425,7 @@ class Kartierer:
         if self.odom_empfang is None or empfang - self.odom_empfang > 0.5:
             # keine Odometrie: wenigstens die Drehung mitrechnen (Strecke macht der Scan-Abgleich)
             self._schritt(0.0, 0.0, self.imu_offen, t)
+            self.odom_vorausdrehung += self.imu_offen
             self.imu_offen = 0.0
 
     def _odom_schritt(self, t, empfang, d):
@@ -434,6 +436,7 @@ class Kartierer:
         alt, self.odom_alt = self.odom_alt, (t, pose)
         if self.odom_t is None:
             self.odom_t, self.odom_empfang = t, empfang
+            self.odom_vorausdrehung = 0.0
             return
         dt = t - self.odom_t
         if dt <= 0:
@@ -467,7 +470,13 @@ class Kartierer:
             dw = 0.0 if self.steht else dw_odom
             self.dreh = wz
         s = 1.0 / self.kal.odom_skala if self.c['selbst_kalibrieren'] else 1.0
+        # Das Positionsdelta beginnt im Bezug der vorherigen Odometrie.
+        # Die IMU kann diesen Bezug waehrend des Ausfalls schon gedreht haben.
+        # Nur die Translation zurueckdrehen; dw enthaelt nur noch offene Drehung.
+        c, sn = math.cos(self.odom_vorausdrehung), math.sin(self.odom_vorausdrehung)
+        dx, dy = c * dx + sn * dy, -sn * dx + c * dy
         self._schritt(dx * s, dy * s, dw, t)
+        self.odom_vorausdrehung = 0.0
 
     def _schritt(self, dx, dy, dw, t):
         """Roboter hat sich so bewegt (Roboter-System) -> LiDAR-System umrechnen und mitrechnen."""
