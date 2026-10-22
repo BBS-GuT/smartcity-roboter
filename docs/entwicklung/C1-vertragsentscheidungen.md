@@ -1,7 +1,8 @@
 # C1: Gemeinsame Vertragsentscheidung und Folgeaufträge
 
 Stand: 22.10.2026. **Entscheidungsvorlage, noch keine Vertragsannahme.**
-Verantwortlicher Mensch: Carsten; Vorbereitung: C1-Entscheidungs-Chat unter O.
+Verantwortlicher Mensch: Carsten; Rolle C: C1-Entscheidungs-Chat
+(öffentlicher Datenvertrag, Version, JSON und Schemagrundlage); O: C1-Manager.
 Refs [#3](https://github.com/BBS-GuT/smartcity-roboter/issues/3),
 [#15](https://github.com/BBS-GuT/smartcity-roboter/issues/15),
 [#16](https://github.com/BBS-GuT/smartcity-roboter/issues/16),
@@ -34,7 +35,17 @@ und ihre Korrektur bleiben beim jeweiligen Besitzer und nativen Reviewer.
 
 Die folgenden Abschnitte trennen **R: festgelegte Anforderungen**, **V: konkrete
 Vorschläge zur Annahme** und **N: noch erforderliche Entscheidungen/Nachweise**.
-Es liegt hier keine Zustimmung von A/B/C/O vor. Teil-PRs gehen ausschließlich
+V1–V4 sind die von Rolle C vorgelegte Empfehlung, noch keine Gesamtannahme.
+Carsten hat A/B-Fachabgleiche unter O bestätigt: A-Chat
+`01a162d4-e3bf-78d3-b661-335e65c4a4f4` liefert ausschließlich
+`docs/entwicklung/C1-abgleich-A.md`, B-Chat
+`01a162d4-f4ee-77f1-bb64-acff1646ed9e` ausschließlich
+`docs/entwicklung/C1-abgleich-B.md`. Beide liefern zunächst fachliche
+Annahmebedingungen zu V1–V4; ihre Zustimmung oder Ergebnisse liegen hier
+noch nicht vor. Nach Umsetzung folgt eine zweite Annahme am konkreten
+Gesamtcommit. O koordiniert beide Stufen; nativer Review bleibt unabhängig.
+Die Rollen sind damit zugeteilt, ihre Annahme wird nicht vorweggenommen.
+Teil-PRs gehen ausschließlich
 gegen `feat/gb-c1-zustandsvertrag`; nur Gesamt-PR
 [#134](https://github.com/BBS-GuT/smartcity-roboter/pull/134) geht nach main
 und bleibt bis zur vollständigen Lieferung Draft.
@@ -365,8 +376,10 @@ für dessen neue Felder; unbekannte reale Messwerte bleiben unbekannt.
 1. **A/B/C/O:** V1–V4 einschließlich V1a samt Version 2.0, exaktem
    Produzenten-/Bau-/JSON-Pfad, Feld-/Codebelegung und Trennung von
    statischer und kontextueller Prüfung annehmen oder konkret ändern;
-   zustimmende Personen und Annahmecommit benennen. Rollen A/B/C sind hier
-   fachlich beschrieben, deren namentliche Besetzung/Zustimmung ist nicht belegt.
+   zustimmende Personen und Annahmecommit benennen. A/B sind den oben
+   benannten Fachchats, C diesem Chat und O dem C1-Manager zugeteilt.
+   A-/B-Annahmebedingungen zunächst abgleichen; tatsächliche Zustimmung zum
+   implementierten Gesamtcommit bleibt die gesonderte zweite Stufe.
 2. **A/B/C:** zuständige Produzenten, Start-/Uhrbindung und deren Nachweisweg
    festlegen; gemeinsame Uhr samt Suspendverhalten und Sensoreigenzeit-Abbildung
    nachweisen. C1 definiert Felder, C2/A/B liefern später reale Bindung.
