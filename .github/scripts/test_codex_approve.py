@@ -144,6 +144,36 @@ class ApprovalTests(unittest.TestCase):
         self.assertEqual(run(self.api, 1)["action"], "would-approve")
         self.assertEqual(self.api.writes, [])
 
+    def test_optional_security_running_still_requires_clean_code_and_ci(self):
+        state = {"code_review": {"commit_sha": SHA, "status": "completed",
+                                  "has_any_findings": False, "has_unresolved_findings": False},
+                 "security_review": {"commit_sha": SHA, "status": "running",
+                                      "has_any_findings": None, "has_unresolved_findings": None}}
+        def update_comment():
+            self.api.comments[0]["body"] = (bridge.SUMMARY + "\n<!-- codex-review-state:v1 "
+                                             + json.dumps(state) + " -->")
+        update_comment()
+        self.assertEqual(run(self.api, 1)["action"], "would-approve")
+        self.api.run["conclusion"] = "failure"
+        self.assertEqual(run(self.api, 1)["action"], "blocked")
+        self.api.run["conclusion"] = "success"
+        state["code_review"]["commit_sha"] = OTHER
+        update_comment()
+        self.assertEqual(run(self.api, 1)["action"], "blocked")
+        state["code_review"]["commit_sha"] = SHA
+        state["security_review"]["has_unresolved_findings"] = True
+        update_comment()
+        self.assertEqual(run(self.api, 1)["action"], "blocked")
+
+    def test_native_disabled_security_can_approve_with_code_and_ci(self):
+        state = {"code_review": {"commit_sha": SHA, "status": "completed",
+                                  "has_any_findings": False, "has_unresolved_findings": False},
+                 "security_review": {"commit_sha": None, "status": None,
+                                      "has_any_findings": None, "has_unresolved_findings": None}}
+        self.api.comments[0]["body"] = (bridge.SUMMARY + "\n<!-- codex-review-state:v1 "
+                                        + json.dumps(state) + " -->")
+        self.assertEqual(run(self.api, 1)["action"], "would-approve")
+
     def test_apply_approves_explicit_sha_once_and_is_honest(self):
         self.assertEqual(run(self.api, 1, apply=True)["action"], "approved")
         method, _, body = self.api.writes[0]
