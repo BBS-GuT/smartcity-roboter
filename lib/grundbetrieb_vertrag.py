@@ -63,8 +63,19 @@ def vergleiche(a, b):
 
 
 def alter_s(d, jetzt_mono_s):
-    """Alter des Datensatzes in s nach der monotonen Uhr DESSELBEN Starts (lokal, z. B. im Panel)."""
-    return max(0.0, jetzt_mono_s - d['generated_mono_s'])
+    """Alter in s nach der monotonen Uhr DESSELBEN Starts (lokal, z. B. im Panel).
+
+    Ungueltige Zeitwerte oder Erzeugung nach jetzt ergeben ValueError, kein scheinbar frisches Alter 0.
+    Beide Zeiten muessen endliche, nicht negative Zahlen (int/float, keine bool) derselben Uhr sein.
+    """
+    erzeugt_mono_s = d['generated_mono_s']
+    for name, wert in (('generated_mono_s', erzeugt_mono_s), ('jetzt_mono_s', jetzt_mono_s)):
+        if (isinstance(wert, bool) or not isinstance(wert, (int, float))
+                or (isinstance(wert, float) and not math.isfinite(wert)) or wert < 0):
+            raise ValueError(f'{name}: muss eine endliche, nicht negative Zahl sein')
+    if erzeugt_mono_s > jetzt_mono_s:
+        raise ValueError('generated_mono_s: liegt nach jetzt_mono_s')
+    return jetzt_mono_s - erzeugt_mono_s
 
 
 # ------------------------------------------------------------------ JSON

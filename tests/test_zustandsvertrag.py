@@ -212,7 +212,8 @@ class StartUndSequenz(unittest.TestCase):
     def test_alter_nach_monotoner_uhr(self):
         d = beispiel('fahrt')
         self.assertAlmostEqual(V.alter_s(d, d['generated_mono_s'] + 0.25), 0.25)
-        self.assertEqual(V.alter_s(d, d['generated_mono_s'] - 5), 0.0)
+        with self.assertRaises(ValueError):
+            V.alter_s(d, d['generated_mono_s'] - 5)
 
     def test_panel_und_mqtt_lesen_dasselbe(self):
         """Gleiches Objekt -> byte-gleiches JSON; Lesen ergibt wieder dasselbe Objekt."""
