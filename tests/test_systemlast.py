@@ -74,6 +74,63 @@ class Systemlast(unittest.TestCase):
         self.assertEqual(sorted(z['threads']), [('openblas', 80), ('openblas', 80), ('python3', 80)])
         self.assertIn('Threads von line_follower.py:', systemlast.zeile(z))
 
+    def schreibe_bytes(self, pfad, daten):
+        voll = os.path.join(self.wurzel, pfad)
+        os.makedirs(os.path.dirname(voll), exist_ok=True)
+        with open(voll, 'wb') as f:
+            f.write(daten)
+
+    def binaer_prozess(self, pid, cmdline, ticks, name=b'python3'):
+        """Fremder Prozess mit beliebigen Bytes in cmdline/stat, z. B. ungueltigem UTF-8 (Issue #35)."""
+        self.schreibe_bytes(f'proc/{pid}/cmdline', cmdline)
+        self.schreibe_bytes(f'proc/{pid}/stat', f'{pid} ('.encode() + name + b') S ' + b'0 ' * 10
+                            + f'{ticks} 0 0 0\n'.encode())
+
+    def test_ungueltiges_utf8_im_prozessnamen(self):
+        """Regression #35: ungueltige UTF-8-Bytes in einem fremden Skriptnamen beendeten messen() mit
+        UnicodeDecodeError, sobald der Prozess im CPU-Ranking erschien. Jetzt: Ersatzname und weitere Messungen."""
+        kaputt = b'python3\0/r/skript_\xff\xfe.py\0'
+        self.schreibe('proc/stat', 'cpu 1000 0 1000 8000 0 0 0 0 0 0\n')
+        self.binaer_prozess(10, kaputt, 100)
+        self.prozess(11, ['python3', '/r/ki/zentrale.py'], 50)
+        m = systemlast.Systemlast(self.wurzel, kerne=1)
+        m.messen()
+        gesamt, eigen = 1000, 100
+        for runde in range(3):                       # die vormals abbrechende zweite und zwei weitere Messungen
+            gesamt += 1000
+            eigen += 300
+            self.schreibe('proc/stat', f'cpu {gesamt} 0 1000 8000 0 0 0 0 0 0\n')
+            self.binaer_prozess(10, kaputt, eigen)
+            self.prozess(11, ['python3', '/r/ki/zentrale.py'], 50 + 100 * (runde + 1))
+            z = m.messen()
+            text = systemlast.zeile(z)
+            self.assertEqual(z['cpu_prozent'], 100.0)
+            self.assertEqual(z['top'][0], ('skript_\\xff\\xfe.py', 30))   # lesbarer Ersatz, Rechenzeit stimmt
+            self.assertEqual(z['top'][1], ('zentrale.py', 10))             # gueltiger Name unveraendert
+            self.assertIn('skript_\\xff\\xfe.py 30%', text)
+            text.encode('ascii')                                           # Ersatz schreibt sich in jede Logdatei
+
+    def test_ungueltiges_utf8_in_comm_und_threadnamen(self):
+        """Kernel-Thread ohne cmdline: Name aus comm; auch stat-Name und Threadname mit ungueltigen Bytes."""
+        self.schreibe('proc/stat', 'cpu 1000 0 1000 8000 0 0 0 0 0 0\n')
+        self.binaer_prozess(20, b'', 100, name=b'kw\xc3(')
+        self.schreibe_bytes('proc/20/comm', b'kw\xc3\n')
+        self.schreibe_bytes('proc/20/task/20/stat', b'20 (kw\xc3() S ' + b'0 ' * 10 + b'100 0 0 0\n')
+        self.schreibe_bytes('proc/20/task/20/comm', b'thr\xff\n')
+        m = systemlast.Systemlast(self.wurzel, kerne=2)    # 1000 Ticks = 2 Kerne a 500
+        m.messen()
+        for runde in range(1, 4):
+            self.schreibe('proc/stat', f'cpu {1000 + 1000 * runde} 0 1000 8000 0 0 0 0 0 0\n')
+            self.binaer_prozess(20, b'', 100 + 900 * runde, name=b'kw\xc3(')
+            self.schreibe_bytes('proc/20/task/20/stat', b'20 (kw\xc3() S ' + b'0 ' * 10
+                                + f'{100 + 900 * runde} 0 0 0\n'.encode())
+            z = m.messen()
+            self.assertEqual(z['top'], [('kw\\xc3', 180)])      # 900 Ticks / 500 je Kern, Name aus comm
+            if runde > 1:                                       # Threads erst ab dem zweiten Vergleich bekannt
+                self.assertEqual(z['threads'], [('thr\\xff', 180)])
+                self.assertIn('Threads von kw\\xc3: thr\\xff 180%', systemlast.zeile(z))
+            systemlast.zeile(z).encode('ascii')
+
     def test_ohne_proc(self):
         m = systemlast.Systemlast(os.path.join(self.wurzel, 'gibtsnicht'))
         z = m.messen()

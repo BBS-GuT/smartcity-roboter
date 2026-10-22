@@ -189,16 +189,24 @@ Neue Einträge oben anfügen. Logs: Panel → System → „Logs herunterladen�
 **Wichtig vorab:** Dieser Lauf lief **ohne** die Fixes aus PR #44 (nicht gemerged). Dass „Hindernis überfahren“ und
 „Karte verdreht“ wieder auftraten, war also zu erwarten. Die Aufnahme hat aber die eigentlichen Ursachen gezeigt.
 
-### Ganzer Rechner hängt immer wieder 1–2 s
-- **Symptom:** Linienfolger: „KI-ZENTRALE ANTWORTET NICHT -> STOPP“ ständig. Wegräumen bricht ab.
+### Gemeinsame Datenlücken 0,6–2,3 s („Rechner hängt“, Ursache offen)
+- **Symptom (am Roboter beobachtet, David):** Linienfolger: „KI-ZENTRALE ANTWORTET NICHT -> STOPP“ ständig.
+  Wegräumen bricht ab.
 - **Beleg (Messfahrt):** In 210 s kamen Lagesensor, Räder, beide LiDARs **und** KI-Befehle über 50-mal
   **gleichzeitig** 0,6–2,3 s lang nicht an. Auch die Zeitstempel der Sensoren selbst haben diese Lücken.
-- **Ursache:** Nicht die KI allein, sondern der ganze Rechner (Überlast, Speicher/Swap, Speicherkarte oder
-  Temperatur). Welches Programm, ist **noch nicht gemessen**.
-- **Lösung:** `logs/system.log` (neu, `lib/systemlast.py`): alle 2 s CPU, IO-Warten, RAM/Swap, GPU, Temperatur und
-  die 5 Programme mit der meisten Rechenzeit. „HING x s“, wenn der Rechner selbst hing.
-  Entlastung aus PR #44 (eigener Thread für Entscheiden, Panelbild 3×/s, Karte-Kamera 1×/s).
-- **Status:** offen. Nächster Lauf mit `system.log` zeigt den Schuldigen.
+- **Hypothese (nicht gemessen):** Weil alle Quellen gleichzeitig fehlen, liegt eine gemeinsame Ursache nahe, nicht die
+  KI allein. Kandidaten sind CPU-Überlast, IO-Warten/Speicherkarte, Speicher/Swap und Temperatur. Welcher Prozess oder
+  Mechanismus die Lücken erzeugt, ist **noch nicht gemessen**. Dass der ganze Rechner stand, ist damit nicht belegt.
+- **Diagnose:** `logs/system.log` (`lib/systemlast.py`, kam mit PR #44): alle 2 s CPU, IO-Warten, RAM/Swap, GPU,
+  Temperatur und die 5 Programme mit der meisten Rechenzeit. „HING x s“ heißt nur: der Python-Messthread des Panels
+  lief x s später als geplant. Das kann auch an Prozess-, Scheduler- oder GIL-Effekten im Panel liegen und ist allein
+  kein Beweis, dass der Rechner hing. Eine Ursache gilt erst als belegt, wenn ein Messwert zeitlich mit den Lücken
+  zusammenfällt.
+- **Stand PR #44:** Dieser Lauf lief noch ohne PR #44. PR #44 (Quellrepository) wurde am 20.10.2026 um 11:52 als
+  `3bd7643` nach main gemergt und brachte `system.log` sowie die Entlastung (eigener Thread für Entscheiden, Panelbild
+  3×/s, Karte-Kamera 1×/s). Der Lauf 11:54–12:00 lief mit PR #44 (siehe dort). Dass die gemeinsamen Lücken damit
+  kleiner oder weg sind, ist am Roboter noch nicht abgenommen.
+- **Status:** offen. Ursachenmessung mit korrelierten Daten in [#39](https://github.com/BBS-GuT/smartcity-roboter/issues/39).
 
 ### Karte verdreht und doppelt
 - **Symptom:** Raum doppelt und gegeneinander verdreht (Panelbilder 20.10.).
