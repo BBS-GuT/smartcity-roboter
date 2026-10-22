@@ -141,7 +141,7 @@ Werten bleiben Nutzwerte `null`, bekannte Identitäten bleiben sichtbar.
 | Bereich | Konkrete Belegung für den Folgeauftrag |
 |---|---|
 | `clearing` | `producer_id`, `producer_boot_id`, `operation_id`, `time_basis_id`, `started_mono_s`, `updated_mono_s`, `phase`, `execution_status`, `result`, `abort_reason`, `object_ref`, `status`, `reason`. |
-| Phasen/Codes | `phase`: `inaktiv`, `anschauen`, `ausrichten`, `greifen`, `ablegen`, `nachpruefen`, `fahrstellung_bestaetigen`, `beendet`; `execution_status`: `laufend`, `pausiert`, `beendet`; `result`: `offen`, `erfolgreich`, `nicht_raeumbar`, `abgebrochen`. Inaktiv ohne Vorgang: ausschließlich `operation_id`, `started_mono_s`, `updated_mono_s` und `object_ref` sind `null`, Ausführung `beendet`, Ergebnis `offen`. Bekannte `producer_id`, `producer_boot_id` und bestätigte `time_basis_id` bleiben erhalten, auch bei `status=valid`; keine fingierte Vorgangskennung und kein Verlust des liefernden B-Starts. |
+| Phasen/Codes | `phase`: `inaktiv`, `anschauen`, `ausrichten`, `greifen`, `ablegen`, `nachpruefen`, `fahrstellung_bestaetigen`, `beendet`; `execution_status`: `laufend`, `pausiert`, `beendet`; `result`: `offen`, `erfolgreich`, `nicht_raeumbar`, `abgebrochen`. Für inaktiv ohne Vorgang gilt die vollständige Feldbelegung unten; bekannte Produzenten-/Uhridentitäten bleiben erhalten. |
 | Unterbrechung | Zusätzlich `interruption_reason`/`interrupted_mono_s`; bei Pause beide erforderlich, sonst `null`. Phase und Objekt bleiben erhalten, Ergebnis `offen`. Abbruch ist `execution_status=beendet`, `result=abgebrochen` mit nichtleerem `abort_reason`; außerhalb Abbruch ist dieser `null`. Gründe z. B. `person_hold`, `stop`, `object_lost`, `sensor_unavailable`, `actuator_error`, `limit_unproven`. Codes beschreiben gemeldete Ursachen, keine neue Schutzentscheidung. |
 | Ergebnis | `erfolgreich` nur bei beendeter Ausführung mit getrennten `verification_ref` (bestätigte Fahrbereichsnachprüfung) und `travel_pose_ref` (bestätigte Fahrstellung), jeweils `valid` mit historischem Bezug auf diesen Vorgang. `nicht_raeumbar` ist beendet mit nichtleerem `result_reason`; außerhalb dieses Ergebnisses ist `result_reason=null`. Qualitäts-`reason` bleibt davon getrennt. Ein gesendeter Greifauftrag oder Timer begründet keinen Erfolg. C1 prüft Referenzkonsistenz; B liefert fachliche Bestätigung, deren reale Kriterien bleiben offen. |
 | Objekt | `object_ref`: Gerät, Objektproduzent/Start, `object_id`. `observation`: tatsächlicher Quellen-/Frame-/Detailbezug, Klasse/Qualität, Lage/Geometrie in m/rad mit `coord_frame` und Kalibrierbezug. `estimate` separat: ursprüngliche `observation_ref`, Odometriequelle/Start/Uhr, Schätzzeit, Lage, Unsicherheit samt Qualität. Fehlende Unsicherheit bleibt unbekannt. Schätzung erneuert niemals die Aufnahmezeit. |
@@ -149,7 +149,30 @@ Werten bleiben Nutzwerte `null`, bekannte Identitäten bleiben sichtbar.
 | Messung/Freigabe | `arm.measured` und `camera_pose` führen echte Quelle, Frame/Messungskennung, Aufnahmezeit/Uhr, Einheit und Kalibrierbezug. Ohne Messung Nutzwerte `null`. Fahrt-/Armfreigabe getrennt mit Besitzer, Request-/Commandreferenz, Prüfzeit, Ergebnis/Gründen; fehlendes Ergebnis `unknown`. Wunsch, Phase und Parameter ersetzen keine Freigabe. |
 | Politik/Sperren | `protection` mit `policy_id`, `policy_version`, `evidence_ref`, `status`, `reason`; bei fehlendem Beleg `unknown`, unbekannte Werte `null`. Pflichtquellenreferenz separat. Sperrliste mit `code`, `source`, Zeit/Uhr, Qualität und `scope=drive/arm/both`; mehrere Ursachen bleiben gleichzeitig erhalten. |
 
-`started <= updated <= generated` gilt nur im belegten gemeinsamen Uhrenraum.
+Für einen **gültig inaktiven** B-Räumzustand muss B initialisiert und seine
+Produzenten-/Uhrbindung belegt sein. Ohne diesen Beleg bleibt die Qualität
+fehlend oder unbekannt mit Grund; C darf keine gültige Inaktivität erfinden.
+Die folgende Belegung ist innerhalb des Räumblocks vollständig für die
+benannten bedingten Felder; sie lässt die allgemeinen Pause-/Abbruch-/
+Ergebnisregeln oben unverändert gelten:
+
+| Felder im inaktiven Räumblock | Verbindliche Belegung |
+|---|---|
+| `producer_id`, `producer_boot_id`, `time_basis_id` | Bekannte, gebundene Identitäten erhalten; bei gültiger Inaktivität nicht `null`. |
+| `phase`, `execution_status`, `result` | `inaktiv`, `beendet`, `offen`. Kein aktiver, pausierter oder erfolgreich abgeschlossener Vorgang wird behauptet. |
+| `status`, `reason` | `valid`, `null` bei belegter Initialisierung und Bindung. Qualitätsgrund ist kein Ergebnis-/Abbruchgrund. |
+| `operation_id`, `started_mono_s`, `updated_mono_s`, `object_ref` | Jeweils `null`: kein aktueller Vorgang und daher keine Vorgangszeiten oder Objektzuordnung. |
+| `abort_reason`, `interruption_reason`, `interrupted_mono_s`, `result_reason` | Jeweils `null`: weder Abbruch noch Pause noch Ergebnis `nicht_raeumbar`. |
+| `verification_ref`, `travel_pose_ref` | Jeweils `null`: keine Erfolgsnachweise für einen aktuellen Räumvorgang. |
+| Vorgangsbezogene `observation`, `estimate` | Jeweils `null`, weil kein aktuelles Räumobjekt zugeordnet ist. Frühere Vorgangsdiagnosen bleiben bei ihrer alten Identität, statt hier als aktuell zu erscheinen. |
+
+Diese Inaktivitätsregel setzt keine unabhängig gemeldete `arm.measured`,
+`camera_pose`, Arm-Ausgabe/Empfangsbestätigung, Freigabe, Schutzpolitik oder
+Sperrliste zurück. Deren tatsächlicher eigener Bezug und Qualitätsstatus bleiben
+sichtbar; aus Inaktivität wird keine neue Aktion oder Freigabe abgeleitet.
+
+`started <= updated <= generated` gilt bei vorhandenen Vorgangszeiten nur im
+belegten gemeinsamen Uhrenraum; die inaktiven Nullwerte werden nicht verglichen.
 Bei Objektwechsel wird der alte Vorgang beendet/abgebrochen und ein neuer
 Vorgang angelegt; keine still übertragene Greifbestätigung. B-Neustart setzt
 keinen alten Räumvorgang automatisch fort; dessen letzte bekannte Diagnose
@@ -202,7 +225,11 @@ Pufferbeispiel 0…16 → 1…16/Zähler 1 ist eine Mengen-/Zählkontrolle, kein
 Keine Softwaretests, ROS-Simulation oder Geräte-/Brokerprüfung durchgeführt.
 Der native Befund zum Vorgänger `5475f9f` (inaktive Darstellung könnte bekannte
 B-Identität löschen) ist durch die ausdrücklich feldweise Nullregel korrigiert.
-Dokumentkontrolle: Inaktivität lässt Produzentenidentität und bestätigte Uhr
-stehen; nur die vier benannten Vorgangsfelder sind davon betroffen.
+Der weitere native Befund zum Vorgänger `16862eb` ("ausschließlich vier Felder
+null" widerspricht den bedingten Grund-/Zeitregeln) ist durch eine vollständige
+Tabelle für gültige Inaktivität korrigiert. Dokumentkontrolle: Produzent/Uhr
+bleiben erhalten; Vorgang, Unterbrechung, Abbruch, Ergebnisgrund, Erfolgsbelege
+und vorgangsbezogene Objektbeobachtung/Schätzung haben ausdrückliche Nullregeln.
+Unabhängige Messungen, Ausgaben und Freigabe-/Schutzdaten werden nicht gelöscht.
 Aktueller nativer Review und CI-Status gehören zum konkreten Lieferhead
 im Teil-PR; sie werden nicht aus älteren Entwurfsreviews abgeleitet.
