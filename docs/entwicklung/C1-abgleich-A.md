@@ -347,7 +347,12 @@ Restergänzungen auf dem gelesenen Head bleiben an C/O.**
 1. Die bereits benannte Ergebnisbindung fehlt weiterhin ausdrücklich:
    `erfolgreich/nicht_raeumbar/abgebrochen` verlangt `execution_status=beendet`;
    `laufend/pausiert` verlangt `result=offen`. Vorhandene Erfolgsbelege ersetzen
-   diese Bindung nicht. Die bekannte Inaktivitätsausnahme `beendet/offen` bleibt.
+   diese Bindung nicht. Umgekehrt verlangt jeder bekannte beendete, nicht
+   inaktive Vorgang (`execution_status=beendet`, `phase!=inaktiv`) ein Ergebnis
+   aus `erfolgreich/nicht_raeumbar/abgebrochen`; `offen` ist dann widersprüchlich.
+   Nur gültiges `phase=inaktiv` erlaubt die Ausnahme `beendet/offen`.
+   Unbekannte Phase/Ergebnis bleiben mit entsprechender Qualität unbekannt;
+   der Validator darf keinen Abschlussgrund oder Erfolg erfinden.
 2. V3a definiert `package_use` und dessen Fristbindung ausschließlich für
    Motion. Für `arm.release=allowed` fehlt noch die entsprechende ausdrücklich
    prüfbare aktuelle Verwendung: Bei belegtem Armwunsch muss dessen Frist sowohl
@@ -423,3 +428,11 @@ mit `output_ref=null` und Grund ohne `issued_mono_s` darstellbar. Bei vorhandene
 Ausgabe ist 100,25 s konsistent, 100,75 s nach Zustandserzeugung widersprüchlich.
 Dies sind synthetische Datenbeispiele, keine Motor-/Armprüfung. Lokale Links,
 Diffchecks und die Zeit-/Nullvarianten dokumentarisch geprüft; nur eigene Datei.
+
+Nativer P2 [Umkehrbindung für beendete aktive Vorgänge](https://github.com/BBS-GuT/smartcity-roboter/pull/145#discussion_r4346887831)
+vollständig gelesen und fokussiert ergänzt: `greifen/beendet/offen` und
+`beendet/beendet/offen` sind widersprüchlich; `inaktiv/beendet/offen` bleibt
+die bekannte Ausnahme. `greifen/beendet/abgebrochen` benötigt zusätzlich den
+Abbruchgrund, ein Erfolgsresultat weiterhin beide Erfolgsbelege. Die bestehenden
+Vorwärtsbindungen bleiben erhalten. Synthetische Ergebnisvarianten und lokale
+Link-/Diffkontrolle geprüft; keine Runtime-/Codeprüfung oder neue Modellrunde.
