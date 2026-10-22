@@ -18,9 +18,9 @@ import linie  # noqa: E402
 B, H = 640, 480
 
 
-def bild(linien):
+def bild(linien, cfg=None):
     """Kamerabild (BGR) mit schwarzen Linien [((x, y), (x, y)), ...] in Metern (x vorne, y links)."""
-    s = linie.LinienSucher()
+    s = linie.LinienSucher(cfg)
     s._vogel(B, H)
     bw, bh = s.vogel_groesse
     boden = np.full((bh, bw), 255, np.uint8)
@@ -40,7 +40,8 @@ U = bild([((0.0, 0.0), (0.30, 0.0)), ((0.30, 0.12), (0.0, 0.12))]
              (0.30 + 0.06 * math.sin(math.pi * (k + 1) / 40), 0.06 - 0.06 * math.cos(math.pi * (k + 1) / 40)))
             for k in range(40)])
 
-# Haltelinie: Querbalken (je 18 cm zur Seite, laenger als ast_min), endet im Bild -> keine Abzweigung
+# Haltelinie: Querbalken (je 18 cm zur Seite, laenger als ast_min), endet im Bild -> keine Abzweigung.
+# Grenze: ein Balken, der bis an den seitlichen Bildrand reicht (ab ca. 20 cm), sieht wie eine Ausfahrt aus.
 HALTELINIE = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.18), (0.36, 0.18))])
 # Zebrastreifen quer ueber die Strasse: Balken in Fahrtrichtung, Begrenzungen quer und laenger als das Bild breit
 ZEBRA = bild([((0.0, 0.0), (0.9, 0.0)), ((0.36, -0.5), (0.36, 0.5)), ((0.44, -0.5), (0.44, 0.5))]
@@ -175,6 +176,19 @@ class Kreuzung(unittest.TestCase):
         self.assertIsNotNone(linie.finde_zebra(erg['vogel'], s.RASTER, s.VORNE[1]))   # Zebrastreifen ist im Bild
         self.assertIn('kreuzung', erg)
         self.assertEqual(len(erg['kreuzung']['aeste']), 2)
+
+    def test_abzweig_kurzer_blick(self):
+        """RM02 22.10.: nie abgebogen. Die Kamera sieht nur ca. 20 cm Boden; Abzweige wurden nicht erkannt (Aeste zu
+        kurz, Suche begann hinter dem Abzweigpunkt, Linie endete knapp vor dem fernen Bildrand)."""
+        for name, cfg, abstaende in (('Standard', None, (0.30, 0.40)),       # sichtbar ca. 25-47 cm
+                                     ('Kamera 31 cm hoch, 28 Grad', {'kamera_hoehe': 0.31, 'kamera_neigung': 28.0},
+                                      (0.40, 0.50))):                       # sichtbar ab ca. 34 cm
+            for x in abstaende:
+                with self.subTest(name, abzweig_bei=x):
+                    img = bild([((0.0, 0.0), (1.2, 0.0)), ((x, 0.0), (x, -0.6))], cfg)
+                    erg = linie.LinienSucher(cfg).suche(img, 0.0)
+                    self.assertIn('kreuzung', erg)
+                    self.assertEqual(len(erg['kreuzung']['aeste']), 2, erg['kreuzung'])
 
     def test_abschaltbar(self):
         erg = linie.LinienSucher({'abbiegen': False}).suche(T, 0.0)

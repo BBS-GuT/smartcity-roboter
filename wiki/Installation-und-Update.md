@@ -23,10 +23,10 @@ git remote -v          # prüfen
 
 ## Update
 
-Panel → System → „Neueste Version holen“ (oder `scripts/update.sh`). Danach das Panel neu öffnen.
+Updates nur im Wartungsfenster durchführen: zuerst TEST/Fahrt mit STOPP beenden und alle betroffenen Anwendungsprozesse geordnet beenden. Den Ablauf [Quellstand und Anwendungsstart](Startprotokoll#quellstand-und-anwendungsstart) vollständig befolgen. Das Update erfolgt über `scripts/update.sh` bei beendeten Anwendungen. Wurde stattdessen Panel → System → „Neueste Version holen“ bei laufendem Panel benutzt, anschließend ebenfalls alle betroffenen Prozesse einschließlich Panelserver, KI, Kartograf und Linienfolger geordnet beenden und über den dokumentierten Startweg neu starten; getrennt gestartete Instanzen berücksichtigen. Nur die Browserseite neu zu öffnen oder zu laden reicht nicht. Bei alten oder unklaren Prozessen keinen TEST und keine Fahrt beginnen.
 
 - Eigene Einstellungen in `config/lokal/` (Arm-Stellungen, LiDAR-Winkel, Kamera, Gelerntes) bleiben erhalten. Der Ordner ist nicht im Repository.
-- **Nicht während einer Abnahme oder Messfahrt updaten.** Für Prüfungen muss feststehen, welcher Commit drauf ist (`git rev-parse --short HEAD`, auch im Panel-Systemcheck).
+- **Nicht während einer Abnahme oder Messfahrt updaten.** Erst nach bestätigtem Anwendungsneustart den vollständigen Commit und sauberen Arbeitsbaum gemäß [Startprotokoll](Startprotokoll#quellstand-und-anwendungsstart) nachweisen und den passenden Kalibrier- oder Fahrcheck ausführen. Der Panel-Systemcheck allein genügt nicht; ein Roboter-Neustart ist dafür nicht erforderlich.
 
 ## Panel-Fenster ohne Browser
 
