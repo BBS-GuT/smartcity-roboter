@@ -424,7 +424,7 @@ class Kartograf(Node):
     def _speichern_ohne_lock(self):
         """Aktuellen Stand (Karte, Pose, Kalibrierung) in den Kartenordner. Aufrufer haelt lock. Rueckgabe: PLY."""
         self.karte.letzte_pose = self.kr.lok.pose
-        self.karte.kalibrierung = self.kr.kal.speichern()
+        self.karte.kalibrierung = self.kr.kalibrierung_speichern()
         self.karte.speichern()
         return self.karte.ply()
 
@@ -477,7 +477,7 @@ class Kartograf(Node):
         kopf = {'quelle': 'roboter', 'karte': self.p('karte'), 'cfg': cfg,
                 'roboter': open(name).read().strip() if os.path.exists(name) else '',
                 'topics': {'odom': self.p('odom_topic'), 'imu': self.p('imu_topic'), 'bild': self.p('image_topic')},
-                'kalibrierung': self.kr.kal.speichern()}
+                'kalibrierung': self.kr.kalibrierung_speichern()}
         try:
             self.aufnahme = A.Aufnahme(datei, kopf, bild_hz=self.p('aufnahme_bild_hz'))
         except OSError as e:     # Platte voll, keine Schreibrechte: Kartograf laeuft weiter

@@ -325,9 +325,10 @@ class Kartierer:
         # Haupt-LiDAR (Abgleich mit der Karte), die anderen werden daran ausgerichtet. Die Reihenfolge in
         # scan_topics bleibt (scan_front_deg/scan_spiegeln gelten je Position in der Liste).
         self.haupt = self.c['haupt_lidar'] if self.c.get('haupt_lidar') in self.namen else self.namen[0]
-        # Gespeicherte Selbstkalibrierung nur, wenn sie auch angewendet werden soll. Sonst Rohwerte wie eingestellt
-        # (eine einmal falsch gelernte Korrektur verdreht sonst jede weitere Karte)
-        self.kal = Kalibrierung(karte.kalibrierung if self.c['selbst_kalibrieren'] else None)
+        # Speicherstand und Anwendung trennen: ausgeschaltet weiter Rohwerte verwenden,
+        # aber die gespeicherten Korrekturen bei normalem Speichern nicht verlieren.
+        self.gespeicherte_kalibrierung = Kalibrierung(karte.kalibrierung)
+        self.kal = self.gespeicherte_kalibrierung if self.c['selbst_kalibrieren'] else Kalibrierung()
         self.lok = K.Lokalisierung(karte)
         self.uhren = {}
         self.scans = {}               # name -> Liste der letzten Scans (zeit, punkte, empfang)
@@ -365,6 +366,11 @@ class Kartierer:
         self.zaehler[n] = self.zaehler.get(n, 0) + 1
 
     # ---------------- Bewegung ----------------
+    def kalibrierung_speichern(self):
+        """Aktive Korrekturen speichern; bei deaktivierter Anwendung den geladenen Stand erhalten."""
+        kal = self.kal if self.c['selbst_kalibrieren'] else self.gespeicherte_kalibrierung
+        return kal.speichern()
+
     def imu(self, empfang, d):
         """d: stamp, g (Drehrate x, y, z rad/s), a (Beschleunigung, optional)."""
         self._zaehlen('imu')
