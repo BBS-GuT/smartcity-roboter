@@ -119,6 +119,7 @@ für denselben Vertrag 2.0, keine bereits eingeführte Schnittstelle:
 | `motion.request` | B-Wunsch mit vollständigem Requestschlüssel und eigener Frist; weder Ausgabe noch Messung. |
 | `motion.output` | Von A tatsächlich ausgegebene SI-Bewegung mit A-`producer_id`/`producer_boot_id`, `output_seq`, `time_basis_id`, `issued_mono_s`, Status/Grund, `request_ref` und verpflichtender `evaluation_ref` gemäß Regel unten. `request_ref` ist der vollständige Requestschlüssel oder `null` bei eigenständigem Sicherheitshalt mit Grund. Keine Ausgabe aus Wunsch rekonstruieren. Fehlende Ausgabe bleibt unbekannt/null; bestätigter Nullbefehl beweist keinen Stillstand. |
 | `motion.measured` | Wirkliche Messung mit Quellen-/Frame-/Aufnahme-/Empfangsbezug, m/s und rad/s, Qualität/Grund; nicht vom ausgegebenen Sollwert befüllen. |
+| `arm.output` | Tatsächlich vom Armausgabebesitzer weitergereichter Auftrag: `robot_id`, dessen `producer_id`/`producer_boot_id`, eigene ganzzahlige `output_seq` ≥ 0 ohne Wiederverwendung im selben Start, `time_basis_id`, `issued_mono_s`, Status/Grund, tatsächlich ausgegebene Aktion/Zielwerte mit Einheit/Koordinatenbezug, vollständige `command_ref` und verpflichtende `evaluation_ref` für `domain=arm`. Ausgabeschlüssel ist `(robot_id, producer_id, producer_boot_id, output_seq)`; `arm.release.output_ref` muss genau diesen Schlüssel referenzieren. `command_ref` bezeichnet `(robot_id, producer_id, producer_boot_id, command_seq)` des Armwunschproduzenten; bei eigenständigem Schutzauftrag null mit Grund. Ausgabebesitzer und Freigabebesitzer dürfen verschieden sein und behalten ihre eigenen Starts; die gemeinsame `evaluation_ref` gehört dem Freigabebesitzer. Fehlende Ausgabe bleibt unbekannt/null mit Grund. Empfangsbestätigung separat mit diesem Ausgabeschlüssel referenzieren; weder Ausgabe noch Empfang beweisen erreichte Stellung oder gehaltene Last. |
 | `motion.release` / `arm.release` | Jeweils geliefertes abschließendes Ergebnis `decision=allowed/blocked/unknown`, Qualität/Grund, eigener Besitzerstart und `decision_seq`, Prüfzeit/Uhr, vollständige `request_ref` bzw. `command_ref` und verpflichtende `evaluation_ref`. `output_ref` bezeichnet genau die zugehörige Ausgabe mit Gerät/Besitzerstart/Ausgabesequenz, bei fehlender Ausgabe ausdrücklich null mit Grund. Grundsätzliche Motorbereitschaft getrennt halten. Fehlender Besitzer/Nachweis bedeutet `unknown`, nie `allowed`. Historische Ergebnisse bleiben als solche referenzierbar; ein Resultat zu anderem Request darf nicht als aktuelles angezeigt werden. |
 | Sperren / Betriebszustand | Geliefertes vollständiges Sperrbild je Auswertung mit verpflichtender `evaluation_ref`, `status`, `reason`, Besitzerstart, `seq`, `time_basis_id`, `evaluated_mono_s`; `blocks[]` mit stabiler `block_id`, `code`, Quelle/Produzent, Zeit/Qualität und `effect=motion/arm/both`. Leere Liste bedeutet nur bei ausdrücklich gültigem vollständigem Bild keine gemeldete Sperre. Unvollständiges/fehlendes Bild bleibt unbekannt, nicht leere Freigabe. |
 | STOPP / Fehler | `stop_latched` und `fault_latched` als gelieferte bool/null-Angaben mit Qualität und Grund; aktive Ursachen bleiben zusätzlich in `blocks`. Bestätigter Reset mit Besitzer-/Zeitbezug ist von Wiederkehr frischer Daten getrennt. Ein Zustandswechsel, Grün, Timer oder Reconnect löscht keine Verriegelung. |
@@ -208,3 +209,15 @@ Nativer P2-Befund auf Vorgänger `bb17895563e86bff28832906b1eb5b6c435b438c`
 Ausgabe, Freigabe und Sperrbild waren nicht atomar verknüpft. Obige gemeinsame
 Auswertungsreferenz und die konkreten Positiv-/Negativfälle ergänzen genau diese
 Datenregel. Dies ist eine Dokumentkorrektur, keine implementierte Funktion.
+
+Nativer Folgebefund auf `5667c7744a844687886fa57d7659fb14dc157f3d`
+([Arm-Ausgabeidentität](https://github.com/BBS-GuT/smartcity-roboter/pull/145#discussion_r4346519293)):
+Die ergänzte `arm.output`-Definition macht den zuvor nur vorausgesetzten
+Ausgabeschlüssel und dessen Bindung an `arm.release.output_ref`, Armwunsch und
+atomare Auswertung explizit. Dokumentarische Gegenkontrolle: Bei gleichem
+Armwunsch darf eine Ausgabe aus anderem Ausgabestart oder mit anderer
+`output_seq` die referenzierte Ausgabe nicht ersetzen; ein anderes
+`evaluation_ref` verbindet auch bei identischem Ausgabeschlüssel kein passendes
+Paket. Ein vollständig passendes Paket bewahrt die getrennte Empfangs-/
+Stellungs-/Lastqualität. Keine JSON-Beispiele oder Runtimeänderung ergänzt;
+6/6 lokale Links und beide Diffchecks erneut erfolgreich.
