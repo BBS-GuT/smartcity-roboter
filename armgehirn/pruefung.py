@@ -25,12 +25,17 @@ BELOHNUNG = {'abgelegt': 1.0, 'verloren': 0.5, 'verschoben': 0.2, 'unberuehrt': 
 
 
 def _abstand(o, punkt):
-    return math.hypot(o['vor'] + o['breite'] / 2 - punkt[0], o['seite'] - punkt[1])
+    return math.hypot(mitte(o)[0] - punkt[0], o['seite'] - punkt[1])
 
 
 def mitte(o):
-    """Mitte des Gegenstands (x, y) im Roboter-System ('vor' ist die Vorderkante)."""
-    return (o['vor'] + o['breite'] / 2, o['seite'])
+    """Mitte des Gegenstands (x, y) im Roboter-System ('vor' ist die Vorderkante, 'laenge' die gemessene Tiefe in
+    Fahrtrichtung; ohne sie wie frueher die Breite)."""
+    return (o['vor'] + tiefe(o) / 2, o['seite'])
+
+
+def tiefe(o):
+    return o.get('tiefe_x') or o.get('laenge') or o['breite']
 
 
 def bewerte(vorher, alter_blick, ablage_blick, ablage, greifer=None, cfg=None):

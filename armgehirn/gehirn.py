@@ -237,9 +237,10 @@ class ArmGehirn:
         erg['richtig'] = zeile.get('richtig')
         # fuer die Anzeige: gemessene Mitte und Groesse (cm), angefahrener Punkt (cm), Blickstellung
         if zeile.get('gemessen_vor') is not None:
-            erg['gemessen_cm'] = {'mitte_vorne': round((zeile['gemessen_vor'] + zeile['breite'] / 2) * 100, 1),
+            erg['gemessen_cm'] = {'mitte_vorne': round((zeile['gemessen_vor'] + (zeile.get('tiefe') or zeile['breite']) / 2) * 100, 1),
                                   'links': round(zeile['gemessen_seite'] * 100, 1),
-                                  'breite': round(zeile['breite'] * 100, 1), 'hoehe': round(zeile['hoehe'] * 100, 1)}
+                                  'breite': round(zeile['breite'] * 100, 1), 'hoehe': round(zeile['hoehe'] * 100, 1),
+                                  'tiefe': None if zeile.get('tiefe') is None else round(zeile['tiefe'] * 100, 1)}
         if zeile.get('ziel_x') is not None:
             erg['ziel_cm'] = [round(zeile[k] * 100, 1) for k in ('ziel_x', 'ziel_y', 'ziel_z')]
         erg['blick'] = zeile.get('blick')
@@ -260,13 +261,16 @@ class ArmGehirn:
         zeile.update(entscheidung=e['art'], grund=e['grund'])
         o = e['objekt']
         if o:
-            zeile.update(gemessen_vor=o['vor'], gemessen_seite=o['seite'], breite=o['breite'], hoehe=o['hoehe'])
+            zeile.update(gemessen_vor=o['vor'], gemessen_seite=o['seite'], breite=o['breite'], hoehe=o['hoehe'],
+                         tiefe=o.get('laenge'))
         if not e['darf']:
             self._fahre(self.grund)
             return {'ergebnis': 'nicht_gegriffen', 'art': e['art'], 'text': f"nicht gegriffen: {e['grund']}"}
         # 3. planen (Lage-Kalibrierung, dann Kinematik + gelernte Korrektur)
         self.phase = 'planen'
         o = lagelib.anwenden(o, self.lage_kalibrierung)
+        if o.get('laenge'):
+            o['tiefe_x'] = o['laenge']     # Mitte in Fahrtrichtung aus der gemessenen Tiefe (nicht aus der Breite)
         zeile.update(kalibriert_vor=o['vor'], kalibriert_seite=o['seite'])
         if wahr is not None:
             m = pruefung.mitte(o)

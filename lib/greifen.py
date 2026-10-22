@@ -73,15 +73,22 @@ ERGEBNISSE = {True: GEGRIFFEN, False: DANEBEN, 'gegriffen': GEGRIFFEN, 'abgelegt
               'verschoben': VERSCHOBEN, 'unberuehrt': UNBERUEHRT, 'daneben': DANEBEN}
 
 
+def _tiefe_x(obj):
+    """Ausdehnung in Fahrtrichtung fuer die Mitte (Mitte = Vorderkante + Haelfte davon). Das Arm-Gehirn misst sie
+    ('tiefe_x', RM02 22.10.: laenglicher Klotz, Mitte mit der Breite 1,6 cm zu kurz); sonst wie bisher die Breite
+    (quadratische Grundflaeche angenommen)."""
+    return obj.get('tiefe_x') or obj.get('breite', 0.04)
+
+
 def merkmale(obj):
     """Was er vom Wuerfel weiss (Zustand), auf etwa -1..1 gebracht: [1, weiter vorne, weiter links, hoeher]."""
-    vor = obj['vor'] + obj.get('breite', 0.04) / 2
+    vor = obj['vor'] + _tiefe_x(obj) / 2
     return np.array([1.0, (vor - 0.27) / 0.05, obj.get('seite', 0.0) / 0.05, (obj.get('hoehe', 0.04) - 0.04) / 0.02])
 
 
 def greifpunkt(obj):
     """Wohin laut Messung (Mitte des Wuerfels, Roboter-System x vorne, y links, z hoch). Ohne Korrektur."""
-    return np.array([obj['vor'] + obj['breite'] / 2, obj['seite'], max(0.012, obj['hoehe'] / 2)])
+    return np.array([obj['vor'] + _tiefe_x(obj) / 2, obj['seite'], max(0.012, obj['hoehe'] / 2)])
 
 
 def spielraum(obj):
@@ -384,7 +391,7 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
             plan['ziel'] = [float(v) for v in g]
             if politik is not None:
                 plan['lernen'] = {'modell': politik.schluessel, 'a': plan['korrektur'],
-                                  'obj': {k: float(obj[k]) for k in ('vor', 'seite', 'breite', 'hoehe')}}
+                                  'obj': {k: float(obj[k]) for k in ('vor', 'seite', 'breite', 'hoehe', 'tiefe_x') if obj.get(k) is not None}}
                 k = plan['korrektur']
                 plan['info'] += (f", gelernte Korrektur {k[0] * 100:+.1f} / {k[1] * 100:+.1f} / {k[2] * 100:+.1f} cm")
             return plan

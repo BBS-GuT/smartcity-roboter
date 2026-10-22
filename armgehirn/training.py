@@ -19,6 +19,7 @@ for _d in (HIER, os.path.join(REPO, 'lib'), os.path.join(REPO, 'sim')):
     sys.path.insert(0, _d)
 import lage as lagelib     # noqa: E402
 import protokoll as prot   # noqa: E402
+import pruefung            # noqa: E402
 
 HILFE = ('Gegenstand hinlegen, Haende weg, dann:\n'
          '  Enter = raeumbarer Gegenstand (soll gegriffen werden)\n'
@@ -33,7 +34,7 @@ def zeige(e, protokoll):
     if e.get('gemessen_cm'):
         m = e['gemessen_cm']
         print(f"     gemessen: Mitte {m['mitte_vorne']} cm vorne, {m['links']:+} cm links, {m['breite']} cm breit, "
-              f"{m['hoehe']} cm hoch (Blick {e.get('blick')})")
+              f"{m['hoehe']} cm hoch, {m.get('tiefe')} cm tief (Blick {e.get('blick')})")
     if e.get('ziel_cm'):
         z = e['ziel_cm']
         print(f"     Greifer gezielt auf: {z[0]} cm vorne, {z[1]:+} cm links, {z[2]} cm hoch")
@@ -57,7 +58,7 @@ def kalibrieren(g, frage):
         if o is None:
             print('  nichts gesehen, Markierung uebersprungen')
             continue
-        gem = (o['vor'] + o['breite'] / 2, o['seite'])
+        gem = pruefung.mitte(o)
         paare.append((gem, tuple(wahr)))
         print(f'  gemessen {gem[0] * 100:.1f} / {gem[1] * 100:+.1f} cm, wahr {wahr[0] * 100:.1f} / {wahr[1] * 100:+.1f} cm')
     k = lagelib.rechnen(paare)
@@ -90,7 +91,7 @@ def schleife(g, protokoll, frage, n_max, sim=None):
             if o is None:
                 print('  nichts gesehen')
             else:
-                print(f"  gemessen: Mitte {(o['vor'] + o['breite'] / 2) * 100:.1f} cm vor der Robotermitte, "
+                print(f"  gemessen: Mitte {pruefung.mitte(o)[0] * 100:.1f} cm vor der Robotermitte, "
                       f"{o['seite'] * 100:+.1f} cm links, {o['breite'] * 100:.1f} cm breit, {o['hoehe'] * 100:.1f} cm hoch, "
                       f"{o.get('laenge', float('nan')) * 100:.1f} cm tief; Vorderkante {o['vor'] * 100:.1f} cm")
             continue

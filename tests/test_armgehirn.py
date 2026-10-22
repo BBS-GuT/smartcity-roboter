@@ -209,6 +209,18 @@ class Ablauf(unittest.TestCase):
             self.assertEqual(st['ergebnis']['ergebnis'], e['ergebnis'])
             self.assertIn('gesperrt', st['antrieb'])
 
+    def test_laenglicher_klotz_mitte_aus_der_tiefe(self):
+        """RM02 22.10.: Klotz 3 cm breit, 6 cm lang (laengs) -> Mitte = Vorderkante + 3 cm, nicht + 1,5 cm."""
+        klotz = dict(WUERFEL, breite=0.03, hoehe=0.03, laenge=0.06)
+        self.assertAlmostEqual(greifen.greifpunkt(dict(klotz, tiefe_x=0.06))[0], 0.18)
+        self.assertAlmostEqual(greifen.greifpunkt(klotz)[0], 0.165)       # Grundbetrieb (ohne tiefe_x) wie bisher
+        self.assertAlmostEqual(pruefung.mitte(klotz)[0], 0.18)
+        with tempfile.TemporaryDirectory() as tmp:
+            g = gehirn(Welt(objekt=klotz), tmp)
+            e = g.versuch('greifen')
+            self.assertEqual(e['gemessen_cm']['mitte_vorne'], 18.0)
+            self.assertAlmostEqual(g.politik.speicher[-1][1], round((0.18 - 0.27) / 0.05, 5))
+
     def test_startkorrektur_verschiebt_vorwissen(self):
         with tempfile.TemporaryDirectory() as tmp:
             ohne = gehirn(Welt(), tmp).politik.vorschlag(WUERFEL, erkunden=False)[0]
@@ -461,6 +473,18 @@ class Fortschritt(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(tmp, 'fortschritt.csv')))
             p.schreiben({'erwartet': 'nicht_greifen', 'ergebnis': 'abgelegt', 'richtig': False})
             self.assertFalse(prot.Protokoll(tmp).stand()['ziel_erreicht'])   # Figur gegriffen: nie "fertig"
+
+
+class ProtokollSpalten(unittest.TestCase):
+    def test_alte_datei_mit_anderen_spalten_wird_beiseitegelegt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, 'versuche.csv'), 'w') as f:
+                f.write('nr;zeit;erwartet\n1;x;greifen\n')
+            p = prot.Protokoll(tmp)
+            self.assertEqual(p.zeilen, [])
+            p.schreiben({'erwartet': 'greifen', 'ergebnis': 'abgelegt'})
+            self.assertEqual(prot.Protokoll(tmp).zeilen[0]['ergebnis'], 'abgelegt')
+            self.assertTrue(any(n.startswith('versuche.csv.alt_') for n in os.listdir(tmp)))
 
 
 class Uebungswelt(unittest.TestCase):

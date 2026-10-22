@@ -36,6 +36,7 @@ def anwenden(objekt, kalibrierung):
     if not kalibrierung or objekt is None:
         return objekt
     M = np.array(kalibrierung['M'])
-    mx, my = objekt['vor'] + objekt['breite'] / 2, objekt['seite']
+    d = objekt.get('laenge') or objekt['breite']
+    mx, my = objekt['vor'] + d / 2, objekt['seite']
     x, y = np.array([1.0, mx, my]) @ M
-    return dict(objekt, vor=float(x) - objekt['breite'] / 2, seite=float(y))
+    return dict(objekt, vor=float(x) - d / 2, seite=float(y))

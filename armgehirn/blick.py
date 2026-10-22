@@ -73,9 +73,10 @@ def ins_roboter_system(objekt, grad, schulter_x):
     if objekt is None or not grad:
         return objekt
     a = math.radians(grad)
-    x, y = objekt['vor'] + objekt['breite'] / 2 - schulter_x, objekt['seite']
+    d = objekt.get('laenge') or objekt['breite']        # Ausdehnung in Blickrichtung (wie pruefung.tiefe)
+    x, y = objekt['vor'] + d / 2 - schulter_x, objekt['seite']
     xm, ym = schulter_x + x * math.cos(a) - y * math.sin(a), x * math.sin(a) + y * math.cos(a)
-    return dict(objekt, vor=xm - objekt['breite'] / 2, seite=ym)
+    return dict(objekt, vor=xm - d / 2, seite=ym)
 
 
 def drehung_zu(punkt, schulter_x):

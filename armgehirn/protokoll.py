@@ -18,7 +18,7 @@ ORDNER = os.environ.get('SMARTCITY_ARMGEHIRN', os.path.join(REPO, 'config', 'lok
 ZIEL = {'quote': 0.9, 'letzte': 30, 'verboten_min': 5}
 
 SPALTEN = ['nr', 'zeit', 'erwartet', 'entscheidung', 'grund', 'ergebnis', 'belohnung', 'richtig',
-           'gemessen_vor', 'gemessen_seite', 'breite', 'hoehe', 'kalibriert_vor', 'kalibriert_seite',
+           'gemessen_vor', 'gemessen_seite', 'breite', 'hoehe', 'tiefe', 'kalibriert_vor', 'kalibriert_seite',
            'wahr_vor', 'wahr_seite', 'lagefehler_cm',
            'ziel_x', 'ziel_y', 'ziel_z', 'korrektur_x', 'korrektur_y', 'korrektur_z', 'modell',
            'alter_ort_frei', 'verschiebung_cm', 'ablage_abweichung_cm', 'greifer', 'zielfehler_cm', 'zielfehler_quelle',
@@ -52,7 +52,21 @@ class Protokoll:
         self.ordner = ordner
         self.datei = os.path.join(ordner, 'versuche.csv')
         self.fortschritt_datei = os.path.join(ordner, 'fortschritt.csv')
+        self._alte_spalten_wegraeumen()
         self.zeilen = self._lesen()
+
+    def _alte_spalten_wegraeumen(self):
+        """Datei aus einer frueheren Version mit anderen Spalten: umbenennen (.alt_...) statt falsch weiterschreiben."""
+        try:
+            with open(self.datei, newline='') as f:
+                kopf = next(csv.reader(f, delimiter=';'), None)
+        except OSError:
+            return
+        if kopf is not None and kopf != SPALTEN:
+            stempel = time.strftime('%Y%m%d_%H%M%S')
+            for d in (self.datei, self.fortschritt_datei):
+                if os.path.exists(d):
+                    os.replace(d, f'{d}.alt_{stempel}')
 
     def _lesen(self):
         try:
