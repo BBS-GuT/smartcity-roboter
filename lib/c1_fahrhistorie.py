@@ -313,6 +313,8 @@ def pruefe_historie(history, *, robot_id, map_version, time_basis_id,
         for field in _IDENTITY:
             if history[field] is None and binding[field] is not None:
                 errors.append(f'history.{field}: bekannte Herkunft nicht durch null ersetzen')
+            elif history[field] is not None and history[field] != binding[field]:
+                errors.append(f'history.{field}: Herkunft stimmt nicht mit bestaetigter Bindung ueberein')
         if binding.get('capture_gap', False) and not (
                 history['status'] == 'invalid' and history['reason'] == 'capture_gap'):
             errors.append('history: bekannte capture_gap muss invalid bleiben')

@@ -320,6 +320,29 @@ class HistorienVertrag(unittest.TestCase):
         self.good(history, context=False)
         self.bad(history)
 
+    def test_nichtgueltige_historie_weist_jede_fremde_identitaet_zurueck(self):
+        for status in ('missing', 'unknown', 'invalid'):
+            for field in ('producer_id', 'producer_boot_id', 'time_basis_id'):
+                with self.subTest(status=status, field=field):
+                    history = fixture('empty')
+                    history.update(status=status, reason='not_available',
+                                   entries=None, dropped_entries=None)
+                    history[field] = 'demo-foreign-identity'
+                    errors = self.check(history)
+                    self.assertTrue(any(f'history.{field}:' in error for error in errors),
+                                    errors)
+
+    def test_nichtgueltige_historie_erhaelt_identisch_gebundene_herkunft(self):
+        for status in ('missing', 'unknown', 'invalid'):
+            with self.subTest(status=status):
+                history = fixture('empty')
+                history.update(status=status, reason='not_available',
+                               entries=None, dropped_entries=None)
+                self.good(history)
+                # Bekannte Bindung bleibt auch vor erfolgreicher Erfassung erhalten.
+                self.context['binding']['initialized'] = False
+                self.good(history)
+
 
 if __name__ == '__main__':
     unittest.main()
