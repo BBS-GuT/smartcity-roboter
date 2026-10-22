@@ -166,10 +166,22 @@ Ergebnisregeln oben unverändert gelten:
 | `verification_ref`, `travel_pose_ref` | Jeweils `null`: keine Erfolgsnachweise für einen aktuellen Räumvorgang. |
 | Vorgangsbezogene `observation`, `estimate` | Jeweils `null`, weil kein aktuelles Räumobjekt zugeordnet ist. Frühere Vorgangsdiagnosen bleiben bei ihrer alten Identität, statt hier als aktuell zu erscheinen. |
 
+Beim Übergang von einem Räumvorgang zu gültigem `phase=inaktiv` gilt zusätzlich
+**`arm.request=null`**. Der vorherige Vorgangs-/Objektbezug ist nicht mehr aktuell;
+eine noch offene `valid_until_mono_s` erhält den alten Armwunsch nicht als
+verwendbaren aktuellen Wunsch. Diese Nullregel gilt bereits im ersten inaktiven
+Zustand. Ein späterer neuer Vorgang benötigt einen neuen, ihm zugeordneten
+Armwunsch mit eigener neuer `command_seq`; der alte Wunsch wird weder neu
+zugeordnet noch durch Zustandsausgabe oder Fristrest reaktiviert.
+
 Diese Inaktivitätsregel setzt keine unabhängig gemeldete `arm.measured`,
-`camera_pose`, Arm-Ausgabe/Empfangsbestätigung, Freigabe, Schutzpolitik oder
-Sperrliste zurück. Deren tatsächlicher eigener Bezug und Qualitätsstatus bleiben
-sichtbar; aus Inaktivität wird keine neue Aktion oder Freigabe abgeleitet.
+`camera_pose`, Schutzpolitik oder Sperrliste zurück. Historische `arm.output`
+und `ack` dürfen mit ursprünglichem Command-/Vorgangsbezug und Zeit/Qualität
+sichtbar bleiben; sie sind keine aktuellen Wünsche. Bereits gemeldete Freigaben
+bleiben ebenfalls ihrem geprüften Command-/Vorgangsbezug zugeordnet und können
+ohne aktuellen Wunsch keine aktuelle Armfreigabe darstellen. Die Nullregel
+bestätigt weder Stornierung eines ausgegebenen Auftrags noch mechanischen
+Stillstand; tatsächliche Aktorreaktion und Freigabeverfahren bleiben separat.
 
 `started <= updated <= generated` gilt bei vorhandenen Vorgangszeiten nur im
 belegten gemeinsamen Uhrenraum; die inaktiven Nullwerte werden nicht verglichen.
@@ -231,5 +243,11 @@ Tabelle für gültige Inaktivität korrigiert. Dokumentkontrolle: Produzent/Uhr
 bleiben erhalten; Vorgang, Unterbrechung, Abbruch, Ergebnisgrund, Erfolgsbelege
 und vorgangsbezogene Objektbeobachtung/Schätzung haben ausdrückliche Nullregeln.
 Unabhängige Messungen, Ausgaben und Freigabe-/Schutzdaten werden nicht gelöscht.
+Der native Befund zum Vorgänger `deba190` (alter Armwunsch bleibt bei Inaktivität
+mit offener Frist aktuell) ist durch `arm.request=null` bereits im ersten
+inaktiven Zustand ergänzt. Dokumentarischer Übergangsabgleich: laufender Vorgang
+mit noch nicht abgelaufenem Wunsch → inaktiv ohne aktuellen Wunsch, historische
+Ausgabe/Bestätigung behalten alte Bezüge → neuer Vorgang nur mit neuem Wunsch
+und neuer Commandsequenz. Daraus folgt kein tatsächlicher Aktorstoppnachweis.
 Aktueller nativer Review und CI-Status gehören zum konkreten Lieferhead
 im Teil-PR; sie werden nicht aus älteren Entwurfsreviews abgeleitet.
