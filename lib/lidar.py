@@ -38,6 +38,8 @@ def scan_pruefen(msg):
         return 'Bereichs-/Winkelangaben ungueltig'
     if r.ndim != 1 or r.size == 0:
         return 'keine Messwerte'
+    if not winkelspanne_ok(r.size, meta[3]):
+        return 'Winkelangaben ungueltig (mehr als eine Umdrehung)'
     if not np.any(np.isfinite(r) & (r > meta[0]) & (r < meta[1])):
         return 'kein gueltiger Messwert (alle 0/NaN/inf/ausserhalb)'
     return None
@@ -60,7 +62,9 @@ def aufnahme_pruefen(msg, jetzt, vorher=None, max_alter=AUFNAHME_MAX):
     """Aufnahmezeit eines Scans beim Empfang pruefen (header.stamp, unabhaengig von der Empfangszeit).
 
     jetzt: ROS-Zeit des Empfaengers in s (ohne use_sim_time = Systemzeit time.time(), dieselbe Uhr, mit der die
-    LiDAR-Treiber und der Simulator stempeln). vorher: Aufnahmezeit des letzten Scans dieses Kanals oder None.
+    LiDAR-Treiber und der Simulator stempeln). vorher: neueste AKZEPTIERTE Aufnahmezeit dieses Kanals oder None
+    (die Verbraucher ruecken sie nur mit akzeptierten, groesseren Stempeln vor - ein zurueckgesetzter Stempel
+    bleibt so ungueltig, bis er die Marke ueberholt).
     Rueckgabe: (aufnahme s oder None, Grund oder None). Grund 'doppelt' = derselbe Scan nochmal (nichts Neues).
     """
     try:
@@ -126,6 +130,14 @@ def naechster_vorne(msg, front_deg=0.0, halb_deg=30.0, min_abstand=0.08, rueckwa
     return float(r[im_sektor].min()) if np.any(im_sektor) else float('inf')
 
 
+def winkelspanne_ok(anzahl, angle_increment):
+    """Ueberdecken die Strahlen hoechstens eine Umdrehung (plus einen Schritt Ueberlapp)? Mehrfach umlaufende
+    Winkelangaben (kaputte Metadaten, z. B. 360 Strahlen zu je 181 Grad) wuerden die Messwerte ueber alle
+    Richtungen verteilen und eine Abdeckung vortaeuschen."""
+    inc = abs(float(angle_increment))
+    return (anzahl - 1) * inc <= 2 * math.pi + inc + 1e-9
+
+
 def ungueltige_winkel(msg, front_deg=0.0):
     """Richtungen (rad, relativ zu vorne, -pi..pi) OHNE gueltige Messung, rundherum in Schritten von hoechstens
     einem Strahlabstand (und 1 Grad). Gemessen ist eine Richtung nur, wenn ein Strahl hoechstens einen halben
@@ -144,8 +156,8 @@ def ungueltige_winkel(msg, front_deg=0.0):
     # erzeugt sonst Millionen Pruefrichtungen. Solche Scans decken dann nur winzige Bereiche ab -> unbekannt/Halt.
     n = int(math.ceil(2 * math.pi / max(min(inc, math.radians(1.0)), math.radians(0.1))))
     w = -math.pi + (np.arange(n) + 0.5) * 2 * math.pi / n           # Pruefrichtungen rundherum
-    if not len(a):
-        return w
+    if not len(a) or not winkelspanne_ok(len(a), inc):
+        return w                                                    # nichts verlaesslich gemessen
     j = np.searchsorted(a, w)
     kandidaten = np.stack([(j - 1) % len(a), j % len(a)], axis=1)    # Nachbarstrahlen (auch ueber +-pi hinweg)
     abstand = np.abs(np.arctan2(np.sin(w[:, None] - a[kandidaten]), np.cos(w[:, None] - a[kandidaten])))

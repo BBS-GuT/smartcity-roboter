@@ -108,7 +108,7 @@ class LineFollower(Node):
         self.bild_zeit = 0.0
         self.bild_zaehler, self.fps, self.fps_zeit = 0, 0.0, time.time()
         self.scans = {}
-        self.scan_stempel = {}           # Kanal -> Aufnahmezeit des letzten Scans (muss vorwaerts laufen)
+        self.scan_stempel = {}           # Kanal -> neueste akzeptierte Aufnahmezeit (muss vorwaerts laufen)
         self.ki = (0.0, None)            # (zeit, befehl)
         self.last_image_pub = 0.0
         self.status_text = 'startet ...'
@@ -169,7 +169,8 @@ class LineFollower(Node):
         aufnahme, grund = lidar.aufnahme_pruefen(msg, time.time(), self.scan_stempel.get(topic))
         if grund == 'doppelt':
             return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
-        self.scan_stempel[topic] = aufnahme
+        if grund is None:
+            self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
         grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt -> Halt (nie "frei")
         d = None
         if not grund:

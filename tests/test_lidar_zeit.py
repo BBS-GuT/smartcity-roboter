@@ -120,6 +120,23 @@ class Linienfolger(unittest.TestCase):
         n.on_scan(q.scan(3.0), '/scan0', 0)                           # neue gueltige Nachricht
         self.assertGreater(n.entscheide()[0], 0)
 
+    def test_marke_rueckt_nur_mit_akzeptiertem_stempel_vor(self):
+        # Codex-Befund zu PR #143: nach einem abgelehnten Ruecklauf darf ein wieder steigender, aber immer noch
+        # aelterer Stempel nicht als aktuell gelten (auch nicht nach einem kaputten Stempel dazwischen)
+        jetzt = time.time()
+        n = q.linienfolger(mit_aufnahme(jetzt - 0.05))               # gueltig, Marke = jetzt - 0,05
+        n.on_scan(mit_aufnahme(jetzt - 0.5), '/scan0', 0)
+        self.halt(n, 'zurueck')
+        n.on_scan(mit_aufnahme(jetzt - 0.4), '/scan0', 0)             # steigt wieder, liegt aber vor der Marke
+        self.halt(n, 'zurueck')
+        kaputt = q.scan(3.0)
+        kaputt.header = stamp(0, 0)
+        n.on_scan(kaputt, '/scan0', 0)
+        n.on_scan(mit_aufnahme(jetzt - 0.3), '/scan0', 0)
+        self.halt(n, 'zurueck')
+        n.on_scan(q.scan(3.0), '/scan0', 0)                           # neuer als die Marke: wieder frei
+        self.assertGreater(n.entscheide()[0], 0)
+
     def test_doppelte_nachricht_erneuert_empfang_nicht(self):
         n = q.linienfolger()
         m = q.scan(3.0)
@@ -151,6 +168,15 @@ class KiZentrale(unittest.TestCase):
                     m.header = kopf
                 z._scan(m, '/scan1', 1)
                 self.assertEqual(z.lidar_pruefen(), (None, None, None))
+
+    def test_marke_rueckt_nur_mit_akzeptiertem_stempel_vor(self):
+        jetzt = time.time()
+        z = q.ki_zentrale(mit_aufnahme(jetzt - 0.05))
+        z._scan(mit_aufnahme(jetzt - 0.5), '/scan1', 1)
+        z._scan(mit_aufnahme(jetzt - 0.4), '/scan1', 1)
+        self.assertEqual(z.lidar_pruefen(), (None, None, None))
+        z._scan(q.scan(3.0), '/scan1', 1)
+        self.assertEqual(z.lidar_pruefen()[0], float('inf'))
 
     def test_altern_und_wiederfreigabe(self):
         z = q.ki_zentrale(mit_aufnahme(time.time() - 0.8))

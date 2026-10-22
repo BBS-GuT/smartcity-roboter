@@ -179,7 +179,7 @@ class Zentrale(Node):
         self.tiefe_ausgewertet, self.tiefe_nr = None, 0   # zuletzt ausgewertetes Tiefenbild, Zaehler
         self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scans = {}
-        self.scan_stempel = {}          # Kanal -> Aufnahmezeit des letzten Scans (muss vorwaerts laufen)
+        self.scan_stempel = {}          # Kanal -> neueste akzeptierte Aufnahmezeit (muss vorwaerts laufen)
         self.wahrnehmung = {'bild_nr': 0, 'bild_zeit': 0.0, 'objekte': [], 'ampel': None,
                             'stoppschild': False, 'tiefe_hindernis': None}
         self.befehl = {'aktion': 'stopp', 'faktor': 0.0, 'grund': 'KI startet ...', 'arm': None}
@@ -312,7 +312,8 @@ class Zentrale(Node):
         aufnahme, grund = lidar.aufnahme_pruefen(msg, time.time(), self.scan_stempel.get(topic))
         if grund == 'doppelt':
             return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
-        self.scan_stempel[topic] = aufnahme
+        if grund is None:
+            self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
         grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt, nie "frei"
         xy = breit = luecken = None
         if grund is None:

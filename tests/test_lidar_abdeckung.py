@@ -111,6 +111,17 @@ class ReineAbdeckung(unittest.TestCase):
                 self.assertIsNotNone(lidar.sektor_abdeckung(m))
                 self.assertIsNotNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
 
+    def test_mehrfach_umlaufende_winkelangaben(self):
+        # Codex-Befund zu PR #143: 360 Strahlen zu je 181 Grad liegen modulo 360 in jeder ganzen Richtung
+        m = q.scan(3.0, angle_increment=math.radians(181))
+        self.assertIsNotNone(lidar.scan_pruefen(m))
+        self.assertEqual(len(lidar.ungueltige_winkel(m)), 360)       # nichts gilt als gemessen
+        self.assertIsNotNone(lidar.sektor_abdeckung(m))
+        self.assertTrue(lidar.winkelspanne_ok(360, 2 * math.pi / 360))
+        self.assertTrue(lidar.winkelspanne_ok(361, 2 * math.pi / 360))  # ein Schritt Ueberlapp ist erlaubt
+        self.assertTrue(lidar.winkelspanne_ok(1, 4 * math.pi))
+        self.assertFalse(lidar.winkelspanne_ok(3, 4 * math.pi))
+
     def test_rueckwaerts_zaehlende_lidars(self):
         # angle_increment negativ (Uhrzeigersinn): gleiche Abdeckung
         r = [3.0] * N
@@ -123,6 +134,9 @@ class ReineAbdeckung(unittest.TestCase):
 class Linienfolger(unittest.TestCase):
     def test_winziger_winkelschritt_haelt(self):
         self.halt(q.linienfolger(q.scan(3.0, angle_increment=1e-6)), 'LIDAR UNBEKANNT')
+
+    def test_mehrfach_umlaufend_haelt(self):
+        self.halt(q.linienfolger(q.scan(3.0, angle_increment=math.radians(181))), 'LIDAR UNBEKANNT')
 
     def test_riesiger_winkelschritt_haelt(self):
         self.halt(q.linienfolger(q.scan(3.0, angle_increment=4 * math.pi)), 'LIDAR UNBEKANNT')
@@ -171,6 +185,10 @@ class KiZentrale(unittest.TestCase):
 
     def test_winziger_winkelschritt_unbekannt(self):
         z = q.ki_zentrale(q.scan(3.0, angle_increment=1e-6))
+        self.assertEqual(z.lidar_pruefen(), (None, None, None))
+
+    def test_mehrfach_umlaufend_unbekannt(self):
+        z = q.ki_zentrale(q.scan(3.0, angle_increment=math.radians(181)))
         self.assertEqual(z.lidar_pruefen(), (None, None, None))
 
     def test_riesiger_winkelschritt_unbekannt(self):
