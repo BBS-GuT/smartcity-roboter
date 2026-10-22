@@ -1,0 +1,26 @@
+{
+  "producer_id": "demo-b-navigation",
+  "producer_boot_id": "demo-b-history-a",
+  "time_basis_id": "demo-clock-a",
+  "status": "valid",
+  "reason": null,
+  "entries": [
+    {
+      "section": "demo-S-AB",
+      "node": "demo-B",
+      "approach_from": "demo-A",
+      "exit_to": "demo-C",
+      "entry_seq": 0,
+      "confirmed_mono_s": 1
+    },
+    {
+      "section": "demo-S-BC",
+      "node": "demo-C",
+      "approach_from": "demo-B",
+      "exit_to": "demo-A",
+      "entry_seq": 1,
+      "confirmed_mono_s": 2
+    }
+  ],
+  "dropped_entries": 0
+}

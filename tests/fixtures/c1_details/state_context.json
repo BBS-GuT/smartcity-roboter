@@ -1,0 +1,11 @@
+{
+  "robot_id": "RM02",
+  "boot_id": "state-B-0001",
+  "seq": 42,
+  "time_basis_id": "clock-1",
+  "generated_mono_s": 105,
+  "sensors": {
+    "camera": {"source_id":"rgb-test","producer_id":"camera-driver","producer_boot_id":"camera-B","time_basis_id":"clock-1","status":"valid","reason":null,"captured_at_s":1792653604.99,"captured_mono_s":104.99,"received_mono_s":104.995,"age_s":0.01,"rate_hz":15,"frame_id":"rgb-12","coord_frame":"camera_optical"},
+    "lidar_0": {"source_id":"scan-test","producer_id":"lidar-driver","producer_boot_id":"lidar-A","time_basis_id":"clock-1","status":"valid","reason":null,"captured_at_s":1792653604.98,"captured_mono_s":104.98,"received_mono_s":104.99,"age_s":0.02,"rate_hz":10,"frame_id":"scan-24","coord_frame":"laser0"}
+  }
+}

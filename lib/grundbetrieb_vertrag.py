@@ -1,4 +1,4 @@
-# Gemeinsamer Zustandsvertrag des Grundbetriebs (C1, Issue #14), Version 1.0.
+# Gemeinsamer Zustandsvertrag des Grundbetriebs (C1, Issue #14), Version 2.0 (unveroeffentlichtes Fundament).
 #
 # EIN Zustandsdatensatz pro Roboter, aus dem spaeter Panel UND MQTT lesen (Zieldefinition GB-15, Abschnitt 7).
 # Dieses Modul ist ROS-unabhaengig und braucht nur die Python-Standardbibliothek:
@@ -7,16 +7,18 @@
 #   lade_json(text)    -> dict, wirft bei NaN/Unendlich oder ungueltigem Datensatz
 #   Start              -> Startkennung + Sequenz eines Programmlaufs
 #   vergleiche(a, b)   -> wie zwei Datensaetze zueinander stehen (Geraet/Start/Sequenz)
-#   alter_s(d, jetzt)  -> Datenalter nach monotoner Uhr desselben Starts
+#   alter_s(d, jetzt)  -> exaktes Datenalter in bestaetigter gleicher Uhreninstanz
 # Feldbeschreibung: docs/schnittstellen-grundbetrieb.md. JSON-Schema (nur Struktur, fuer externe Leser):
-# schemas/grundbetrieb-v1.schema.json. Die fachlichen Regeln (R1-R11) prueft nur pruefe().
+# schemas/grundbetrieb-v2.schema.json. Die fachlichen Regeln (R1-R11) prueft nur pruefe().
 # Alle Beispiele sind synthetisch (tests/fixtures/grundbetrieb/), keine Messwerte eines Geraets.
+from datetime import datetime
+from decimal import Decimal
 import json
 import math
 import re
 import uuid
 
-SCHEMA_VERSION = '1.0'
+SCHEMA_VERSION = '2.0'
 GERAETE = ('RM01', 'RM02', 'RM03', 'RM04')
 # Gueltigkeit einer Quelle/eines Messwerts. Frei/belegt ist KEIN Status, sondern ein eigener Wert (corridor).
 STATUS = ('valid', 'unknown', 'invalid', 'stale', 'missing')
@@ -30,7 +32,8 @@ SIGNALE = ('red', 'yellow', 'green', 'off', 'unknown')
 BELEGUNG = ('free', 'occupied', 'unknown')
 BROKER = ('connected', 'disconnected', 'unknown', 'disabled')
 ZEITSYNC = ('synced', 'unsynced', 'unknown')
-_ZEIT_UTC = re.compile(r'^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,9})?Z$')
+# Uhrzeitgrenzen unabhaengig davon pruefen, ob der Kalenderparser 24:00:00 normalisiert.
+_ZEIT_UTC = re.compile(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,9})?Z\Z')
 
 
 # ------------------------------------------------------------------ Start und Sequenz
@@ -62,9 +65,58 @@ def vergleiche(a, b):
     return 'gleich' if b['seq'] == a['seq'] else 'aelter'
 
 
+MAX_ZEIT_NS = 2**63 - 1
+
+
+def sekunden_aus_ns(nanosekunden):
+    """Integer-ns (0..2**63-1) -> exakte Decimal-Sekunden, ohne Kontextrundung."""
+    if type(nanosekunden) is not int or not 0 <= nanosekunden <= MAX_ZEIT_NS:
+        raise ValueError('nanosekunden: ganze Zahl im Bereich 0..2**63-1 erforderlich')
+    return Decimal((0, tuple(map(int, str(nanosekunden))), -9))
+
+
+def zeit_ns(sekunden):
+    """int-/Decimal-Sekunden -> Integer-ns; Raster/Bereich exakt pruefen.
+
+    Keine Floats, bool oder Zahlenstrings; kein Nachrunden, auch bei kleinem
+    Decimal-Kontext. UTC/Unix-Zeiten sind kein Eingang dieses lokalen Helpers.
+    """
+    if type(sekunden) is int:
+        if 0 <= sekunden <= MAX_ZEIT_NS // 10**9:
+            return sekunden * 10**9
+        raise ValueError('Zeit ausserhalb 0..2**63-1 ns')
+    if not isinstance(sekunden, Decimal) or not sekunden.is_finite():
+        raise ValueError('Zeit braucht endliche int-/Decimal-Sekunden (keine Floats/bool)')
+    vorzeichen, ziffern, exponent = sekunden.as_tuple()
+    if not any(ziffern):
+        return 0
+    if vorzeichen:
+        raise ValueError('Zeit darf nicht negativ sein')
+    verschiebung = exponent + 9
+    if verschiebung < 0:
+        stellen = -verschiebung
+        if stellen >= len(ziffern) or any(ziffern[-stellen:]):
+            raise ValueError('Zeit liegt nicht auf dem Nanosekundenraster')
+        ziffern = ziffern[:-stellen]
+        verschiebung = 0
+    if len(ziffern) + verschiebung > 19:
+        raise ValueError('Zeit ausserhalb 0..2**63-1 ns')
+    wert = int(''.join(map(str, ziffern))) * 10**verschiebung
+    if wert > MAX_ZEIT_NS:
+        raise ValueError('Zeit ausserhalb 0..2**63-1 ns')
+    return wert
+
+
 def alter_s(d, jetzt_mono_s):
-    """Alter des Datensatzes in s nach der monotonen Uhr DESSELBEN Starts (lokal, z. B. im Panel)."""
-    return max(0.0, jetzt_mono_s - d['generated_mono_s'])
+    """Exaktes Zustandsalter als Decimal-Sekunden in bestaetigter gleicher Uhr.
+
+    Der Aufrufer bestaetigt den lokalen Uhrenbezug, nicht den C-Prozessstart.
+    Fehlerhafte Zeiten/Zukunft ergeben ValueError statt scheinbar frischem Alter.
+    """
+    erzeugt, jetzt = zeit_ns(d['generated_mono_s']), zeit_ns(jetzt_mono_s)
+    if erzeugt > jetzt:
+        raise ValueError('generated_mono_s: liegt nach jetzt_mono_s')
+    return sekunden_aus_ns(jetzt - erzeugt)
 
 
 # ------------------------------------------------------------------ JSON
@@ -72,18 +124,51 @@ def _kein_nan(wert):
     raise ValueError(f'nicht erlaubter JSON-Wert {wert}')
 
 
-def als_json(d):
+def _eindeutige_json_felder(paare):
+    ergebnis = {}
+    for key, value in paare:
+        if key in ergebnis:
+            raise ValueError('doppeltes JSON-Feld: ' + key)
+        ergebnis[key] = value
+    return ergebnis
+
+
+def _json_wert(v):
+    """Begrenzter JSON-Writer: Zahlen ausgeben, Strings ausschliesslich escapen."""
+    if v is None:
+        return 'null'
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if isinstance(v, Decimal):
+        if not v.is_finite():
+            raise ValueError('NaN/Unendlich nicht erlaubt')
+        return str(v)
+    if isinstance(v, (str, int, float)):
+        return json.dumps(v, ensure_ascii=False, allow_nan=False)
+    if isinstance(v, list):
+        return '[' + ','.join(_json_wert(x) for x in v) + ']'
+    if isinstance(v, dict):
+        if not all(isinstance(k, str) for k in v):
+            raise ValueError('JSON-Objektschluessel muessen Texte sein')
+        return '{' + ','.join(_json_wert(k) + ':' + _json_wert(v[k]) for k in sorted(v)) + '}'
+    raise ValueError('nicht unterstuetzter JSON-Typ')
+
+
+def als_json(d, *, detail_kontext=None, historie_kontext=None, vorherige_historie=None, raeum_kontext=None):
     """Strenges JSON. Wirft ValueError, wenn der Datensatz ungueltig ist oder NaN/Unendlich enthaelt."""
-    fehler = pruefe(d)
+    fehler = pruefe(d, detail_kontext=detail_kontext, historie_kontext=historie_kontext,
+                    vorherige_historie=vorherige_historie, raeum_kontext=raeum_kontext)
     if fehler:
         raise ValueError('ungueltiger Zustandsdatensatz: ' + '; '.join(fehler))
-    return json.dumps(d, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(',', ':'))
+    return _json_wert(d)
 
 
-def lade_json(text):
+def lade_json(text, *, detail_kontext=None, historie_kontext=None, vorherige_historie=None, raeum_kontext=None):
     """JSON lesen und pruefen. Wirft ValueError bei NaN/Infinity oder ungueltigem Datensatz."""
-    d = json.loads(text, parse_constant=_kein_nan)
-    fehler = pruefe(d)
+    d = json.loads(text, parse_float=Decimal, parse_constant=_kein_nan,
+                   object_pairs_hook=_eindeutige_json_felder)
+    fehler = pruefe(d, detail_kontext=detail_kontext, historie_kontext=historie_kontext,
+                    vorherige_historie=vorherige_historie, raeum_kontext=raeum_kontext)
     if fehler:
         raise ValueError('ungueltiger Zustandsdatensatz: ' + '; '.join(fehler))
     return d
@@ -118,12 +203,18 @@ class _Pruefer:
             if not null:
                 self.f(f'{pfad}.{k}', 'darf nicht null sein')
             return
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or (ganz and not isinstance(v, int)):
+        if isinstance(v, bool) or not isinstance(v, (int, float, Decimal)) or (ganz and not isinstance(v, int)):
             self.f(f'{pfad}.{k}', 'muss eine ' + ('ganze Zahl' if ganz else 'Zahl') + ' sein')
             return
-        if isinstance(v, float) and not math.isfinite(v):
+        if (isinstance(v, float) and not math.isfinite(v)) or (isinstance(v, Decimal) and not v.is_finite()):
             self.f(f'{pfad}.{k}', 'NaN/Unendlich nicht erlaubt (null + Status verwenden)')
             return
+        if k.endswith('_mono_s') or k in ('mono_s', 'age_s'):
+            try:
+                zeit_ns(v)
+            except ValueError as e:
+                self.f(f'{pfad}.{k}', str(e))
+                return
         if mini is not None and v < mini:
             self.f(f'{pfad}.{k}', f'kleiner als {mini}')
         if maxi is not None and v > maxi:
@@ -164,7 +255,7 @@ class _Pruefer:
         return v
 
     def messwert(self, d, pfad, k, mini=None, maxi=None):
-        """{value, status, source}: valid <=> value vorhanden. Unbekannt wird nie zur gueltigen Null (R2)."""
+        """{value, status, source}: valid braucht Wert und Quellen-Schluessel (R2)."""
         if k not in d:
             return
         m, p = d[k], f'{pfad}.{k}'
@@ -172,19 +263,20 @@ class _Pruefer:
             return
         self.zahl(m, p, 'value', null=True, mini=mini, maxi=maxi)
         self.text(m, p, 'status', auswahl=STATUS)
-        self.text(m, p, 'source', null=True)
+        self.text(m, p, 'source', null=m.get('status') != 'valid')
         if m.get('status') == 'valid' and m.get('value') is None:
             self.f(p, 'status valid braucht einen Wert (R2)')
         if m.get('status') in STATUS and m.get('status') != 'valid' and m.get('value') is not None:
             self.f(p, f"status {m['status']} darf keinen Wert tragen - nicht verfuegbar ist null, nicht 0 (R2)")
 
 
-FELDER = ('schema_version', 'robot_id', 'boot_id', 'seq', 'generated_at', 'generated_mono_s', 'time_sync',
+FELDER = ('schema_version', 'robot_id', 'boot_id', 'seq', 'generated_at', 'generated_mono_s', 'time_basis_id', 'time_sync',
           'software_version', 'map_version', 'config_version', 'runtime', 'motion', 'lane', 'route', 'traffic',
-          'obstacles', 'sensors', 'diagnostics', 'communication', 'details')
+          'obstacles', 'sensors', 'diagnostics', 'communication', 'details',
+          'clearing', 'arm', 'camera_pose', 'protection', 'sensor_requirements')
 
 
-def pruefe(d):
+def pruefe(d, *, detail_kontext=None, historie_kontext=None, vorherige_historie=None, raeum_kontext=None):
     """Alle Fehler des Datensatzes (leer = gueltig). Struktur wie im JSON-Schema plus fachliche Regeln R1-R11
     (siehe docs/schnittstellen-grundbetrieb.md)."""
     p = _Pruefer()
@@ -194,10 +286,17 @@ def pruefe(d):
         p.f('$.schema_version', f'muss {SCHEMA_VERSION!r} sein')
     p.text(d, '$', 'robot_id', auswahl=GERAETE)
     p.text(d, '$', 'boot_id')
+    p.text(d, '$', 'time_basis_id')
     if isinstance(d.get('boot_id'), str) and len(d['boot_id']) < 8:
         p.f('$.boot_id', 'zu kurz (mind. 8 Zeichen, eindeutig pro Start)')
     p.zahl(d, '$', 'seq', mini=0, ganz=True)
     p.text(d, '$', 'generated_at', muster=_ZEIT_UTC)
+    if isinstance(d.get('generated_at'), str) and _ZEIT_UTC.fullmatch(d['generated_at']):
+        try:
+            # Nur Kalender/Uhrzeit pruefen; die 1-9 Nachkommastellen bleiben unveraendert.
+            datetime.fromisoformat(d['generated_at'][:19])
+        except ValueError:
+            p.f('$.generated_at', 'ungueltiger UTC-Kalenderwert (Sekunden 00-59, keine Schaltsekunden)')
     p.zahl(d, '$', 'generated_mono_s', mini=0)
     for k in ('software_version', 'map_version', 'config_version'):
         p.text(d, '$', k, null=True)
@@ -207,12 +306,12 @@ def pruefe(d):
 
     rt = d.get('runtime')
     if p.obj(rt, '$.runtime', ('mode', 'state', 'motor_enabled', 'stop_latched', 'fault_latched', 'hold_reasons',
-                               'faults')):
+                               'faults', 'evaluation_ref')):
         if rt.get('mode') != 'GRUNDBETRIEB':
-            p.f('$.runtime.mode', "muss 'GRUNDBETRIEB' sein (andere Modi sind nicht Teil von v1)")
+            p.f('$.runtime.mode', "muss 'GRUNDBETRIEB' sein (andere Modi sind nicht Teil von v2)")
         p.text(rt, '$.runtime', 'state', auswahl=ZUSTAENDE)
         for k in ('motor_enabled', 'stop_latched', 'fault_latched'):
-            p.janein(rt, '$.runtime', k)
+            p.janein(rt, '$.runtime', k, null=k != 'motor_enabled')
         p.liste(rt, '$.runtime', 'hold_reasons', auswahl=HALTEGRUENDE)
         p.liste(rt, '$.runtime', 'faults')
     else:
@@ -221,20 +320,14 @@ def pruefe(d):
     mo = d.get('motion')
     out = {}
     if p.obj(mo, '$.motion', ('request', 'output', 'measured_v_m_s', 'measured_w_rad_s', 'odometry_distance_m',
-                              'heading_rad')):
+                              'heading_rad', 'release', 'blocks', 'package_use')):
         rq = mo.get('request')
-        if rq is not None and p.obj(rq, '$.motion.request', ('request_id', 'valid_until_mono_s', 'v_m_s', 'w_rad_s',
-                                                             'maneuver', 'hold_reasons')):
-            p.text(rq, '$.motion.request', 'request_id')
-            p.zahl(rq, '$.motion.request', 'valid_until_mono_s', mini=0)
-            p.zahl(rq, '$.motion.request', 'v_m_s', mini=-1, maxi=1)
-            p.zahl(rq, '$.motion.request', 'w_rad_s', mini=-10, maxi=10)
-            p.text(rq, '$.motion.request', 'maneuver', null=True)
-            p.liste(rq, '$.motion.request', 'hold_reasons', auswahl=HALTEGRUENDE)
-        if p.obj(mo.get('output'), '$.motion.output', ('v_m_s', 'w_rad_s')):
-            out = mo['output']
-            p.zahl(out, '$.motion.output', 'v_m_s', mini=-1, maxi=1)
-            p.zahl(out, '$.motion.output', 'w_rad_s', mini=-10, maxi=10)
+        if rq is not None:
+            p.fehler.extend('$.motion.request' + f[1:] if f.startswith('$') else '$.motion.request: ' + f
+                            for f in pruefe_fahrwunsch(rq))
+            if isinstance(rq, dict) and rq.get('robot_id') != d.get('robot_id'):
+                p.f('$.motion.request.robot_id', 'muss zum aeusseren robot_id passen')
+        out = mo.get('output') if isinstance(mo.get('output'), dict) else {}
         p.messwert(mo, '$.motion', 'measured_v_m_s', -1, 1)
         p.messwert(mo, '$.motion', 'measured_w_rad_s', -10, 10)
         p.messwert(mo, '$.motion', 'odometry_distance_m', 0)
@@ -249,7 +342,7 @@ def pruefe(d):
 
     ro = d.get('route')
     if p.obj(ro, '$.route', ('section', 'node', 'approach_from', 'direction', 'allowed_exits', 'selected_exit',
-                             'maneuver', 'maneuver_progress', 'localization_status', 'localization_quality')):
+                             'maneuver', 'maneuver_progress', 'localization_status', 'localization_quality', 'history')):
         for k in ('section', 'node', 'approach_from', 'direction', 'selected_exit', 'maneuver'):
             p.text(ro, '$.route', k, null=True)
         ausgaenge = p.liste(ro, '$.route', 'allowed_exits')
@@ -308,7 +401,7 @@ def pruefe(d):
         p.f('$.sensors', 'muss ein nicht leeres Objekt sein (Name -> Quelle)')
     else:
         for name, q in se.items():
-            _quelle(p, q, f'$.sensors.{name}')
+            _quelle(p, q, f'$.sensors.{name}', d)
 
     di = d.get('diagnostics')
     if p.obj(di, '$.diagnostics', ('battery_v', 'board_status', 'warnings', 'events')):
@@ -343,20 +436,243 @@ def pruefe(d):
     if not isinstance(de, list):
         p.f('$.details', 'muss eine Liste sein')
     else:
+        gesehen = {}
         for i, x in enumerate(de):
             q = f'$.details[{i}]'
-            if p.obj(x, q, ('channel', 'data_id', 'format', 'captured_at_s', 'frame_id', 'status')):
-                for k in ('channel', 'data_id', 'format'):
-                    p.text(x, q, k)
-                p.zahl(x, q, 'captured_at_s', null=True, mini=0)
-                p.text(x, q, 'frame_id', null=True)
-                p.text(x, q, 'status', auswahl=STATUS)
-                if x.get('status') == 'valid' and (x.get('captured_at_s') is None or x.get('frame_id') is None):
-                    p.f(q, 'gueltige Detaildaten brauchen captured_at_s und frame_id')
+            anfang = len(p.fehler)
+            _detail_struktur(p, x, q)
+            if len(p.fehler) != anfang:
+                continue
+            if x['state_boot_id'] != d.get('boot_id'):
+                p.f(q + '.state_boot_id', 'muss zum aeusseren boot_id passen')
+            if x['robot_id'] != d.get('robot_id'):
+                p.f(q + '.robot_id', 'muss zum aeusseren robot_id passen')
+            if x['source'] is not None and (not isinstance(se, dict) or x['source'] not in se):
+                p.f(q + '.source', 'muss ein registrierter sensors-Schluessel sein')
+            bewertung = pruefe_detailreferenz(x, zustand=d, detail_kontext=detail_kontext)
+            if x['status'] != 'invalid' and bewertung['status'] == 'invalid':
+                p.f(q, 'Detailwiderspruch verlangt invalid: ' + bewertung['reason'])
+            if x['status'] in ('valid', 'stale'):
+                if bewertung['status'] != x['status'] or bewertung['age_s'] != x['age_s']:
+                    p.f(q, 'Detailstatus/Alter nicht kontextuell bestaetigt: ' +
+                        (bewertung['reason'] or 'age_mismatch'))
+            # Diagnose darf Widersprueche darstellen; niemals als bestaetigt gueltig ausgeben.
+            if all(isinstance(x[k], str) for k in _DETAIL_DATENSCHLUESSEL):
+                key = tuple(x[k] for k in _DETAIL_DATENSCHLUESSEL)
+                meta = _detail_metadatenwerte(x, _DETAIL_METADATEN)
+                if key in gesehen and gesehen[key] != meta:
+                    p.f(q, 'widerspruechliche Metadaten derselben Detailkennung')
+                gesehen[key] = meta
+
+    # Messwert-source bezeichnet ausschliesslich einen sensors-Schluessel.
+    # source_id ist technische Metadaten, kein zweiter Referenz-Namensraum.
+    for bereich, felder in (('motion', ('measured_v_m_s', 'measured_w_rad_s',
+                                      'odometry_distance_m', 'heading_rad')),
+                            ('obstacles', ('front_clearance_m',)),
+                            ('diagnostics', ('battery_v',))):
+        block = d.get(bereich)
+        if not isinstance(block, dict):
+            continue
+        for feld in felder:
+            m = block.get(feld)
+            source = m.get('source') if isinstance(m, dict) else None
+            if isinstance(source, str) and source and (not isinstance(se, dict) or source not in se):
+                p.f(f'$.{bereich}.{feld}.source', 'muss ein registrierter sensors-Schluessel sein (R2)')
 
     if not p.fehler:
-        _betrieb(p, rt, out)
+        # Historische Ausgaben bleiben Diagnose und werden nicht aktuell projiziert.
+        aktuell = isinstance(mo, dict) and isinstance(mo.get('package_use'), dict) and mo['package_use'].get('mode') == 'current'
+        _betrieb(p, rt, out if aktuell and out.get('status') == 'valid' else None)
+    if isinstance(ro, dict):
+        p.fehler.extend('$.route.' + f for f in pruefe_historie(
+            ro.get('history'), robot_id=d.get('robot_id'), map_version=d.get('map_version'),
+            time_basis_id=d.get('time_basis_id'), generated_mono_s=d.get('generated_mono_s'),
+            kontext=historie_kontext, vorher=vorherige_historie))
+    p.fehler.extend(pruefe_raeumzustand(d, kontext=raeum_kontext))
     return p.fehler
+
+
+_DETAIL_FRAMESCHLUESSEL = ('robot_id', 'source', 'producer_id', 'producer_boot_id', 'frame_id')
+_DETAIL_DATENSCHLUESSEL = _DETAIL_FRAMESCHLUESSEL + ('channel', 'data_id')
+_DETAIL_METADATEN = ('source_id', 'format', 'captured_at_s', 'time_basis_id',
+                     'captured_mono_s', 'received_mono_s')
+_DETAIL_REGISTERFELDER = _DETAIL_DATENSCHLUESSEL + _DETAIL_METADATEN
+_DETAIL_BINDUNG = ('robot_id', 'source', 'source_id', 'producer_id', 'producer_boot_id', 'time_basis_id')
+_DETAIL_FELDER = _DETAIL_REGISTERFELDER + ('state_boot_id', 'status', 'reason', 'age_s')
+
+
+def _detail_metadatenwerte(eintrag, felder):
+    # UTC ist kein lokales Zeitfeld. Bei dort erlaubten endlichen Floats den
+    # tatsaechlich ausgegebenen JSON-Zahlenwert vergleichen, nicht dessen Binaerbruch.
+    return tuple(Decimal(str(eintrag[k])) if k == 'captured_at_s' and
+                 isinstance(eintrag[k], float) else eintrag[k] for k in felder)
+
+
+def _detail_struktur(p, x, pfad):
+    """Nur Struktur/Qualitaetsdeklaration; keine behauptete reale Registrierung."""
+    if not p.obj(x, pfad, _DETAIL_FELDER):
+        return
+    st = x.get('status')
+    vollstaendig = st in ('valid', 'stale')
+    for k in ('robot_id', 'state_boot_id', 'channel'):
+        p.text(x, pfad, k)
+    p.text(x, pfad, 'status', auswahl=STATUS)
+    p.text(x, pfad, 'reason', null=st == 'valid')
+    if st == 'valid' and x.get('reason') is not None:
+        p.f(pfad + '.reason', 'valid hat keinen Fehlergrund, also null')
+    for k in ('source', 'source_id', 'producer_id', 'producer_boot_id', 'frame_id',
+              'data_id', 'format', 'time_basis_id'):
+        p.text(x, pfad, k, null=not vollstaendig)
+    for k in ('captured_at_s', 'captured_mono_s', 'received_mono_s', 'age_s'):
+        p.zahl(x, pfad, k, null=not vollstaendig, mini=0)
+    if st in ('missing', 'unknown', 'invalid') and x.get('age_s') is not None:
+        p.f(pfad + '.age_s', 'ohne bestaetigte Frische null')
+    if st == 'missing':
+        for k in ('frame_id', 'data_id', 'format', 'captured_at_s',
+                  'captured_mono_s', 'received_mono_s'):
+            if x.get(k) is not None:
+                p.f(pfad + '.' + k, 'missing: keine Detaildaten, also null')
+
+
+def _detail_kontext_fehler(kontext):
+    """Expliziten Eingabekontext pruefen, keine Registrierung anlegen/fortschreiben."""
+    p = _Pruefer()
+    if not p.obj(kontext, 'detail_kontext', ('context_id', 'robot_id', 'state_boot_id',
+                                           'time_basis_id', 'registrations', 'records', 'age_budgets_s')):
+        return p.fehler
+    for k in ('context_id', 'robot_id', 'state_boot_id', 'time_basis_id'):
+        p.text(kontext, 'detail_kontext', k)
+    for feld, felder in (('registrations', _DETAIL_BINDUNG), ('records', _DETAIL_REGISTERFELDER)):
+        items = kontext.get(feld)
+        if not isinstance(items, list):
+            p.f('detail_kontext.' + feld, 'muss eine Liste sein')
+            continue
+        for i, item in enumerate(items):
+            pfad = f'detail_kontext.{feld}[{i}]'
+            if not p.obj(item, pfad, felder):
+                continue
+            for k in felder:
+                if k in ('captured_at_s', 'captured_mono_s', 'received_mono_s'):
+                    p.zahl(item, pfad, k, mini=0)
+                else:
+                    p.text(item, pfad, k)
+    budgets = kontext.get('age_budgets_s')
+    if not isinstance(budgets, dict):
+        p.f('detail_kontext.age_budgets_s', 'muss ein Kanal-Budget-Objekt sein')
+    else:
+        for kanal, budget in budgets.items():
+            if not isinstance(kanal, str) or not kanal:
+                p.f('detail_kontext.age_budgets_s', 'Kanal muss nichtleerer Text sein')
+            try:
+                zeit_ns(budget)
+            except ValueError as e:
+                p.f('detail_kontext.age_budgets_s', str(e))
+    if not p.fehler:
+        # Widersprueche auch bei mehrfach gegebenem Register nicht durch Auswahl
+        # des ersten passenden Eintrags verdecken. Frame-Metadaten sind kanalunabhaengig.
+        for items, schluessel, metadata in (
+                (kontext['records'], _DETAIL_DATENSCHLUESSEL, _DETAIL_METADATEN),
+                (kontext['records'], _DETAIL_FRAMESCHLUESSEL,
+                 ('source_id', 'time_basis_id', 'captured_at_s', 'captured_mono_s')),
+                (kontext['registrations'], ('robot_id', 'source', 'producer_id', 'producer_boot_id'),
+                 ('source_id', 'time_basis_id'))):
+            gesehen = {}
+            for item in items:
+                key = tuple(item[k] for k in schluessel)
+                meta = _detail_metadatenwerte(item, metadata)
+                if key in gesehen and gesehen[key] != meta:
+                    p.f('detail_kontext', 'widerspruechliches historisches Register')
+                gesehen[key] = meta
+    return p.fehler
+
+
+def pruefe_detailreferenz(detail, *, zustand, detail_kontext=None):
+    """Reine kontextuelle Bewertung; keine Motorentscheidung, Mutation oder globale Datenbank.
+
+    Antwort: status/reason/age_s/context. context benennt nur tatsaechlich
+    benutzte gegebene Bindungen/Registerdaten/Budgets, niemals daraus erzeugtes Vertrauen.
+    Gleiche Kennungstexte sind kein physischer Nachweis; Kontext liefert der Aufrufer.
+    """
+    benutzt = {}
+
+    def antwort(status, reason, alter=None):
+        return dict(status=status, reason=reason, age_s=alter, context=benutzt)
+
+    p = _Pruefer()
+    _detail_struktur(p, detail, 'detail')
+    if p.fehler:
+        return antwort('invalid', 'detail_structure_invalid')
+    if not isinstance(zustand, dict) or not all(isinstance(zustand.get(k), str) and zustand[k]
+            for k in ('robot_id', 'boot_id', 'time_basis_id')):
+        return antwort('unknown', 'state_context_unknown')
+    if detail['robot_id'] != zustand['robot_id']:
+        return antwort('invalid', 'robot_mismatch')
+    if detail['state_boot_id'] != zustand['boot_id']:
+        return antwort('invalid', 'state_boot_mismatch')
+    sensors = zustand.get('sensors')
+    source = detail['source']
+    if source is not None and (not isinstance(sensors, dict) or source not in sensors):
+        return antwort('invalid', 'source_not_registered')
+    if detail['status'] == 'missing':
+        return antwort('missing', detail['reason'])
+    if detail_kontext is None:
+        return antwort('unknown', 'detail_context_unknown')
+    if _detail_kontext_fehler(detail_kontext):
+        return antwort('invalid', 'detail_context_invalid')
+    for k in ('context_id', 'robot_id', 'state_boot_id', 'time_basis_id'):
+        benutzt[k] = detail_kontext[k]
+    if (detail_kontext['robot_id'] != zustand['robot_id'] or
+            detail_kontext['state_boot_id'] != zustand['boot_id']):
+        return antwort('invalid', 'context_binding_mismatch')
+    if detail_kontext['time_basis_id'] != zustand['time_basis_id']:
+        return antwort('invalid', 'time_basis_mismatch')
+    if any(detail[k] is None for k in _DETAIL_REGISTERFELDER):
+        return antwort('unknown', 'detail_identity_unknown')
+    regs = [r for r in detail_kontext['registrations']
+            if r['robot_id'] == detail['robot_id'] and r['source'] == source]
+    if not regs:
+        return antwort('unknown', 'source_binding_unknown')
+    if not any(r['producer_id'] == detail['producer_id'] for r in regs):
+        return antwort('invalid', 'producer_mismatch')
+    regs = [r for r in regs if r['producer_id'] == detail['producer_id'] and
+            r['producer_boot_id'] == detail['producer_boot_id']]
+    if not regs:
+        return antwort('unknown', 'producer_start_unknown')
+    reg = regs[0]  # Kontextpruefung hat widerspruechliche Mehrfacheintraege abgewiesen.
+    benutzt['registration'] = dict(reg)
+    if any(detail[k] != reg[k] for k in _DETAIL_BINDUNG):
+        return antwort('invalid', 'source_metadata_mismatch')
+    key = tuple(detail[k] for k in _DETAIL_DATENSCHLUESSEL)
+    records = [r for r in detail_kontext['records']
+               if tuple(r[k] for k in _DETAIL_DATENSCHLUESSEL) == key]
+    if not records:
+        return antwort('unknown', 'historical_record_unknown')
+    record = records[0]
+    benutzt['frame_key'] = [record[k] for k in _DETAIL_FRAMESCHLUESSEL]
+    benutzt['data_key'] = [record[k] for k in _DETAIL_DATENSCHLUESSEL]
+    if _detail_metadatenwerte(detail, _DETAIL_METADATEN) != _detail_metadatenwerte(record, _DETAIL_METADATEN):
+        return antwort('invalid', 'detail_metadata_mismatch')
+    if detail['time_basis_id'] != detail_kontext['time_basis_id']:
+        return antwort('invalid', 'time_basis_mismatch')
+    try:
+        aufnahme, empfang, erzeugung = (zeit_ns(v) for v in (
+            detail['captured_mono_s'], detail['received_mono_s'], zustand.get('generated_mono_s')))
+    except ValueError:
+        return antwort('invalid', 'detail_time_invalid')
+    if not aufnahme <= empfang <= erzeugung:
+        return antwort('invalid', 'detail_time_order_invalid')
+    if detail['status'] == 'invalid':
+        return antwort('invalid', detail['reason'])  # Frische repariert keine unbrauchbaren Daten.
+    budgets = detail_kontext['age_budgets_s']
+    if detail['channel'] not in budgets:
+        return antwort('unknown', 'age_budget_unknown')
+    budget = budgets[detail['channel']]
+    benutzt['age_budget_s'] = budget
+    alter_ns = erzeugung - aufnahme
+    alter = sekunden_aus_ns(alter_ns)
+    if alter_ns > zeit_ns(budget):
+        return antwort('stale', 'age_limit_exceeded', alter)
+    return antwort('valid', None, alter)
 
 
 def _wert_passt_zu_status(p, d, pfad, felder):
@@ -369,26 +685,63 @@ def _wert_passt_zu_status(p, d, pfad, felder):
             p.f(f'{pfad}.{k}', f'status {st} darf keinen Wert tragen (R2)')
 
 
-def _quelle(p, q, pfad):
-    """Sensorquelle (R7): valid braucht Aufnahmezeit und Alter, missing hat beides nicht."""
-    if not p.obj(q, pfad, ('source_id', 'status', 'reason', 'captured_at_s', 'age_s', 'rate_hz', 'frame_id',
-                           'coord_frame')):
+def _quelle(p, q, pfad, zustand):
+    """R7: Ursprungsstart und Uhreninstanz getrennt; Aufnahmealter statt Empfangsalter."""
+    if not p.obj(q, pfad, ('source_id', 'producer_id', 'producer_boot_id', 'time_basis_id',
+                           'status', 'reason', 'captured_at_s', 'captured_mono_s',
+                           'received_mono_s', 'age_s', 'rate_hz', 'frame_id', 'coord_frame')):
         return
     p.text(q, pfad, 'source_id')
+    st = q.get('status')
+    for k in ('producer_id', 'producer_boot_id', 'time_basis_id'):
+        p.text(q, pfad, k, null=st != 'valid')
     p.text(q, pfad, 'status', auswahl=STATUS)
     p.text(q, pfad, 'reason', null=True)
-    p.zahl(q, pfad, 'captured_at_s', null=True, mini=0)
-    p.zahl(q, pfad, 'age_s', null=True, mini=0)
-    p.zahl(q, pfad, 'rate_hz', null=True, mini=0)
+    for k in ('captured_at_s', 'captured_mono_s', 'received_mono_s', 'age_s', 'rate_hz'):
+        p.zahl(q, pfad, k, null=True, mini=0)
     p.text(q, pfad, 'frame_id', null=True)
     p.text(q, pfad, 'coord_frame', null=True)
-    st = q.get('status')
-    if st == 'valid' and (q.get('captured_at_s') is None or q.get('age_s') is None):
-        p.f(pfad, 'status valid braucht captured_at_s und age_s (R7)')
-    if st == 'missing' and (q.get('captured_at_s') is not None or q.get('age_s') is not None):
-        p.f(pfad, 'status missing: keine Messung, also auch keine Zeit (R7)')
+    if st == 'valid':
+        for k in ('captured_at_s', 'captured_mono_s', 'received_mono_s', 'age_s'):
+            if q.get(k) is None:
+                p.f(f'{pfad}.{k}', 'status valid braucht eine Zeit (R7)')
+    if st == 'missing':
+        for k in ('captured_at_s', 'captured_mono_s', 'received_mono_s', 'age_s'):
+            if q.get(k) is not None:
+                p.f(f'{pfad}.{k}', 'status missing: keine Messung/Empfang, also null (R7)')
     if st in ('invalid', 'stale', 'missing', 'unknown') and not q.get('reason'):
         p.f(pfad, f'status {st} braucht einen Grund (reason)')
+
+    def ns(wert):
+        try:
+            return zeit_ns(wert)
+        except ValueError:
+            return None  # Feldpruefung meldet ungueltige Zahlen.
+
+    erzeugt = ns(zustand.get('generated_mono_s'))
+    empfangen, aufgenommen, alter = (ns(q.get(k)) for k in ('received_mono_s', 'captured_mono_s', 'age_s'))
+    # Empfang ist immer lokal beim Zustandsproduzenten, auch bei fremder Aufnahmeuhr.
+    if empfangen is not None and erzeugt is not None and empfangen > erzeugt:
+        p.f(f'{pfad}.received_mono_s', 'liegt nach Zustandserzeugung (R7)')
+    basis = q.get('time_basis_id')
+    vergleichbar = isinstance(basis, str) and bool(basis) and basis == zustand.get('time_basis_id')
+    if not vergleichbar:
+        if st == 'valid':
+            p.f(f'{pfad}.time_basis_id', 'valid braucht dieselbe deklarierte Zeitbasis (R7)')
+        if basis is not None and basis != zustand.get('time_basis_id') and st not in ('invalid', 'missing'):
+            p.f(f'{pfad}.status', 'fremde Aufnahmeuhr verlangt invalid (R7)')
+        if q.get('age_s') is not None:
+            p.f(f'{pfad}.age_s', 'ohne vergleichbare Aufnahmeuhr null (R7)')
+    else:
+        if aufgenommen is not None and empfangen is not None and aufgenommen > empfangen:
+            p.f(f'{pfad}.received_mono_s', 'liegt vor Aufnahme (R7)')
+        if aufgenommen is not None and erzeugt is not None:
+            if aufgenommen > erzeugt:
+                p.f(f'{pfad}.captured_mono_s', 'liegt nach Zustandserzeugung (R7)')
+            elif alter is not None and alter != erzeugt - aufgenommen:
+                p.f(f'{pfad}.age_s', 'muss Erzeugung minus Aufnahme sein (R7)')
+        elif q.get('age_s') is not None:
+            p.f(f'{pfad}.age_s', 'ohne Aufnahmezeit null (R7)')
 
 
 def _kommunikation(p, d, co):
@@ -406,8 +759,10 @@ def _kommunikation(p, d, co):
 
 def _betrieb(p, rt, out):
     """Fachliche Regeln zum Betrieb (R3-R5, R8). Nur, wenn die Struktur stimmt."""
-    v, w = out.get('v_m_s', 0), out.get('w_rad_s', 0)
-    bewegt = v != 0 or w != 0
+    # Fehlende/nicht bestaetigte Ausgabe ist kein Bewegungsnachweis und kein
+    # ausgegebener Nullbefehl. Die Originalwerte und ihre Qualitaet bleiben erhalten.
+    v, w = (out.get('v_m_s'), out.get('w_rad_s')) if out is not None else (None, None)
+    bewegt = v is not None and w is not None and (v != 0 or w != 0)
     zustand, gruende = rt['state'], rt['hold_reasons']
     gesperrt = rt['stop_latched'] or rt['fault_latched'] or zustand in ('GESTOPPT', 'TEST', 'FEHLER')
     if gesperrt and rt['motor_enabled']:
@@ -429,3 +784,10 @@ def _betrieb(p, rt, out):
         p.f('$.runtime.fault_latched', 'FEHLER braucht fault_latched (R8)')
     if rt['fault_latched'] and not rt['faults']:
         p.f('$.runtime.faults', 'Fehlersperre ohne Fehlerbeschreibung (R8)')
+
+
+# Eigene Annahmeobjekte halten Replay-Zustand; diese Fassade validiert nur.
+from c1_fahrwunsch import (FahrwunschAnnahme, pruefe_fahrwunsch,
+                          fahrwunsch_als_json, lade_fahrwunsch_json)
+from c1_fahrhistorie import pruefe_historie
+from c1_raeumzustand import RaeumKontext, pruefe_raeumzustand

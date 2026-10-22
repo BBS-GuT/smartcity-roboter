@@ -1,0 +1,138 @@
+{
+  "producer_id": "demo-b-navigation",
+  "producer_boot_id": "demo-b-history-a",
+  "time_basis_id": "demo-clock-a",
+  "status": "valid",
+  "reason": null,
+  "entries": [
+    {
+      "section": "demo-S-AB",
+      "node": "demo-B",
+      "approach_from": "demo-A",
+      "exit_to": "demo-C",
+      "entry_seq": 0,
+      "confirmed_mono_s": 1
+    },
+    {
+      "section": "demo-S-BC",
+      "node": "demo-C",
+      "approach_from": "demo-B",
+      "exit_to": "demo-A",
+      "entry_seq": 1,
+      "confirmed_mono_s": 2
+    },
+    {
+      "section": "demo-S-CA",
+      "node": "demo-A",
+      "approach_from": "demo-C",
+      "exit_to": "demo-B",
+      "entry_seq": 2,
+      "confirmed_mono_s": 3
+    },
+    {
+      "section": "demo-S-AB",
+      "node": "demo-B",
+      "approach_from": "demo-A",
+      "exit_to": "demo-C",
+      "entry_seq": 3,
+      "confirmed_mono_s": 4
+    },
+    {
+      "section": "demo-S-BC",
+      "node": "demo-C",
+      "approach_from": "demo-B",
+      "exit_to": "demo-A",
+      "entry_seq": 4,
+      "confirmed_mono_s": 5
+    },
+    {
+      "section": "demo-S-CA",
+      "node": "demo-A",
+      "approach_from": "demo-C",
+      "exit_to": "demo-B",
+      "entry_seq": 5,
+      "confirmed_mono_s": 6
+    },
+    {
+      "section": "demo-S-AB",
+      "node": "demo-B",
+      "approach_from": "demo-A",
+      "exit_to": "demo-C",
+      "entry_seq": 6,
+      "confirmed_mono_s": 7
+    },
+    {
+      "section": "demo-S-BC",
+      "node": "demo-C",
+      "approach_from": "demo-B",
+      "exit_to": "demo-A",
+      "entry_seq": 7,
+      "confirmed_mono_s": 8
+    },
+    {
+      "section": "demo-S-CA",
+      "node": "demo-A",
+      "approach_from": "demo-C",
+      "exit_to": "demo-B",
+      "entry_seq": 8,
+      "confirmed_mono_s": 9
+    },
+    {
+      "section": "demo-S-AB",
+      "node": "demo-B",
+      "approach_from": "demo-A",
+      "exit_to": "demo-C",
+      "entry_seq": 9,
+      "confirmed_mono_s": 10
+    },
+    {
+      "section": "demo-S-BC",
+      "node": "demo-C",
+      "approach_from": "demo-B",
+      "exit_to": "demo-A",
+      "entry_seq": 10,
+      "confirmed_mono_s": 11
+    },
+    {
+      "section": "demo-S-CA",
+      "node": "demo-A",
+      "approach_from": "demo-C",
+      "exit_to": "demo-B",
+      "entry_seq": 11,
+      "confirmed_mono_s": 12
+    },
+    {
+      "section": "demo-S-AB",
+      "node": "demo-B",
+      "approach_from": "demo-A",
+      "exit_to": "demo-C",
+      "entry_seq": 12,
+      "confirmed_mono_s": 13
+    },
+    {
+      "section": "demo-S-BC",
+      "node": "demo-C",
+      "approach_from": "demo-B",
+      "exit_to": "demo-A",
+      "entry_seq": 13,
+      "confirmed_mono_s": 14
+    },
+    {
+      "section": "demo-S-CA",
+      "node": "demo-A",
+      "approach_from": "demo-C",
+      "exit_to": "demo-B",
+      "entry_seq": 14,
+      "confirmed_mono_s": 15
+    },
+    {
+      "section": "demo-S-AB",
+      "node": "demo-B",
+      "approach_from": "demo-A",
+      "exit_to": "demo-C",
+      "entry_seq": 15,
+      "confirmed_mono_s": 16
+    }
+  ],
+  "dropped_entries": 0
+}
