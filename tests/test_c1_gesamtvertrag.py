@@ -129,6 +129,39 @@ class Gesamtvertrag(unittest.TestCase):
             self.assertTrue(v.is_valid(Decimal('9223372036.854775807')))
             self.assertFalse(v.is_valid(Decimal('9223372036.854775808')))
 
+    @unittest.skipIf(jsonschema is None, 'jsonschema nicht installiert')
+    def test_endgueltige_fahrtausgabe_hat_dieselben_strukturellen_grenzen(self):
+        validator = jsonschema.Draft202012Validator(self.schema)
+        for field, low, high in (('v_m_s', -1, 1), ('w_rad_s', -10, 10)):
+            for value in (low, high):
+                d = read('tests/fixtures/grundbetrieb/fahrt.json')
+                d['motion']['output'][field] = value
+                self.assertEqual(V.pruefe(d, raeum_kontext=self.context), [])
+                self.assertEqual(list(validator.iter_errors(d)), [])
+            for value in (Decimal(str(low)) - Decimal('.000000001'),
+                          Decimal(str(high)) + Decimal('.000000001'), -999, 999):
+                with self.subTest(field=field, value=value):
+                    d = read('tests/fixtures/grundbetrieb/fahrt.json')
+                    d['motion']['output'][field] = value
+                    self.assertTrue(V.pruefe(d, raeum_kontext=self.context))
+                    self.assertTrue(list(validator.iter_errors(d)))
+                    with self.assertRaises(ValueError):
+                        V.als_json(d, raeum_kontext=self.context)
+                    with self.assertRaises(ValueError):
+                        V.lade_json(V._json_wert(d), raeum_kontext=self.context)
+
+    @unittest.skipIf(jsonschema is None, 'jsonschema nicht installiert')
+    def test_aktueller_wunschbezug_bleibt_fuer_beide_leser_vollstaendig_eingebettet(self):
+        d = read('tests/fixtures/grundbetrieb/fahrt.json')
+        self.assertEqual(V.pruefe(d, raeum_kontext=self.context), [])
+        d['motion']['request'] = None
+        self.assertTrue(V.pruefe(d, raeum_kontext=self.context))
+        self.assertTrue(list(jsonschema.Draft202012Validator(self.schema).iter_errors(d)))
+        with self.assertRaises(ValueError):
+            V.als_json(d, raeum_kontext=self.context)
+        with self.assertRaises(ValueError):
+            V.lade_json(V._json_wert(d), raeum_kontext=self.context)
+
 
 if __name__ == '__main__':
     unittest.main()

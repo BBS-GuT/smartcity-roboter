@@ -1763,22 +1763,30 @@
         "v_m_s": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "minimum": -1,
+          "maximum": 1
         },
         "w_rad_s": {
           "anyOf": [
             {
-              "type": "number"
+              "type": "number",
+              "minimum": -10,
+              "maximum": 10
             },
             {
               "type": "null"
             }
-          ]
+          ],
+          "minimum": -10,
+          "maximum": 10
         }
       },
       "additionalProperties": false
@@ -2278,7 +2286,49 @@
           "$ref": "#/$defs/c1_measurements"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "package_use": {
+                "properties": {
+                  "mode": {
+                    "const": "current"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "release": {
+                "properties": {
+                  "command_ref": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "command_ref"
+                ]
+              }
+            },
+            "required": [
+              "package_use",
+              "release"
+            ]
+          },
+          "then": {
+            "properties": {
+              "request": {
+                "$ref": "#/$defs/c1_arm_command"
+              }
+            },
+            "required": [
+              "request"
+            ]
+          }
+        }
+      ]
     },
     "c1_observation": {
       "type": "object",
@@ -3429,7 +3479,49 @@
         "package_use": {
           "$ref": "#/$defs/c1_package_use"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "package_use": {
+                "properties": {
+                  "mode": {
+                    "const": "current"
+                  }
+                },
+                "required": [
+                  "mode"
+                ]
+              },
+              "release": {
+                "properties": {
+                  "request_ref": {
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "request_ref"
+                ]
+              }
+            },
+            "required": [
+              "package_use",
+              "release"
+            ]
+          },
+          "then": {
+            "properties": {
+              "request": {
+                "$ref": "#/$defs/fahrwunsch"
+              }
+            },
+            "required": [
+              "request"
+            ]
+          }
+        }
+      ]
     },
     "lane": {
       "type": "object",

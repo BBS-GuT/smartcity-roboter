@@ -327,7 +327,13 @@ Ein gleicher Auswertungsschluessel mit geaendertem Inhalt ist ein Widerspruch.
 Wunsch, gemeldete Ausgabe, Empfangsbestaetigung und wirkliche Messung bleiben getrennt.
 
 `package_use.mode=current/historical/unknown` bewertet die Verwendung im aeusseren
-Zustand. Aktuelle Erlaubnis oder fahrende Ausgabe braucht einen explizit bestaetigten
+Zustand. Endgueltige Motion-Ausgaben halten ebenfalls die inklusiven Strukturgrenzen
+`v_m_s` von -1 bis 1 und `w_rad_s` von -10 bis 10 ein. Ein aktuelles
+wunschgebundenes Paket muss den vollstaendigen aufgeloesten Wunsch in
+`motion.request` bzw. `arm.request` enthalten; der externe Kontext ersetzt
+diese fuer beide Leser benoetigten Daten nicht. Historische Diagnose und
+eigenstaendige belegte Nullwunsch-Haltpakete bleiben darstellbar.
+Aktuelle Erlaubnis oder fahrende Ausgabe braucht einen explizit bestaetigten
 aktuellen Annahmebezug; Wunsch/Command muss bereits bei der Auswertung und noch bei
 Zustandserzeugung frisch sein. Bei vorhandener Ausgabe gilt zusaetzlich
 `evaluated <= issued <= generated < valid_until`. Eine erlaubte Entscheidung ohne
