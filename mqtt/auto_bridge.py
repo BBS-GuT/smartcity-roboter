@@ -111,9 +111,10 @@ def run():
             desired = 'project' if primary else 'local'
             if mode == 'project' and now - started > 10 and broker_status() != 'connected':
                 desired = 'local'
+            local_lost = mode == 'local' and not tcp_open()
             if bridge is not None and bridge.poll() is not None:
                 desired = None
-            if desired != mode or bridge is None or bridge.poll() is not None:
+            if desired != mode or bridge is None or bridge.poll() is not None or local_lost:
                 stop_child(bridge)
                 bridge = None
                 if desired is None:
