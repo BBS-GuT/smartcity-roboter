@@ -20,6 +20,8 @@ Nur während der Einrichtung: Für einen reinen Kamera-/Draufsichttest gilt stat
 
 **Sicherheit:** Neue Fahrprogramme immer zuerst im TEST-Modus. Eine Hand am STOPP, solange der Roboter fährt. Gamepad und Panel nicht gleichzeitig benutzen (beide senden an Motoren und Arm).
 
+**Nach Updates oder Quelländerungen:** Erst den [Quellstand und vollständigen Anwendungsneustart](Startprotokoll#quellstand-und-anwendungsstart) bestätigen, dann Kalibrier-TEST oder Fahrvorbereitung fortsetzen. Ein passender Systemcheck oder das Neuladen der Browserseite reicht dafür nicht; bei alten oder unklaren Prozessen keine Fahrt.
+
 ## Vom Laptop aus
 
 Laptop-Zugriff ist standardmäßig **an**. Die Adresse steht im Panel oben in der Kopfzeile, z. B. `http://10.0.12.62:8080`. Sie wird bei jedem Aufruf neu ermittelt, weil sie sich mit den VLANs ändert.

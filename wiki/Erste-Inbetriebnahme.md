@@ -2,6 +2,8 @@
 
 Checkliste, bevor ein Roboter zum ersten Mal fährt. Reihenfolge einhalten. Alle Einstellungen landen in `config/lokal/` (nicht im Repository, bleibt bei Updates erhalten). Was bei einem Wert „geschätzt“ steht, ist **nicht** am Roboter gemessen.
 
+Wurde die Software aktualisiert oder ihr Quellcode geändert, vor Kalibrier-TEST und Fahrversuch zuerst [Quellstand und Anwendungsstart](Startprotokoll#quellstand-und-anwendungsstart) nachweisen. Ein Update bei noch laufenden alten Programmen gilt nicht als vollständig übernommen.
+
 ## 1. Roboter erkennen
 
 - [ ] Panel → System → „Systemcheck“: Roboter-Name, Netz, Software-Version und micro-ROS-Agent prüfen.
