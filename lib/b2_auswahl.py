@@ -139,6 +139,12 @@ class Auswahl:
         # aelterer Eingang darf keine ueberholte Einfahrtsfreigabe ausfuehren.
         self._letzte = e
         if haltgruende:
+            # Positive Ereignisse bestaetigen bereits erfolgte Bewegung,
+            # keinen Fahrwunsch. Nach vollstaendiger Pruefung nicht verlieren,
+            # falls der Produzent sie in spaeteren Bildern nicht wiederholt.
+            if e.art in ('einfahrt', 'abschluss') and self._verarbeitet != e:
+                self._verarbeitet = e
+                self._fachergebnis = self._verarbeiten(e)
             return self._halt('schutzstopp')
         if self._verarbeitet == e:
             # Das temporaere Schutz-Overlay aendert das fachliche Ergebnis
