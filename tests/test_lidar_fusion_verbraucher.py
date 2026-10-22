@@ -182,6 +182,32 @@ class ConsumerGeometry(unittest.TestCase):
         self.assertFalse(view.zone_frei((-1000, 1000, -1000, 1000)))
         self.assertFalse(view.zone_frei((-.05, .05, -.05, .05)))
 
+    def test_actual_ki_includes_front_overhang(self):
+        z = self.central()
+        feed(z)
+        m = message(1)
+        angle = math.atan2(.05, .8)
+        k = round((angle - m.angle_min) / m.angle_increment)
+        m.ranges[k] = math.hypot(.8, .05)
+        z._scan(m, '/scan1', 1)
+        self.assertNotEqual(z.lidar_pruefen()[0], float('inf'))
+
+    def test_actual_ki_reports_partial_rear_clearance(self):
+        z = self.central()
+        feed(z)
+        m = message(0)
+        for k in range(len(m.ranges)):
+            angle = m.angle_min + k * m.angle_increment
+            if math.cos(angle) < -.01:
+                m.ranges[k] = min(3.0, -.6 / math.cos(angle))
+        z._scan(m, '/scan0', 0)
+        z.lidar_d = z.lidar_pruefen()[0]
+        self.assertEqual(z.lidar_d, float('inf'))
+        distance = z.lidar_hinten()
+        self.assertIsNotNone(distance)
+        self.assertGreater(distance, .5)
+        self.assertLessEqual(distance, .7)
+
 
 if __name__ == '__main__':
     unittest.main()

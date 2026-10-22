@@ -5,6 +5,7 @@ This module alone does not authorize motion: consumers must first require every
 configured source, fresh reception/acquisition times and a confirmed vehicle hull.
 """
 from dataclasses import dataclass
+from functools import cached_property
 import math
 
 import numpy as np
@@ -21,6 +22,21 @@ class Messfeld:
     increment: float
     minimum: float
 
+    @cached_property
+    def kreisdaten(self):
+        """Circular search/range-minimum tables for this immutable scan only."""
+        angles = np.concatenate((self.angles - 2 * math.pi, self.angles, self.angles + 2 * math.pi))
+        invalid = np.concatenate(([0], np.cumsum(~np.tile(self.valid, 3))))
+        limit = min(self.increment + 1e-7, 2 * lidar.STRAHL_RADIUS_MAX + 1e-9)
+        gaps = np.concatenate(([0], np.cumsum(np.diff(angles) > limit)))
+        minima = [np.tile(self.ranges, 3)]
+        size = 1
+        while 2 * size <= len(angles):
+            previous = minima[-1]
+            minima.append(np.minimum(previous[:-size], previous[size:]))
+            size *= 2
+        return angles, invalid, gaps, minima, limit
+
     def zellen_frei(self, unten, oben):
         """Conservatively prove complete axis-aligned cells, not just corners.
 
@@ -33,40 +49,36 @@ class Messfeld:
         if unten.shape != oben.shape:
             raise ValueError('Zellgrenzen passen nicht zusammen')
         result = np.zeros(len(unten), dtype=bool)
-        for i, (low, high) in enumerate(zip(unten, oben)):
-            if not (np.isfinite(low).all() and np.isfinite(high).all() and (high > low).all()):
-                continue
-            if ((low <= self.origin) & (self.origin <= high)).all():
-                continue
-            corners = np.array([[low[0], low[1]], [low[0], high[1]],
-                                [high[0], low[1]], [high[0], high[1]]]) - self.origin
-            middle = (low + high) / 2 - self.origin
-            center_angle = math.atan2(middle[1], middle[0])
-            corner_angles = np.arctan2(corners[:, 1], corners[:, 0])
-            relative = np.arctan2(np.sin(corner_angles - center_angle),
-                                  np.cos(corner_angles - center_angle))
-            start, end = relative.min(), relative.max()
-            if end - start >= math.pi:
-                continue
-            angles = np.arctan2(np.sin(self.angles - center_angle),
-                                np.cos(self.angles - center_angle))
-            order = np.argsort(angles)
-            angles = angles[order]
-            left = np.searchsorted(angles, start, side='left') - 1
-            right = np.searchsorted(angles, end, side='right')
-            if left < 0 or right >= len(angles):
-                continue
-            indices = order[left:right + 1]
-            spans = np.diff(angles[left:right + 1])
-            if not len(spans) or np.any(spans > min(self.increment + 1e-7,
-                                                   2 * lidar.STRAHL_RADIUS_MAX + 1e-9)):
-                continue
-            if not self.valid[indices].all():
-                continue
-            nearest = np.linalg.norm(np.maximum(np.maximum(low - self.origin,
-                                                           self.origin - high), 0))
-            radius = self.ranges[indices].min() * math.cos(spans.max() / 2)
-            result[i] = nearest > self.minimum and np.linalg.norm(corners, axis=1).max() < radius
+        if not len(unten) or len(self.angles) < 2:
+            return result
+        low, high = unten - self.origin, oben - self.origin
+        usable = (np.isfinite(low).all(axis=1) & np.isfinite(high).all(axis=1)
+                  & (high > low).all(axis=1) & ~((low <= 0) & (high >= 0)).all(axis=1))
+        rows = np.flatnonzero(usable)
+        low, high = low[rows], high[rows]
+        middle = (low + high) / 2
+        center = np.arctan2(middle[:, 1], middle[:, 0])[:, None]
+        corners = np.stack((np.arctan2(low[:, 1], low[:, 0]), np.arctan2(high[:, 1], low[:, 0]),
+                            np.arctan2(low[:, 1], high[:, 0]), np.arctan2(high[:, 1], high[:, 0])), axis=1)
+        relative = np.arctan2(np.sin(corners - center), np.cos(corners - center))
+        start, end = relative.min(axis=1), relative.max(axis=1)
+        angles, invalid, gaps, minima, limit = self.kreisdaten
+        left = np.searchsorted(angles, center[:, 0] + start, side='left') - 1
+        right = np.searchsorted(angles, center[:, 0] + end, side='right')
+        covered = (end - start < math.pi) & (left >= 0) & (right < len(angles)) & (right > left)
+        left, right = np.clip(left, 0, len(angles) - 1), np.clip(right, 0, len(angles) - 1)
+        covered &= (invalid[right + 1] == invalid[left]) & (gaps[right] == gaps[left])
+        # Two overlapping power-of-two intervals give the exact minimum of
+        # every spanned beam, including invalid rays through a cell's interior.
+        count = right - left + 1
+        level = np.floor(np.log2(np.maximum(count, 1))).astype(int)
+        shortest = np.zeros(len(rows))
+        for k, table in enumerate(minima):
+            selected = level == k
+            shortest[selected] = np.minimum(table[left[selected]], table[right[selected] - (1 << k) + 1])
+        nearest = np.linalg.norm(np.maximum(np.maximum(low, -high), 0), axis=1)
+        furthest = np.linalg.norm(np.maximum(np.abs(low), np.abs(high)), axis=1)
+        result[rows] = covered & (nearest > self.minimum) & (furthest < shortest * math.cos(limit / 2))
         return result
 
     def frei(self, points):
@@ -192,6 +204,7 @@ class Sicht:
         The legacy near-field cone only avoided assumed own parts. With a
         confirmed hull, the complete corridor outside it must be observed.
         """
+        length += self.hull[0]  # the body front sweeps beyond the base_link path endpoint
         half_width = max(half_width, self.hull[2], self.hull[3])
         reach = max(length, 0.2) + half_width
         try:
@@ -212,6 +225,30 @@ class Sicht:
         obj = lidar.fahrschlauch(self.points, weg, halbe_breite=half_width,
                                 laenge=length, nah=0.0, nah_halb_deg=180.0)
         return obj, gap
+
+    def hinten(self, half_width, length=0.8):
+        """Proven rear clearance from base_link, limited by the first unknown cell/hit.
+
+        A wall farther away does not erase the observed space in front of it.
+        A gap immediately outside the body remains unknown (None).
+        """
+        half_width = max(half_width, self.hull[2], self.hull[3])
+        back = self.hull[1]
+        try:
+            low, high = _zellen((-back - length, -back, -half_width, half_width), self.hull)
+        except (ValueError, OverflowError):
+            return None
+        if not len(low):
+            return None
+        free = gemeinsame_zellen(self.fields, low, high)
+        distance = back + length
+        if (~free).any():
+            distance = min(distance, float(-high[~free, 0].max()))
+        p = self.points
+        rear = (p[:, 0] < -back) & (np.abs(p[:, 1]) <= half_width)
+        if rear.any():
+            distance = min(distance, float(-p[rear, 0].max()))
+        return distance if distance > back + 1e-9 else None
 
     def schutz(self, directions, distance, turning=False):
         """Protect the translated hull; rotation checks the complete circumscribed disk."""

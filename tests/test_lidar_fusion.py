@@ -109,6 +109,39 @@ class FreeSpace(unittest.TestCase):
         for directions in ((), ('unknown',)):
             self.assertIn('UNBEKANNT', view.schutz(directions, .1))
 
+    def test_front_sweeps_beyond_path_endpoint(self):
+        view = fusion.Sicht((self.field(),), (.2, .2, .15, .15), np.array([[.9, 0.0]]))
+        with mock.patch.object(fusion, 'gemeinsame_zellen', lambda f, lo, hi: np.ones(len(lo), dtype=bool)):
+            obj, gap = view.pfad(None, .15, .8)
+        self.assertIsNotNone(obj)
+        self.assertAlmostEqual(obj['abstand'], .9)
+        self.assertIsNone(gap)
+
+    def test_rear_wall_leaves_shorter_proven_retreat(self):
+        # Full synthetic view with a wall 0.5 m behind a 0.2 m rear body extent.
+        f = self.field(scan(start=-180, count=360))
+        ranges = f.ranges.copy()
+        backward = np.cos(f.angles) < -.01
+        ranges[backward] = np.minimum(ranges[backward], -.7 / np.cos(f.angles[backward]))
+        f = fusion.Messfeld(f.origin, f.angles, ranges, f.valid, f.increment, f.minimum)
+        view = fusion.Sicht((f,), (.2, .2, .15, .15), np.array([[-.7, 0.0]]))
+        distance = view.hinten(.15)
+        self.assertIsNotNone(distance)
+        self.assertGreater(distance, .65)
+        self.assertLessEqual(distance, .7)
+        # An invalid rear ray is a nearer unknown limit, never filled by the wall.
+        valid = f.valid.copy()
+        valid[np.argmin(np.abs(f.angles - math.pi))] = False
+        bad = fusion.Messfeld(f.origin, f.angles, ranges, valid, f.increment, f.minimum)
+        self.assertIsNone(fusion.Sicht((bad,), view.hull, view.points).hinten(.15))
+
+    def test_front_sensor_minimum_range_can_leave_a_real_blind_near_field(self):
+        # Generic boundary-mounted sensor: geometry fusion cannot invent the
+        # blind minimum-range area outside the hull, even with ideal returns.
+        rear = self.field(scan(start=0), x=-.1, y=.05)
+        front = self.field(scan(start=-180, frame='laser1_frame'), x=.2, y=-.05)
+        self.assertFalse(fusion.gemeinsam_frei([rear, front], [[.22, -.05]])[0])
+
 
 if __name__ == '__main__':
     unittest.main()

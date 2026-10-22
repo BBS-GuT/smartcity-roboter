@@ -23,6 +23,10 @@ gemessen sein. Die eigene Fahrzeugfläche wird ausgespart. Ein echtes Hindernis
 im äußeren Schutzbereich hat Vorrang vor einer unbekannten Abdeckung.
 Der frühere Nahkegel zum Ausblenden vermuteter eigener Teile entfällt in diesem
 Pfad: Außerhalb der bestätigten Fahrzeugfläche zählt der ganze Fahrkorridor.
+Die Vorschau reicht um die Fahrzeugfront über den Pfad der Fahrzeugmitte hinaus.
+Die Rückraumprüfung liefert nur die tatsächlich belegte freie Strecke bis zur
+ersten unbekannten Zelle oder zum ersten Treffer; ein entferntes Hindernis löscht
+den davor gemessenen kurzen Rückweg nicht.
 
 ## Geräteeigene Parameter
 
@@ -58,6 +62,10 @@ Fahrt allein aufgrund einer eingetragenen Geometrie. Das bloße Ausbleiben eines
 Treffers ist kein Freiraumnachweis. Unbestätigte Treiberkodierungen wie `inf` werden
 nicht als Freiraum interpretiert. Zielmessung, Softwaretest und Gerätefreigabe sind
 verschiedene Nachweise.
+Insbesondere kann ein Sensor direkt an einer Fahrzeugkante einen blinden Bereich
+außerhalb der Hülle innerhalb seines `range_min` hinterlassen. Auch ideale, gültige
+Fernmessungen schließen diese Lücke nicht. Die Fahrzeughülle darf deswegen nicht
+größer eingetragen werden als tatsächlich gemessen.
 
 ## Standtest vor dem Fahrversuch
 

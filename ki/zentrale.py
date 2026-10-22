@@ -409,12 +409,7 @@ class Zentrale(Node):
             return None
         if self.lidar_sicht is not None:
             sicht = self.lidar_sicht
-            half = max(self.p('fahrschlauch_breite') / 2, sicht.hull[2], sicht.hull[3])
-            if not sicht.zone_frei((-sicht.hull[1] - 0.8, -sicht.hull[1], -half, half)):
-                return None
-            points = sicht.points
-            mask = (points[:, 0] < -sicht.hull[1]) & (np.abs(points[:, 1]) < half)
-            return min(float(-points[mask, 0].max()), sicht.hull[1] + 0.8) if mask.any() else sicht.hull[1] + 0.8
+            return sicht.hinten(self.p('fahrschlauch_breite') / 2)
         xy = self.lidar_xy
         hinten = xy[(xy[:, 0] < -0.05) & (np.abs(xy[:, 1]) < self.p('fahrschlauch_breite') / 2)]
         frei = float(-hinten[:, 0].max()) if len(hinten) else 5.0
