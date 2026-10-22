@@ -18,7 +18,7 @@ cd ~/smartcity-roboter
 scripts/installieren.sh          # am Bildschirm des Roboters, nicht über SSH
 ```
 
-Dann im Dock **SmartCity Panel** öffnen → **TEST** (zeigt alles, fährt nicht) → **START**. **STOPP** steht auf jeder Seite oben rechts. Not-Aus von außen: `scripts/stopp.sh`.
+Vor der ersten Fahrt die Einrichtungsschritte 1–5 der [Ersten Inbetriebnahme](https://github.com/BBS-GuT/smartcity-roboter/wiki/Erste-Inbetriebnahme) abschließen; für den dortigen Kalibrier-TEST gilt der eigene Vorabcheck. Vor jedem Fahrversuch den [vollständigen Check des Startprotokolls](https://github.com/BBS-GuT/smartcity-roboter/wiki/Startprotokoll#check-vor-einem-fahrversuch) abarbeiten: Vorbereitungen vor dem Einschalten beachten, dann im Dock **SmartCity Panel** öffnen und den Check vor **TEST** zur Fahrvorbereitung und bewusstem **START** abschließen. **STOPP** steht auf jeder Seite oben rechts. Not-Aus von außen: `scripts/stopp.sh`.
 
 | Thema | Wiki-Seite |
 |---|---|

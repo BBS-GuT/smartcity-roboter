@@ -7,6 +7,7 @@
 **Roboter**
 - [Installation und Update](Installation-und-Update)
 - [Erste Inbetriebnahme](Erste-Inbetriebnahme)
+- [Startprotokoll vor jeder Fahrt](Startprotokoll)
 - [Bedienung mit dem Panel](Bedienung-mit-dem-Panel)
 - [Roboter und Netz](Roboter-und-Netz)
 

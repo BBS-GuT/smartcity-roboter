@@ -6,14 +6,21 @@ Das Panel ist eine Webseite, die auf dem Roboter läuft (kleiner HTTP-Server in 
 
 ## Starten und fahren
 
+Vor jeder Fahrt den [vollständigen Check vor einem Fahrversuch](Startprotokoll#check-vor-einem-fahrversuch) abarbeiten: Die Vorbereitungen vor dem Einschalten beachten und die Prüfungen im gestarteten Panel vor TEST zur Fahrvorbereitung und START abschließen.
+
 1. Im Dock auf **SmartCity Panel** klicken. Das startet Kamera, KI, Kartograf und das Panel.
-2. **TEST**: Der Roboter zeigt alles an, fährt aber nicht. **Immer zuerst testen.**
-3. **START**: Er fährt. **STOPP**: Er hält sofort an. Der STOPP-Knopf ist auf jeder Seite oben rechts.
-4. Panel-Fenster schließen = Roboter hält an, alle Programme werden beendet.
+2. Den vollständigen Check des [Startprotokolls](Startprotokoll#check-vor-einem-fahrversuch) im Panel abschließen. Fehlende Pflichtvoraussetzungen für den Fahrversuch zuerst klären.
+3. **TEST** zur Fahrvorbereitung: Der Roboter zeigt alles an, fährt aber nicht. **Immer zuerst testen.**
+4. **START**: Er fährt. **STOPP**: Er hält sofort an. Der STOPP-Knopf ist auf jeder Seite oben rechts.
+5. Panel-Fenster schließen = Roboter hält an, alle Programme werden beendet.
+
+Nur während der Einrichtung: Für einen reinen Kamera-/Draufsichttest gilt stattdessen der begrenzte [Vorabcheck für Kalibrier-TEST ohne Fahrt](Startprotokoll#kalibrier-test-ohne-fahrt). Dabei kein START drücken; anschließend STOPP und die Einrichtung fortsetzen. Die Fahrfolge oben wird erst nach abgeschlossener Einrichtung verwendet.
 
 **Not-Aus von außen** (z. B. per SSH): `scripts/stopp.sh`
 
 **Sicherheit:** Neue Fahrprogramme immer zuerst im TEST-Modus. Eine Hand am STOPP, solange der Roboter fährt. Gamepad und Panel nicht gleichzeitig benutzen (beide senden an Motoren und Arm).
+
+**Nach Updates oder Quelländerungen:** Erst den [Quellstand und vollständigen Anwendungsneustart](Startprotokoll#quellstand-und-anwendungsstart) bestätigen, dann Kalibrier-TEST oder Fahrvorbereitung fortsetzen. Ein passender Systemcheck oder das Neuladen der Browserseite reicht dafür nicht; bei alten oder unklaren Prozessen keine Fahrt.
 
 ## Vom Laptop aus
 
