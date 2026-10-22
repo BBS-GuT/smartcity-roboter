@@ -4,6 +4,7 @@
 Aufruf aus der Projektwurzel: python tests/test_c1_alter.py
 Ungueltige Zeiten duerfen niemals als frische Daten (Alter 0) erscheinen.
 """
+from decimal import Decimal
 import os
 import sys
 import unittest
@@ -14,20 +15,20 @@ from grundbetrieb_vertrag import alter_s  # noqa: E402
 
 class MonotonesAlter(unittest.TestCase):
     def test_positive_kontrolle(self):
-        self.assertEqual(alter_s({'generated_mono_s': 10.0}, 10.25), 0.25)
+        self.assertEqual(alter_s({'generated_mono_s': 10}, Decimal('10.25')), Decimal('0.25'))
 
     def test_gleiche_zeiten_und_nullpunkt(self):
-        for zeit in (0, 0.0, 10, 10.25):
+        for zeit in (0, Decimal('0.0'), 10, Decimal('10.25')):
             with self.subTest(zeit=zeit):
                 self.assertEqual(alter_s({'generated_mono_s': zeit}, zeit), 0)
 
     def test_ganze_und_gemischte_zahlen(self):
-        for erzeugt, jetzt, erwartet in ((0, 10, 10), (10, 10.25, 0.25), (10.0, 11, 1.0)):
+        for erzeugt, jetzt, erwartet in ((0, 10, 10), (10, Decimal('10.25'), Decimal('0.25')), (Decimal('10.0'), 11, 1)):
             with self.subTest(erzeugt=erzeugt, jetzt=jetzt):
                 self.assertEqual(alter_s({'generated_mono_s': erzeugt}, jetzt), erwartet)
 
     def test_erzeugung_in_der_zukunft(self):
-        for erzeugt, jetzt in ((10.0, 9.75), (1, 0)):
+        for erzeugt, jetzt in ((Decimal('10.0'), Decimal('9.75')), (1, 0)):
             with self.subTest(erzeugt=erzeugt, jetzt=jetzt):
                 with self.assertRaises(ValueError):
                     alter_s({'generated_mono_s': erzeugt}, jetzt)
@@ -37,14 +38,14 @@ class MonotonesAlter(unittest.TestCase):
                      '10', None, [], {}, 1j, -1, -0.25):
             with self.subTest(zeit=repr(zeit)):
                 with self.assertRaises(ValueError):
-                    alter_s({'generated_mono_s': zeit}, 10.25)
+                    alter_s({'generated_mono_s': zeit}, Decimal('10.25'))
 
     def test_ungueltiges_jetzt(self):
         for zeit in (float('nan'), float('inf'), float('-inf'), True, False,
                      '10', None, [], {}, 1j, -1, -0.25):
             with self.subTest(zeit=repr(zeit)):
                 with self.assertRaises(ValueError):
-                    alter_s({'generated_mono_s': 0.0}, zeit)
+                    alter_s({'generated_mono_s': 0}, zeit)
 
 
 if __name__ == '__main__':

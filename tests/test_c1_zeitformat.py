@@ -4,6 +4,7 @@
 Aufruf aus der Projektwurzel: python tests/test_c1_zeitformat.py
 """
 import copy
+from decimal import Decimal
 import json
 import os
 import sys
@@ -15,7 +16,7 @@ sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
 
 with open(os.path.join(HIER, 'fixtures', 'grundbetrieb', 'test.json')) as datei:
-    BEISPIEL = json.load(datei)
+    BEISPIEL = V.lade_json(datei.read())
 
 
 class UtcKalender(unittest.TestCase):
@@ -31,7 +32,7 @@ class UtcKalender(unittest.TestCase):
             with self.assertRaises(ValueError):
                 V.als_json(d)
             with self.assertRaises(ValueError):
-                V.lade_json(json.dumps(d))
+                V.lade_json(V._json_wert(d))
 
     def test_positive_kontrolle_und_grenzen(self):
         for zeit in ('2026-10-22T10:00:00Z', '0001-01-01T00:00:00Z',

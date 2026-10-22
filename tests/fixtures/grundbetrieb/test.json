@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
   "robot_id": "RM02",
   "boot_id": "beispiel-start-0001",
   "seq": 5,
@@ -49,7 +49,7 @@
     "odometry_distance_m": {
       "value": 0.0,
       "status": "valid",
-      "source": "odom_raw"
+      "source": "odometry"
     },
     "heading_rad": {
       "value": null,
@@ -99,60 +99,105 @@
       "status": "valid",
       "reason": null,
       "captured_at_s": 1792484499.92,
+      "received_mono_s": 1200.920000000,
       "age_s": 0.08,
       "rate_hz": 15.0,
       "frame_id": "rgb-000120",
-      "coord_frame": "camera_color_optical"
+      "coord_frame": "camera_color_optical",
+      "producer_id": "synthetic-camera",
+      "producer_boot_id": "sensor-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1200.920000000
     },
     "depth": {
       "source_id": "camera/depth",
       "status": "valid",
       "reason": null,
       "captured_at_s": 1792484499.91,
+      "received_mono_s": 1200.910000000,
       "age_s": 0.09,
       "rate_hz": 15.0,
       "frame_id": "depth-000118",
-      "coord_frame": "camera_depth_optical"
+      "coord_frame": "camera_depth_optical",
+      "producer_id": "synthetic-depth",
+      "producer_boot_id": "sensor-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1200.910000000
     },
     "lidar_0": {
       "source_id": "scan0",
       "status": "valid",
       "reason": null,
       "captured_at_s": 1792484499.97,
+      "received_mono_s": 1200.970000000,
       "age_s": 0.03,
       "rate_hz": 10.0,
       "frame_id": "scan0-004410",
-      "coord_frame": "laser0"
+      "coord_frame": "laser0",
+      "producer_id": "synthetic-lidar_0",
+      "producer_boot_id": "sensor-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1200.970000000
     },
     "lidar_1": {
       "source_id": "scan1",
       "status": "valid",
       "reason": null,
       "captured_at_s": 1792484499.965,
+      "received_mono_s": 1200.965000000,
       "age_s": 0.035,
       "rate_hz": 10.0,
       "frame_id": "scan1-004402",
-      "coord_frame": "laser1"
+      "coord_frame": "laser1",
+      "producer_id": "synthetic-lidar_1",
+      "producer_boot_id": "sensor-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1200.965000000
     },
     "imu": {
       "source_id": "imu/data_raw",
       "status": "valid",
       "reason": null,
       "captured_at_s": 1792484499.99,
+      "received_mono_s": 1200.990000000,
       "age_s": 0.01,
       "rate_hz": 100.0,
       "frame_id": null,
-      "coord_frame": "imu_link"
+      "coord_frame": "imu_link",
+      "producer_id": "synthetic-imu",
+      "producer_boot_id": "sensor-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1200.990000000
+    },
+    "board": {
+      "source_id": "synthetic/board/voltage",
+      "status": "valid",
+      "reason": null,
+      "captured_at_s": 1792484499.98,
+      "received_mono_s": 1200.980000000,
+      "age_s": 0.02,
+      "rate_hz": 1.0,
+      "frame_id": null,
+      "coord_frame": null,
+      "producer_id": "synthetic-board",
+      "producer_boot_id": "sensor-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1200.980000000
     },
     "odometry": {
       "source_id": "odom_raw",
       "status": "valid",
       "reason": null,
       "captured_at_s": 1792484499.98,
+      "received_mono_s": 1200.980000000,
       "age_s": 0.02,
       "rate_hz": 50.0,
       "frame_id": null,
-      "coord_frame": "odom"
+      "coord_frame": "odom",
+      "producer_id": "synthetic-odometry",
+      "producer_boot_id": "sensor-start-0001",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "captured_mono_s": 1200.980000000
     }
   },
   "diagnostics": {
@@ -191,5 +236,6 @@
       "frame_id": "scan0-004410",
       "status": "valid"
     }
-  ]
+  ],
+  "time_basis_id": "synthetic-device-clock-0001"
 }
