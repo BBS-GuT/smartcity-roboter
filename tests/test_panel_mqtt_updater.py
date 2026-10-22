@@ -104,4 +104,14 @@ class Tests(unittest.TestCase):
             result = updater.battery_diagnostics(Path('/tmp/robot'))
         self.assertAlmostEqual(result['voltage_v'], 12.730806350708008)
 
+    def test_ros_timeout_kills_child_process_group(self):
+        process = unittest.mock.Mock(pid=4321)
+        process.communicate.side_effect = [subprocess.TimeoutExpired('ros2', 1), ('', '')]
+        with patch.object(updater.subprocess, 'Popen', return_value=process), \
+                patch.object(updater.os, 'killpg', create=True) as kill_group, \
+                patch.object(updater.signal, 'SIGKILL', 9, create=True):
+            self.assertEqual(updater.ros_command(Path('/tmp/robot'), 'ros2 topic list', timeout=1),
+                             (124, '', 'Zeitlimit'))
+        kill_group.assert_called_once_with(4321, 9)
+
 if __name__=="__main__": unittest.main()
