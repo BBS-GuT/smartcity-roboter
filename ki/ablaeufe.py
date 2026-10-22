@@ -468,8 +468,10 @@ class Wegraeumen(Ablauf):
             return befehl('stopp', 'Hindernis: fahre in Greifweite')
         if self.phase == 'abstand':
             # gemessen = Radzaehler frisch UND seit der letzten Sichtung ohne Luecke (Abschnitt gleich, siehe Zentrale)
-            # leer zaehlt nur ein neues Tiefenbild (tiefe_neu, oben)
-            return self._vorwaerts(self._abstand(jetzt, kamera_obj, w.get('strecke'), w.get('weg'),
+            # leer zaehlt nur ein neues Tiefenbild (tiefe_neu, oben). Gesehen auch: ein stehendes Tiefenbild (nur Farbbilder
+            # laufen weiter) ist keine neue Beobachtung - sonst regelte er minutenlang mit einem alten Fund (Review PR #126)
+            frisch = kamera_obj if tiefe_neu else None
+            return self._vorwaerts(self._abstand(jetzt, frisch, w.get('strecke'), w.get('weg'),
                                                  bool(w.get('strecke_gemessen')), w.get('odom_abschnitt'), tiefe_neu,
                                                  w.get('lidar_hinten')))
         if self.phase == 'planen':

@@ -97,6 +97,21 @@ class Positionieren(unittest.TestCase):
             w.lauf.schritt(objekt=dict(obj), tiefe_hindernis=True, tiefe_nr=n)
         self.assertIn(w.lauf.phase(), ('planen', 'ausfuehren'))
 
+    def test_stehendes_tiefenbild_regelt_nicht_weiter(self):
+        """Review PR #126: Tiefenbild steht mit einem Fund 3 cm seitlich -> nicht 25 s lang seitwaerts fahren."""
+        w = Welt(GREIF, 0.0, luecke=0)
+        for _ in range(200):
+            w.schritt()
+            if w.lauf.phase() == 'abstand':
+                break
+        obj = {'vor': GREIF, 'seite': 0.03, 'breite': 0.03, 'hoehe': 0.05, 'quelle': 'tiefe'}
+        w.lauf.schritt(objekt=dict(obj), tiefe_hindernis=True, tiefe_nr=7)
+        quer = 0.0
+        for _ in range(100):                             # 10 s nur Farbbilder, Tiefenbild Nr. 7 steht
+            b = w.lauf.schritt(objekt=dict(obj), tiefe_hindernis=True, tiefe_nr=7)
+            quer += abs((b.get('manoever') or {}).get('quer', 0.0)) * 0.1
+        self.assertLess(quer, 0.02, w.texte()[-3:])      # hoechstens die kurze Luecke (0,4 s) weiter
+
     def test_lange_luecke_haelt_an(self):
         """Laenger als greif_luecke kein Treffer: nicht blind weiterdrehen/-schieben."""
         w = Welt(GREIF + 0.005, 0.03, luecke=0)
