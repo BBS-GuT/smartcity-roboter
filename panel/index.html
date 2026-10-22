@@ -170,6 +170,7 @@
     <button data-seite="lidar">LiDAR</button>
     <button data-seite="arm">Arm</button>
     <button data-seite="sensoren">Sensoren</button>
+    <button data-seite="mqtt">MQTT Daten</button>
     <button data-seite="system">System</button>
   </nav>
   <div class="kopf-rechts">
@@ -405,6 +406,23 @@
 </section>
 
 <!-- ============ SYSTEM ============ -->
+<section id="s-mqtt" hidden>
+  <div class="karte">
+    <h2>MQTT Daten</h2>
+    <p class="hinweis" id="mqtt-quelle">Daten werden geladen …</p>
+    <p id="mqtt-verbindung">Noch keine Verbindungsdaten</p>
+    <table><tbody id="mqtt-must"></tbody></table>
+    <div class="zeile"><button id="mqtt-akku-neu" onclick="akkuNeu()">Akku erneut messen</button></div>
+    <p class="hinweis" id="mqtt-akku-antwort" aria-live="polite"></p>
+    <p class="hinweis" id="mqtt-board"></p>
+  </div>
+  <div class="karte">
+    <h2>Weitere Angaben</h2>
+    <table><tbody id="mqtt-nice"></tbody></table>
+    <p class="hinweis">Spielfeldpositionen benötigen eine bestätigte Zuordnung zum Plan. Akkuprozent sind eine Spannungsschätzung. Diese Ansicht sendet keine Fahrbefehle.</p>
+  </div>
+</section>
+
 <section id="s-system" hidden>
   <div class="karte">
     <h2>Vom Laptop öffnen</h2>
@@ -975,7 +993,7 @@ function zeigeDashboard() {
 function zeigeKopf() {
   $('roboter').textContent = S.roboter || '';
   const p = S.akku_prozent;
-  $('akku-text').textContent = S.akku == null ? 'Akku ?' : `${fmt(S.akku, 1)} V · ${p} %`;
+  $('akku-text').textContent = S.akku == null ? 'Akku ?' : `${fmt(S.akku, 3)} V · ${p} %`;
   $('akku-fuell').setAttribute('width', S.akku == null ? 0 : 19 * p / 100);
   $('akku-fuell').setAttribute('fill', p == null ? '#555' : p < 25 ? 'var(--rot)' : p < 50 ? 'var(--gelb)' : 'var(--gruen)');
   $('akkuwarnung').hidden = !(S.akku != null && S.akku < S.akku_warnung);
@@ -984,7 +1002,7 @@ function zeigeKopf() {
 }
 function zeigeSensoren() {
   const p = S.akku_prozent;
-  $('akku-gross').textContent = S.akku == null ? 'keine Akkudaten' : `${fmt(S.akku)} V  (ca. ${p} %)`;
+  $('akku-gross').textContent = S.akku == null ? 'keine Akkudaten' : `${fmt(S.akku, 3)} V  (ca. ${p} %)`;
   $('akku-balken').style.width = (p || 0) + '%';
   $('akku-balken').style.background = p == null ? '#333' : p < 25 ? 'var(--rot)' : p < 50 ? 'var(--gelb)' : 'var(--gruen)';
   const tab = $('sensortabelle'); tab.innerHTML = '';
@@ -1023,6 +1041,55 @@ function zeigeSystem() {
   }
   $('netz').checked = S.netz_erlaubt; $('netz').disabled = !S.lokal;
 }
+function mqttRows(id, rows) {
+  const body = $(id); body.replaceChildren();
+  for (const [label, value] of rows) {
+    const tr = document.createElement('tr');
+    for (const text of [label, value ?? 'Nicht verfügbar']) {
+      const td = document.createElement('td'); td.textContent = text; tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+async function mqttAnsicht() {
+  try {
+    const response = await fetch('/api/mqtt/view', {cache: 'no-store'});
+    if (!response.ok) throw Error('HTTP ' + response.status);
+    const d = await response.json(), b = d.broker || {};
+    $('mqtt-quelle').textContent = d.source;
+    $('mqtt-verbindung').textContent = b.broker === 'connected'
+      ? 'MQTT verbunden · zuletzt bestätigte Statussequenz: ' + (b.last_panel_ack_seq ?? 'keine')
+      : b.broker === 'disabled' ? 'MQTT-Bridge deaktiviert · keine Zustellbestätigung'
+      : 'Keine bestätigte MQTT-Verbindung' + (b.last_error ? ' · ' + b.last_error : '');
+    mqttRows('mqtt-must', [
+      ['Roboter', d.robot_id],
+      ['Erreichbarkeit', 'Dieses Panel antwortet; weitere Roboter werden hier nicht überwacht'],
+      ['Betriebszustand', d.state ? d.state + (d.hold_reasons?.length ? ' · ' + d.hold_reasons.join(', ') : '') : 'Unbekannt · bestätigte Zustandsquelle fehlt'],
+      ['Position auf dem Spielfeld', d.position_reason],
+      ['Akku', d.battery_voltage_v == null ? 'Keine frische Messung' : fmt(d.battery_voltage_v, 3) + ' V' + (d.battery_percent_estimate == null ? '' : ' · ca. ' + d.battery_percent_estimate + ' %')],
+      ['Alter der Akkumessung', d.battery_age_s == null ? 'Noch keine Messung' : fmt(d.battery_age_s, 1) + ' s']
+    ]);
+    mqttRows('mqtt-nice', [
+      ['Auftrag / Ziel', 'Keine bestätigte Auftragsquelle'],
+      ['Richtung', d.direction],
+      ['Gemessene Geschwindigkeit', d.measured_speed_m_s == null ? null : fmt(d.measured_speed_m_s, 3) + ' m/s'],
+      ['Route der letzten fünf Minuten', d.route_history_local_map?.length ? d.route_history_local_map.length + ' lokale Kartenpunkte · noch ohne Spielfeldzuordnung' : 'Keine Kartenpose empfangen'],
+      ['Letzte Ereignisse', d.events?.length ? d.events.map(e => typeof e === 'string' ? e : (e.text || e.typ || 'Ereignis')).join(' · ') : 'Keine Ereignisse empfangen']
+    ]);
+    $('mqtt-board').textContent = d.battery_voltage_v == null ? (d.board_diagnosis || 'Boardverbindung und Akku-Topic prüfen.') : '';
+  } catch (e) {
+    $('mqtt-verbindung').textContent = 'Daten nicht erreichbar · ' + e.message;
+    mqttRows('mqtt-must', [['Status', 'Unbekannt · keine frischen Daten']]);
+    mqttRows('mqtt-nice', []);
+    $('mqtt-board').textContent = '';
+  }
+}
+async function akkuNeu() {
+  const button = $('mqtt-akku-neu'); button.disabled = true;
+  $('mqtt-akku-antwort').textContent = 'Warte auf eine neue Akkunachricht (maximal fünf Sekunden) …';
+  try { await aktion('akku_neu', {}, 'mqtt-akku-antwort'); }
+  finally { button.disabled = false; await mqttAnsicht(); }
+}
 async function status() {
   try {
     S = await (await fetch('/api/status')).json();
@@ -1032,6 +1099,7 @@ async function status() {
     if (seite === 'dashboard') zeigeDashboard();
     if (sichtbar($('w-karte'))) zeigeKarteInfo();
     if (seite === 'sensoren') zeigeSensoren();
+    if (seite === 'mqtt') await mqttAnsicht();
     if (seite === 'system') zeigeSystem();
     if (seite === 'arm') {
       if (!servosGebaut) baueServos(S.arm);
@@ -1041,9 +1109,16 @@ async function status() {
   } catch (e) {
     $('g-aktion').textContent = 'KEINE VERBINDUNG'; $('g-grund').textContent = 'Panel-Programm läuft nicht';
     $('gedanke').className = 'gedanke stopp';
+    if (seite === 'mqtt') {
+      $('mqtt-verbindung').textContent = 'Keine Verbindung zum Panel';
+      mqttRows('mqtt-must', [['Status', 'Unbekannt · keine frischen Daten']]);
+      mqttRows('mqtt-nice', []);
+      $('mqtt-board').textContent = '';
+    }
   }
 }
-let gemerkt = null; try { gemerkt = localStorage.getItem('seite'); } catch (e) {}
+let gemerkt = new URLSearchParams(location.search).get('ansicht');
+if (!gemerkt) { try { gemerkt = localStorage.getItem('seite'); } catch (e) {} }
 if (gemerkt && $('s-' + gemerkt)) zeigeSeite(gemerkt);
 setInterval(status, 400); status();
 </script>

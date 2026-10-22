@@ -2,7 +2,7 @@
 
 **Empfänger:** Weiterer Entwickler / eigener Entwicklungs-Chat. **Jetzt umzusetzen:** B1. **Branch:** `fix/gb-b1-verkehrshalt`. **Zielbezug:** GB-04, GB-08, GB-09, GB-13, GB-14; A03/A07/A08/A11/A12.
 
-Du entwickelst am Team-Repository `https://github.com/davidheinrich73/smartcity-roboter`. Lies die [gemeinsamen Regeln](00-gemeinsame-regeln.md), das [Register](README.md), Zieldefinition und aktuellen Prüfbericht. Der Orchestrator-Chat koordiniert Dateigrenzen und Übergaben. Die Aufträge liegen zunächst auf `codex/grundbetrieb` in PR #11. Starte einen eigenen Branch von aktuellem `origin/main`; dokumentiere den Basiscommit.
+Du entwickelst am Team-Repository `https://github.com/BKoewenig/smartcity-roboter`. Lies die [gemeinsamen Regeln](00-gemeinsame-regeln.md), das [Register](README.md), Zieldefinition und aktuellen Prüfbericht. Der Orchestrator-Chat koordiniert Dateigrenzen und Übergaben. Die Aufträge liegen zunächst auf `codex/grundbetrieb` in PR #11. Starte einen eigenen Branch von aktuellem `origin/main`; dokumentiere den Basiscommit.
 
 ## Auftrag B1
 

@@ -2,7 +2,7 @@
 
 **Empfänger:** Unser separater Entwicklungs-Chat. **Jetzt umzusetzen:** A1. **Branch:** `fix/gb-a1-sensorfreigabe`. **Zielbezug:** GB-12, GB-13, GB-14; A11/A12.
 
-Du entwickelst am Team-Repository `https://github.com/davidheinrich73/smartcity-roboter`. Dieser Chat ist der Umsetzungs-Chat für Bereich A. Der Chat „SmartCity – Orchestrierung Grundbetrieb“ koordiniert Aufgaben und Integration. Lies die [gemeinsamen Regeln](00-gemeinsame-regeln.md), das [Aufgabenregister](README.md), die Zieldefinition und den Prüfbericht. Die Unterlagen liegen zunächst auf `codex/grundbetrieb` in PR #11.
+Du entwickelst am Team-Repository `https://github.com/BKoewenig/smartcity-roboter`. Dieser Chat ist der Umsetzungs-Chat für Bereich A. Der Chat „SmartCity – Orchestrierung Grundbetrieb“ koordiniert Aufgaben und Integration. Lies die [gemeinsamen Regeln](00-gemeinsame-regeln.md), das [Aufgabenregister](README.md), die Zieldefinition und den Prüfbericht. Die Unterlagen liegen zunächst auf `codex/grundbetrieb` in PR #11.
 
 ## Auftrag A1
 

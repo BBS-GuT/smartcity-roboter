@@ -2,7 +2,7 @@
 
 **Empfänger:** Weiterer Entwickler / eigener Entwicklungs-Chat. **Jetzt umzusetzen:** C1. **Branch:** `feat/gb-c1-zustandsvertrag`. **Zielbezug:** GB-12 bis GB-18; insbesondere A13/A14.
 
-Du entwickelst am Team-Repository `https://github.com/davidheinrich73/smartcity-roboter`. Lies [gemeinsame Regeln](00-gemeinsame-regeln.md), [Register](README.md), Zieldefinition §5–8 und Prüfbericht. Die Aufträge liegen zunächst auf `codex/grundbetrieb` in PR #11. Arbeite in einer eigenen Kopie ab aktuellem `origin/main`. Du bist Integrationsbesitzer des einzigen gemeinsamen öffentlichen Zustands-/Fahrwunschvertrags.
+Du entwickelst am Team-Repository `https://github.com/BKoewenig/smartcity-roboter`. Lies [gemeinsame Regeln](00-gemeinsame-regeln.md), [Register](README.md), Zieldefinition §5–8 und Prüfbericht. Die Aufträge liegen zunächst auf `codex/grundbetrieb` in PR #11. Arbeite in einer eigenen Kopie ab aktuellem `origin/main`. Du bist Integrationsbesitzer des einzigen gemeinsamen öffentlichen Zustands-/Fahrwunschvertrags.
 
 ## Auftrag C1
 

@@ -25,7 +25,7 @@ echo "===== DOCKER (z. B. Dify) ====="
 docker ps --format '{{.Names}}  {{.Image}}' 2>&1 | head -20
 echo "===== MODELL-DATEIEN IM HOME-ORDNER ====="
 find "$HOME" -maxdepth 6 \( -name "*.onnx" -o -name "*.engine" -o -name "*.pt" -o -name "*.trt" -o -name "*.gguf" -o -name "*.tflite" \) \
-    -not -path "*/smartcity-roboter/*" 2>/dev/null | head -50
+    -not -path "*/smartcity-roboter*/*" 2>/dev/null | head -50
 echo "===== YAHBOOM KI-PAKETE ====="
 for ws in "$HOME/yahboomcar_ws" "$HOME/M3Pro_ws"; do
     ls "$ws/src" 2>/dev/null | grep -iE "ai|llm|model|large|voice|yolo|vision|mediapipe|detect" | sed "s|^|$ws/src/|"

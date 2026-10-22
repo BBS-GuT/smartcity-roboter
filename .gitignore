@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+.venv-mqtt/
 # Eigene Einstellungen und Karten dieses Roboters (nicht ins Repository)
 config/lokal/
 config/ampel.yaml

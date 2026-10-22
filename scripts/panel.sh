@@ -10,6 +10,15 @@
 # Laptop-Zugriff ist standardmaessig AN. Ausschalten:  scripts/panel.sh --kein-netz
 source "$(dirname "$0")/env.sh"
 export DISPLAY="${DISPLAY:-:0}"
+# Die lesende MQTT-Bridge beim normalen Panelstart mitnehmen. Explizit 0 schaltet sie aus.
+export SMARTCITY_MQTT="${SMARTCITY_MQTT:-1}"
+if [ "$SMARTCITY_MQTT" = "1" ] && ! python3 -c 'import paho.mqtt.client' 2>/dev/null; then
+    echo "Installiere MQTT-Abhaengigkeit fuer diesen Benutzer ..."
+    if ! python3 -m pip install --user -r "$REPO_DIR/mqtt/requirements.txt"; then
+        echo "WARNUNG: MQTT-Abhaengigkeit fehlt; Panel startet ohne MQTT."
+        export SMARTCITY_MQTT=0
+    fi
+fi
 PORT=8080
 URL="http://localhost:$PORT"
 
