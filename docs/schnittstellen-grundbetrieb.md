@@ -1,7 +1,7 @@
-# Schnittstelle Grundbetrieb: Zustandsdatensatz v2.0 (Fundament)
+# Schnittstelle Grundbetrieb: gemeinsamer Datenvertrag v2.0
 
 **Auftrag:** C1 ([#14](https://github.com/davidheinrich73/smartcity-roboter/issues/14)). **Bezug:** [Zieldefinition](zieldefinition-grundbetrieb.md) §5–7, GB-12 bis GB-18.
-**Status:** Unveröffentlichtes 2.0-Fundament im Sammelbranch, Auftrag [#149](https://github.com/BBS-GuT/smartcity-roboter/issues/149), Grundlage #142 V1/V1a/V4 mit erster A-/B-/C-Annahme. Noch keine vollständige 2.0-Lieferung oder fachliche Gesamtannahme. Erst die vollständige spätere Lieferung über Gesamt-PR #134 nach main veröffentlicht 2.0; Details, eigenständiger Wunsch, Historie und Räum-/Armfelder folgen in eigenen Aufträgen. Erst ein akzeptierter Gesamtcommit wird als solcher festgehalten (siehe [Register](auftraege/README.md)).
+**Status:** Integrierter 2.0-Lieferkandidat fuer [C1 #3](https://github.com/BBS-GuT/smartcity-roboter/issues/3), gemeinsam ueber [PR #134](https://github.com/BBS-GuT/smartcity-roboter/pull/134). Details, eigenstaendiger Fahrwunsch, Historie sowie Raeum-/Arm- und Schutzdaten sind im Modell, Schema und ROS-unabhaengigen Python-Pfad enthalten. Native Abschlusspruefung, CI und die A/B/C/O-Gesamtannahme am konkreten Liefercommit werden vor Freigabe getrennt dokumentiert; synthetische Softwaretests ersetzen keine reale Geraeteabnahme.
 
 Ein Roboter erzeugt **einen** Zustandsdatensatz. Panel und MQTT lesen genau diesen Datensatz. Das Panel leitet daraus keine eigene Fahrentscheidung und keinen eigenen Haltegrund ab.
 
@@ -56,10 +56,11 @@ Ein Roboter erzeugt **einen** Zustandsdatensatz. Panel und MQTT lesen genau dies
 | `mode` | `"GRUNDBETRIEB"` | andere Modi (Szenarien) sind nicht Teil von v2 |
 | `state` | `GESTOPPT`, `TEST`, `BEREIT`, `SPURFOLGEN`, `KREUZUNG_ANNAEHERN`, `VERKEHRSHALT`, `MANOEVER`, `AUSFAHRT_BESTAETIGEN`, `FEHLER` | Betriebszustand (Zieldefinition §6) |
 | `motor_enabled` | bool | Motorweg grundsätzlich freigegeben |
-| `stop_latched` | bool | bleibende Bedien-STOPP-Sperre |
-| `fault_latched` | bool | bleibende Fehlersperre |
+| `stop_latched` | bool oder `null` | Projektion des aktuellen gemeldeten Sperrbildes; ohne aktuellen Beleg `null` |
+| `fault_latched` | bool oder `null` | Projektion der aktuellen Fehlersperre; ohne aktuellen Beleg `null` |
 | `hold_reasons` | Liste, eindeutig | **alle** wirksamen Haltegründe, getrennt (z. B. `RED_LIGHT` und `FRONT_BLOCKED` gleichzeitig) |
 | `faults` | Liste Text | Fehlerbeschreibungen |
+| `evaluation_ref` | vollstaendige Auswertungsreferenz oder `null` | Identitaet des aktuellen Motion-Pakets; kein Bezug auf nur historische Pakete |
 
 Haltegründe: `STOP_LATCHED`, `FAULT`, `TEST_MODE`, `NO_REQUEST`, `RED_LIGHT`, `YELLOW_LIGHT`, `SIGNAL_UNKNOWN`, `STOP_SIGN`, `CROSSING_OCCUPIED`, `FRONT_BLOCKED`, `DISTANCE_LOCK`, `SENSOR_MISSING`, `SENSOR_STALE`, `SENSOR_INVALID`, `LINE_LOST`, `LOCALIZATION_UNKNOWN`, `MANEUVER_FAILED`.
 
@@ -67,8 +68,9 @@ Haltegründe: `STOP_LATCHED`, `FAULT`, `TEST_MODE`, `NO_REQUEST`, `RED_LIGHT`, `
 
 | Feld | Typ | Produzent | Bedeutung |
 |---|---|---|---|
-| `request` | Objekt oder `null` | B → A | Fahrwunsch: `request_id`, `valid_until_mono_s`, `v_m_s`, `w_rad_s`, `maneuver`, `hold_reasons`. **Keine** Motorfreigabe. |
-| `output` | `{v_m_s, w_rad_s}` | A | endgültig an den Motor ausgegeben |
+| `request` | Objekt oder `null` | B → A | Eigenstaendiger vollstaendiger 13-Feld-Fahrwunsch nach nachfolgendem Gesamtmodell; eingebettet unveraendert. **Keine** Motorfreigabe. |
+| `output` | Ausgabeobjekt oder `null` | Ausgabebesitzer | Werte `v_m_s, w_rad_s`, Ausgabe-/Wunsch-/Auswertungsreferenzen, Zeit und Qualitaet; fehlende Ausgabe erzeugt keinen Nullbefehl |
+| `release`, `blocks`, `package_use` | getrennte Pflichtobjekte | Freigabebesitzer / C-Verwendungsbezug | Atomare Entscheidung und Sperrbild; aktueller, historischer oder unbekannter Verwendungsbezug |
 | `measured_v_m_s`, `measured_w_rad_s` | Messwert | A (Sensoren) | tatsächlich gemessene Bewegung, eigene Quelle |
 | `odometry_distance_m`, `heading_rad` | Messwert | A/B | Odometrie und Orientierung |
 
@@ -83,6 +85,7 @@ Ein ausgegebener Befehl ist kein Nachweis einer Bewegung. `output` und `measured
 | `route.allowed_exits`, `selected_exit` | erlaubte und gewählte Ausfahrt (gewählt ∈ erlaubt, R9) |
 | `route.maneuver`, `maneuver_progress` | laufendes Manöver, Fortschritt 0–1 |
 | `route.localization_status`, `localization_quality` | Orientierungssicherheit (Qualität 0–1, keine Zentimeterortung) |
+| `route.history` | Begrenzte bestaetigte B-Fahrhistorie; fehlend/unbekannt ist keine gueltige leere Liste |
 | `traffic.signal_id`, `signal`, `signal_status`, `signal_confidence` | **eigene** zugeordnete Ampel und Signal (`red`, `yellow`, `green`, `off`, `unknown`) |
 | `traffic.signs[]` | `{type, status, confidence}` |
 | `traffic.crossings[]` | Überwege `{id, occupancy: free\|occupied\|unknown, status}` |
@@ -265,6 +268,113 @@ unter `tests/fixtures/c1_details/`. Deren Tests prüfen zusätzlich den aktiven
 Python-/JSON-Pfad und das v2-Schema. Schema beschreibt nur Struktur und Nullregeln;
 es beweist weder Registrierung noch reale Frische. Die kontextuelle Antwort und
 ihre externen Belege sind kein zweiter Zustand und erzeugen keine Motorfreigabe.
+
+## Integriertes C1-Gesamtmodell und explizite Kontexte
+
+Die vollstaendigen Pflichtschluessel, Nulltypen und Strukturgrenzen stehen im aktiven
+[v2-Schema](../schemas/grundbetrieb-v2.schema.json). Alle Referenzen enthalten
+`robot_id, producer_id, producer_boot_id` und die jeweilige fachliche Kennung oder
+Sequenz. Auswertungen ergaenzen `domain`; Sensorframes ergaenzen `source, frame_id`,
+Details ausserdem `channel, data_id`. C-Start, Sensorstart, B-Start und Uhreninstanz
+sind getrennt. Bekannte Herkunft bleibt erhalten, unbekannte wird nicht erzeugt.
+
+### Eigenstaendiger Fahrwunsch und Datenannahme
+
+`motion.request` ist `null` oder exakt derselbe Datensatz wie der eigenstaendige
+Fahrwunsch: `contract_version, robot_id, producer_id, producer_boot_id, request_seq,
+request_id, time_basis_id, generated_mono_s, valid_until_mono_s, v_m_s, w_rad_s,
+maneuver, hold_reasons`. Beide Darstellungen nutzen `$defs/fahrwunsch`. Ein eingebetteter
+Wunsch muss zum aeusseren Geraet gehoeren; `request_id` ist opak und ersetzt keine Identitaet.
+
+`pruefe_fahrwunsch`, `fahrwunsch_als_json` und `lade_fahrwunsch_json` sind zustandslos.
+`FahrwunschAnnahme` erhaelt ausdruecklich `robot_id, producer_id, producer_boot_id,
+time_basis_id, bind_mono_s, max_duration_s`. Erst `annehmen` / `annehmen_json`
+schreiben Annahme- und getrennten Anti-Replay-Hoechststand fort. Erzeugung muss
+nach der bestaetigten Bindung liegen; es gilt `generated <= jetzt < valid_until`,
+positive Dauer und gegebenes Maximalbudget, jeweils exakt in Integer-ns.
+Ein korrekt gebundener bereits abgelaufener hoeherer Wunsch entwertet aeltere
+Wunschsequenzen (8 / abgelaufen 10 / frisch 9 wird abgewiesen / 11 kann folgen).
+Fehlerhafte hohe Kennungen vergiften keinen Hoechststand. Duplikate erneuern keine
+Frist, Erzeugungszeiten laufen nicht zurueck. Nur eine ausdrueckliche Neubindung
+setzt B-/A-Kontext zurueck; ein C-Neustart tut dies nicht. Rueckgaben sind Kopien.
+
+### Begrenzte bestaetigte Fahrhistorie
+
+`route.history` enthaelt `producer_id, producer_boot_id, time_basis_id, status,
+reason, entries, dropped_entries`. Ein Eintrag besteht aus `section, node,
+approach_from, exit_to, entry_seq, confirmed_mono_s`. Maximal 16 Eintraege,
+`entries[i].entry_seq = dropped_entries + i`; vor voller Kapazitaet ist der
+Verlustzaehler 0. `valid` braucht bestaetigte B-Bindung/Initialisierung und die
+explizite gerichtete Karte. Unbekannt/fehlend besitzt `entries=null` und
+`dropped_entries=null`, niemals eine erfundene gueltige leere Liste.
+
+`pruefe_historie` erhaelt den gegebenen Karten-/Bindungskontext und optional einen
+bestaetigten vorherigen Snapshot. Eine Erfassungsluecke bleibt `invalid/capture_gap`
+bis zu einem ausdruecklich bestaetigten neuen B-Historienstart. STOPP, TEST,
+Reconnect oder C-Neustart setzen nichts zurueck; ein Kartenwechsel braucht einen
+neuen Historienstart. Der Validator erzeugt selbst keine Fahrt oder Historie.
+
+### Atomare Motion-/Arm-Pakete und Raeumvorgang
+
+`motion` und `arm` besitzen `release, blocks, output, package_use`. `release`
+meldet Besitzer, Entscheidung, Wunsch-/Commandbezug, Ausgabereferenz und Auswertungszeit;
+`blocks` meldet dasselbe vollstaendige Auswertungspaket mit unabhaengigen
+STOPP-/Fehlerlatches und einzelnen Sperren (`effect=motion/arm/both`). Vorhandene
+Ausgabe und Sperrbild muessen exakt zur `evaluation_ref` des Ergebnisses passen.
+Ein gleicher Auswertungsschluessel mit geaendertem Inhalt ist ein Widerspruch.
+Wunsch, gemeldete Ausgabe, Empfangsbestaetigung und wirkliche Messung bleiben getrennt.
+
+`package_use.mode=current/historical/unknown` bewertet die Verwendung im aeusseren
+Zustand. Aktuelle Erlaubnis oder fahrende Ausgabe braucht einen explizit bestaetigten
+aktuellen Annahmebezug; Wunsch/Command muss bereits bei der Auswertung und noch bei
+Zustandserzeugung frisch sein. Bei vorhandener Ausgabe gilt zusaetzlich
+`evaluated <= issued <= generated < valid_until`. Eine erlaubte Entscheidung ohne
+Ausgabe bleibt darstellbar; ohne Ausgabe wird keine `issued_mono_s` erfunden.
+Historische Pakete werden nicht umdatiert oder in aktuelle Laufzeitwerte projiziert.
+Ohne aktuelles Paket sind `runtime.evaluation_ref` und beide Laufzeitlatches `null`.
+
+`blocked` verlangt bei vorhandener Motion-Ausgabe exakt `v_m_s=w_rad_s=0`.
+Bei gesperrtem Arm ist eine commandgebundene Ausgabe verboten. Ein unabhaengiger
+Schutzauftrag kann mit `command_ref=null` und in Ausgabe/Ergebnis identischem
+`command_reason=PROTECTIVE_ACTION_WITHOUT_REQUEST` gemeldet werden; ein unbekannter
+Wunsch ist kein belegter Nullwunsch. Ohne Ausgabe bleibt deren Referenz `null` mit Grund.
+
+`arm` ergaenzt den eigenstaendigen Armwunsch mit Sequenz/Frist, `ack` als wirkliche
+Empfangsbestaetigung und `measured/load` als quellbelegte Messbloecke. `camera_pose`
+bleibt ein eigener Messblock. Komponenten tragen Raum-, Kalibrier-, Einheits- und
+Qualitaetsbezug; ohne gegebenen Komponenten-/Quellenkontext keine gueltige Stellung,
+Kraft oder Unsicherheit. Zielwerte sind keine Messwerte.
+
+`clearing` meldet B-Vorgangsidentitaet, Phase, Ausfuehrungsstatus, Ergebnis, Abbruch-
+und Unterbrechungsgruende/-zeiten, Objektbezug, Beobachtung, Schaetzung und getrennte
+Verifikations-/Fahrstellungsbelege. Aktiv gilt `started <= updated <= generated`.
+Eine Pause behaelt das offene Ergebnis und braucht Grund/Zeit. Abschliessende
+Ergebnisse erfordern `execution_status=beendet`; umgekehrt braucht ein beendeter
+aktiver Vorgang ein abschliessendes Ergebnis. Einzige Ausnahme ist belegte
+Inaktivitaet mit `phase=inaktiv, execution_status=beendet, result=offen` und
+vollstaendiger Nullbelegung aller Vorgangs-/Objekt-/Erfolgsfelder sowie `arm.request=null`.
+Erfolg braucht passende bestaetigte Verifikations- und Fahrstellungsnachweise
+desselben Vorgangs, nicht Timer oder gesendete Befehle. Objektwechsel braucht einen
+neuen Vorgang. `protection` und `sensor_requirements` referenzieren getrennte
+Politik-/Matrixnachweise; unbekannte Politik und unbekannter Armbesitzer bleiben darstellbar.
+
+### Oeffentliche Gesamtpruefung
+
+`pruefe`, `lade_json` und `als_json` reichen die expliziten Schluesselparameter
+`detail_kontext`, `historie_kontext`, `vorherige_historie`, `raeum_kontext` an die
+Teilpruefer weiter. `vorherige_historie` ist ein bestaetigter Snapshot mit Geraet,
+Karte, Uhr, Erzeugungszeit und `history`. `raeum_kontext` ist ein `RaeumKontext`
+mit gegebenen Registern, Bindungen, Einheiten und aktuellem Annahmebezug. Diese
+Kontexte kommen vom Aufrufer, niemals aus dem zu bestaetigenden Kandidaten.
+Fehlender Kontext bestaetigt keine aktuelle Erlaubnis, gueltige aktive Historie
+oder gueltigen Quellenbeleg. Ehrliche `unknown/missing` bleiben darstellbar.
+Die drei statischen Einstiege veraendern weder Kontexte noch Annahme-/Replaystand.
+Doppelte JSON-Schluessel werden auch bei eingebetteten Wuenschen zurueckgewiesen.
+
+Die sieben Gesamtbeispiele haben einen gesonderten synthetischen Annahmekontext
+unter `tests/fixtures/c1_context/grundbetrieb.json`. Die Teilbeispiele und die
+Gesamtpruefung `tests/test_c1_gesamtvertrag.py` bilden vier Raeumfaelle, Ausfall,
+TEST, Fahrt, parallele Haltgruende und Reconnect ohne neue Freigabe ab.
 
 ## Fachliche Regeln (prüft `pruefe()`)
 

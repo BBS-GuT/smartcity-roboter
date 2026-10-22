@@ -14,6 +14,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
+from c1_testbauwerte import lade_isoliertes_beispiel
 
 try:
     import jsonschema
@@ -26,7 +27,7 @@ PATH = '$.sensors.camera.' + FIELD
 
 def beispiel():
     with (ROOT / 'tests/fixtures/grundbetrieb/fahrt.json').open(encoding='utf-8') as f:
-        d = V.lade_json(f.read())
+        d = lade_isoliertes_beispiel(f.read())
     # Eigene Testeingabe, unabhaengig von der spaeteren Fixture-Ergaenzung.
     # Ein Empfang 0.005 s vor Erzeugung ist hier ausdruecklich synthetisch gesetzt.
     for q in d['sensors'].values():
@@ -129,7 +130,7 @@ class Empfangszeit(unittest.TestCase):
         for file in files:
             with self.subTest(datei=file.name):
                 with file.open(encoding='utf-8') as f:
-                    d = V.lade_json(f.read())
+                    d = lade_isoliertes_beispiel(f.read())
                 for q in d['sensors'].values():
                     self.assertIn(FIELD, q)
                 self.assert_gueltig(d)

@@ -13,6 +13,21 @@ import unittest
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
+from c1_testbauwerte import synthetischer_raeumkontext
+KONTEXT = synthetischer_raeumkontext()
+
+
+def pruefe(d):
+    return V.pruefe(d, raeum_kontext=KONTEXT)
+
+
+def als_json(d):
+    return V.als_json(d, raeum_kontext=KONTEXT)
+
+
+def lade_json(text):
+    return V.lade_json(text, raeum_kontext=KONTEXT)
+
 
 BEISPIELE = os.path.join(HIER, 'fixtures', 'grundbetrieb')
 SCHEMA = os.path.join(HIER, '..', 'schemas', 'grundbetrieb-v2.schema.json')
@@ -24,7 +39,7 @@ except ImportError:          # auf dem Roboter evtl. nicht installiert: dann nur
 
 def beispiel(name):
     with open(os.path.join(BEISPIELE, name + '.json')) as f:
-        return V.lade_json(f.read())
+        return lade_json(f.read())
 
 
 def schema_fehler(d):
@@ -38,9 +53,9 @@ class Beispiele(unittest.TestCase):
         self.assertGreaterEqual(len(dateien), 7)
         for datei in dateien:
             with open(datei) as f:
-                d = V.lade_json(f.read())
+                d = lade_json(f.read())
             with self.subTest(datei=os.path.basename(datei)):
-                self.assertEqual(V.pruefe(d), [])
+                self.assertEqual(pruefe(d), [])
                 if jsonschema:
                     self.assertEqual(schema_fehler(d), [])
 
@@ -53,17 +68,19 @@ class Beispiele(unittest.TestCase):
         d = beispiel('test')
         self.assertIsNotNone(d['motion']['request'])
         self.assertFalse(d['runtime']['motor_enabled'])
-        self.assertEqual(d['motion']['output'], {'v_m_s': 0.0, 'w_rad_s': 0.0})
+        self.assertEqual({k: d['motion']['output'][k] for k in ('v_m_s', 'w_rad_s')},
+                         {'v_m_s': 0.0, 'w_rad_s': 0.0})
+        self.assertEqual(d['motion']['output']['status'], 'valid')
         self.assertEqual(d['motion']['measured_v_m_s']['status'], 'missing')    # nicht gueltige Null
         d['motion']['output']['v_m_s'] = 0.1
-        self.assertTrue(any('R3' in f for f in V.pruefe(d)))
+        self.assertTrue(any('R3' in f for f in pruefe(d)))
 
     def test_rot_und_hindernis_gleichzeitig(self):
         d = beispiel('rot_und_hindernis')
         self.assertEqual(d['runtime']['hold_reasons'], ['RED_LIGHT', 'FRONT_BLOCKED'])
         self.assertIsNone(d['obstacles']['objects'][0]['class'])               # gemessen, nicht klassifiziert
         d['runtime']['hold_reasons'] = []
-        self.assertTrue(any('R5' in f for f in V.pruefe(d)))
+        self.assertTrue(any('R5' in f for f in pruefe(d)))
 
     def test_broker_wiederverbindung(self):
         """Frischer Zustand, sichtbar aeltere bestaetigte Sequenz, STOPP-Sperre unveraendert, keine Motorfreigabe."""
@@ -83,7 +100,7 @@ class Regeln(unittest.TestCase):
         self.d = beispiel('fahrt')
 
     def ungueltig(self, d, regel=None):
-        fehler = V.pruefe(d)
+        fehler = pruefe(d)
         self.assertTrue(fehler, 'haette ungueltig sein muessen')
         if regel:
             self.assertTrue(any(regel in f for f in fehler), fehler)
@@ -99,13 +116,13 @@ class Regeln(unittest.TestCase):
         self.d['lane']['offset_m'] = float('nan')
         self.ungueltig(self.d)
         with self.assertRaises(ValueError):
-            V.als_json(self.d)
-        text = V.als_json(beispiel('fahrt')).replace('"offset_m":0.004', '"offset_m": NaN')
+            als_json(self.d)
+        text = als_json(beispiel('fahrt')).replace('"offset_m":0.004', '"offset_m": NaN')
         with self.assertRaises(ValueError):
-            V.lade_json(text)
-        text = V.als_json(beispiel('fahrt')).replace('"offset_m":0.004', '"offset_m": Infinity')
+            lade_json(text)
+        text = als_json(beispiel('fahrt')).replace('"offset_m":0.004', '"offset_m": Infinity')
         with self.assertRaises(ValueError):
-            V.lade_json(text)
+            lade_json(text)
 
     def test_stopp_sperre(self):
         self.d['runtime']['stop_latched'] = True
@@ -127,7 +144,14 @@ class Regeln(unittest.TestCase):
         self.ungueltig(d, 'R8')
         d['runtime']['faults'] = ['Wenden hat nicht geklappt']
         d['runtime']['hold_reasons'] = ['STOP_LATCHED', 'FAULT']
-        self.assertEqual(V.pruefe(d), [])
+        # Dieselbe neue A-Auswertung liefert auch das zugehoerige Sperrbild.
+        d['motion']['blocks']['fault_latched']['value'] = True
+        eref = copy.deepcopy(d['motion']['release']['evaluation_ref'])
+        eref['evaluation_seq'] += 1
+        d['runtime']['evaluation_ref'] = eref
+        for block in ('release', 'blocks', 'output', 'package_use'):
+            d['motion'][block]['evaluation_ref'] = copy.deepcopy(eref)
+        self.assertEqual(pruefe(d), [])
 
     def test_kommunikation(self):
         self.d['communication']['last_broker_ack_seq'] = self.d['communication']['last_publish_requested_seq'] + 1
@@ -180,7 +204,7 @@ class Regeln(unittest.TestCase):
             d = copy.deepcopy(self.d)
             aendern(d)
             with self.subTest(name):
-                self.assertTrue(V.pruefe(d), 'eigene Pruefung haette ablehnen muessen')
+                self.assertTrue(pruefe(d), 'eigene Pruefung haette ablehnen muessen')
                 if jsonschema:
                     self.assertTrue(schema_fehler(d), 'Schema haette ablehnen muessen')
 
@@ -219,9 +243,9 @@ class StartUndSequenz(unittest.TestCase):
     def test_panel_und_mqtt_lesen_dasselbe(self):
         """Gleiches Objekt -> byte-gleiches JSON; Lesen ergibt wieder dasselbe Objekt."""
         d = beispiel('rot_und_hindernis')
-        text = V.als_json(d)
-        self.assertEqual(text, V.als_json(copy.deepcopy(d)))
-        self.assertEqual(V.lade_json(text), d)
+        text = als_json(d)
+        self.assertEqual(text, als_json(copy.deepcopy(d)))
+        self.assertEqual(lade_json(text), d)
 
 
 if __name__ == '__main__':

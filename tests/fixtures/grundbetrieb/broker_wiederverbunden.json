@@ -1,256 +1,452 @@
 {
-  "schema_version": "2.0",
-  "robot_id": "RM02",
-  "boot_id": "beispiel-start-0001",
-  "seq": 131,
-  "generated_at": "2026-10-20T10:00:00.000Z",
-  "generated_mono_s": 1226.2,
-  "time_sync": {
-    "status": "unsynced",
-    "source": null
-  },
-  "software_version": "beispiel-commit",
-  "map_version": "smartcity-v1",
-  "config_version": "RM02-beispiel",
-  "runtime": {
-    "mode": "GRUNDBETRIEB",
-    "state": "GESTOPPT",
-    "motor_enabled": false,
-    "stop_latched": true,
-    "fault_latched": false,
-    "hold_reasons": [
-      "STOP_LATCHED"
-    ],
-    "faults": []
-  },
-  "motion": {
-    "request": null,
-    "output": {
-      "v_m_s": 0.0,
-      "w_rad_s": 0.0
-    },
-    "measured_v_m_s": {
-      "value": null,
-      "status": "missing",
-      "source": null
-    },
-    "measured_w_rad_s": {
-      "value": 0.0,
-      "status": "valid",
-      "source": "imu"
-    },
-    "odometry_distance_m": {
-      "value": 0.0,
-      "status": "valid",
-      "source": "odometry"
-    },
-    "heading_rad": {
-      "value": null,
+  "arm": {
+    "ack": null,
+    "blocks": {
+      "entries": null,
+      "evaluated_mono_s": null,
+      "evaluation_ref": null,
+      "fault_latched": {
+        "reason": "NOT_INITIALIZED",
+        "status": "unknown",
+        "value": null
+      },
+      "producer_boot_id": null,
+      "producer_id": null,
+      "reason": "NOT_INITIALIZED",
+      "seq": null,
       "status": "unknown",
-      "source": null
-    }
+      "stop_latched": {
+        "reason": "NOT_INITIALIZED",
+        "status": "unknown",
+        "value": null
+      },
+      "time_basis_id": null
+    },
+    "load": {
+      "measurements": null,
+      "reason": "NOT_INITIALIZED",
+      "status": "unknown"
+    },
+    "measured": {
+      "measurements": null,
+      "reason": "NOT_INITIALIZED",
+      "status": "unknown"
+    },
+    "output": null,
+    "package_use": {
+      "evaluation_ref": null,
+      "mode": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "release": {
+      "command_reason": "COMMAND_REFERENCE_UNKNOWN",
+      "command_ref": null,
+      "decision": "unknown",
+      "decision_seq": null,
+      "evaluated_mono_s": null,
+      "evaluation_ref": null,
+      "output_reason": "OUTPUT_UNKNOWN",
+      "output_ref": null,
+      "owner_ref": null,
+      "reason": "NOT_INITIALIZED",
+      "status": "unknown",
+      "time_basis_id": null
+    },
+    "request": null
   },
-  "lane": {
-    "status": "valid",
-    "offset_m": 0.004,
-    "heading_error_rad": 0.02
+  "boot_id": "beispiel-start-0001",
+  "camera_pose": {
+    "measurements": null,
+    "reason": "NOT_INITIALIZED",
+    "status": "unknown"
   },
-  "route": {
-    "section": null,
-    "node": null,
-    "approach_from": null,
-    "direction": null,
-    "allowed_exits": [],
-    "selected_exit": null,
-    "maneuver": null,
-    "maneuver_progress": null,
-    "localization_status": "unknown",
-    "localization_quality": null
-  },
-  "traffic": {
-    "signal_id": null,
-    "signal": "unknown",
-    "signal_status": "missing",
-    "signal_confidence": null,
-    "signs": [],
-    "crossings": []
-  },
-  "obstacles": {
-    "corridor": "free",
-    "front_clearance_m": {
-      "value": 1.8,
-      "status": "valid",
-      "source": "lidar_0"
-    },
-    "unknown_areas": false,
-    "distance_locks": [],
-    "objects": []
-  },
-  "sensors": {
-    "camera": {
-      "source_id": "camera/color",
-      "status": "valid",
-      "reason": null,
-      "captured_at_s": 1792484499.92,
-      "received_mono_s": 1226.120000000,
-      "age_s": 0.08,
-      "rate_hz": 15.0,
-      "frame_id": "rgb-000120",
-      "coord_frame": "camera_color_optical",
-      "producer_id": "synthetic-camera",
-      "producer_boot_id": "sensor-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.120000000
-    },
-    "depth": {
-      "source_id": "camera/depth",
-      "status": "valid",
-      "reason": null,
-      "captured_at_s": 1792484499.91,
-      "received_mono_s": 1226.110000000,
-      "age_s": 0.09,
-      "rate_hz": 15.0,
-      "frame_id": "depth-000118",
-      "coord_frame": "camera_depth_optical",
-      "producer_id": "synthetic-depth",
-      "producer_boot_id": "sensor-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.110000000
-    },
-    "lidar_0": {
-      "source_id": "scan0",
-      "status": "valid",
-      "reason": null,
-      "captured_at_s": 1792484499.97,
-      "received_mono_s": 1226.170000000,
-      "age_s": 0.03,
-      "rate_hz": 10.0,
-      "frame_id": "scan0-004410",
-      "coord_frame": "laser0",
-      "producer_id": "synthetic-lidar_0",
-      "producer_boot_id": "sensor-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.170000000
-    },
-    "lidar_1": {
-      "source_id": "scan1",
-      "status": "valid",
-      "reason": null,
-      "captured_at_s": 1792484499.965,
-      "received_mono_s": 1226.165000000,
-      "age_s": 0.035,
-      "rate_hz": 10.0,
-      "frame_id": "scan1-004402",
-      "coord_frame": "laser1",
-      "producer_id": "synthetic-lidar_1",
-      "producer_boot_id": "sensor-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.165000000
-    },
-    "imu": {
-      "source_id": "imu/data_raw",
-      "status": "valid",
-      "reason": null,
-      "captured_at_s": 1792484499.99,
-      "received_mono_s": 1226.190000000,
-      "age_s": 0.01,
-      "rate_hz": 100.0,
-      "frame_id": null,
-      "coord_frame": "imu_link",
-      "producer_id": "synthetic-imu",
-      "producer_boot_id": "sensor-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.190000000
-    },
-    "board": {
-      "source_id": "synthetic/board/voltage",
-      "status": "valid",
-      "reason": null,
-      "captured_at_s": 1792484499.98,
-      "received_mono_s": 1226.180000000,
-      "age_s": 0.02,
-      "rate_hz": 1.0,
-      "frame_id": null,
-      "coord_frame": null,
-      "producer_id": "synthetic-board",
-      "producer_boot_id": "sensor-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.180000000
-    },
-    "odometry": {
-      "source_id": "odom_raw",
-      "status": "valid",
-      "reason": null,
-      "captured_at_s": 1792484499.98,
-      "received_mono_s": 1226.180000000,
-      "age_s": 0.02,
-      "rate_hz": 50.0,
-      "frame_id": null,
-      "coord_frame": "odom",
-      "producer_id": "synthetic-odometry",
-      "producer_boot_id": "sensor-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.180000000
-    }
-  },
-  "diagnostics": {
-    "battery_v": {
-      "value": 12.1,
-      "status": "valid",
-      "source": "board"
-    },
-    "board_status": "valid",
-    "warnings": [],
-    "events": []
+  "clearing": {
+    "abort_reason": null,
+    "estimate": null,
+    "execution_status": null,
+    "interrupted_mono_s": null,
+    "interruption_reason": null,
+    "object_ref": null,
+    "observation": null,
+    "operation_id": null,
+    "phase": null,
+    "producer_boot_id": null,
+    "producer_id": null,
+    "reason": "NOT_INITIALIZED",
+    "result": null,
+    "result_reason": null,
+    "started_mono_s": null,
+    "status": "unknown",
+    "time_basis_id": null,
+    "travel_pose_ref": null,
+    "updated_mono_s": null,
+    "verification_ref": null
   },
   "communication": {
     "broker": "connected",
-    "last_publish_requested_seq": 131,
-    "last_broker_ack_seq": 120,
-    "last_broker_ack_mono_s": 1224.0,
-    "reconnects": 1,
     "dropped_messages": 9,
-    "last_error": "Verbindung abgebrochen (Beispiel)"
+    "last_broker_ack_mono_s": 1224.0,
+    "last_broker_ack_seq": 120,
+    "last_error": "Verbindung abgebrochen (Beispiel)",
+    "last_publish_requested_seq": 131,
+    "reconnects": 1
   },
+  "config_version": "RM02-beispiel",
   "details": [
     {
+      "age_s": null,
+      "captured_at_s": 1792484499.92,
+      "captured_mono_s": 1226.12,
       "channel": "details/camera",
       "data_id": "rgb-000120",
       "format": "image/jpeg",
-      "captured_at_s": 1792484499.92,
       "frame_id": "rgb-000120",
-      "status": "unknown",
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-camera",
+      "reason": "detail_context_unknown",
+      "received_mono_s": 1226.12,
       "robot_id": "RM02",
       "source": "camera",
       "source_id": "camera/color",
-      "producer_id": "synthetic-camera",
-      "producer_boot_id": "sensor-start-0001",
       "state_boot_id": "beispiel-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.12,
-      "received_mono_s": 1226.12,
-      "reason": "detail_context_unknown",
-      "age_s": null
+      "status": "unknown",
+      "time_basis_id": "synthetic-device-clock-0001"
     },
     {
+      "age_s": null,
+      "captured_at_s": 1792484499.97,
+      "captured_mono_s": 1226.17,
       "channel": "details/scan",
       "data_id": "scan0-004410",
       "format": "application/json",
-      "captured_at_s": 1792484499.97,
       "frame_id": "scan0-004410",
-      "status": "unknown",
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-lidar_0",
+      "reason": "detail_context_unknown",
+      "received_mono_s": 1226.17,
       "robot_id": "RM02",
       "source": "lidar_0",
       "source_id": "scan0",
-      "producer_id": "synthetic-lidar_0",
-      "producer_boot_id": "sensor-start-0001",
       "state_boot_id": "beispiel-start-0001",
-      "time_basis_id": "synthetic-device-clock-0001",
-      "captured_mono_s": 1226.17,
-      "received_mono_s": 1226.17,
-      "reason": "detail_context_unknown",
-      "age_s": null
+      "status": "unknown",
+      "time_basis_id": "synthetic-device-clock-0001"
     }
   ],
-  "time_basis_id": "synthetic-device-clock-0001"
+  "diagnostics": {
+    "battery_v": {
+      "source": "board",
+      "status": "valid",
+      "value": 12.1
+    },
+    "board_status": "valid",
+    "events": [],
+    "warnings": []
+  },
+  "generated_at": "2026-10-20T10:00:00.000Z",
+  "generated_mono_s": 1226.2,
+  "lane": {
+    "heading_error_rad": 0.02,
+    "offset_m": 0.004,
+    "status": "valid"
+  },
+  "map_version": "smartcity-v1",
+  "motion": {
+    "blocks": {
+      "entries": [],
+      "evaluated_mono_s": 1226.0,
+      "evaluation_ref": {
+        "domain": "motion",
+        "evaluation_seq": 130,
+        "producer_boot_id": "synthetic-a-start",
+        "producer_id": "synthetic-a-release",
+        "robot_id": "RM02"
+      },
+      "fault_latched": {
+        "reason": null,
+        "status": "valid",
+        "value": false
+      },
+      "producer_boot_id": "synthetic-a-start",
+      "producer_id": "synthetic-a-release",
+      "reason": null,
+      "seq": 130,
+      "status": "valid",
+      "stop_latched": {
+        "reason": null,
+        "status": "valid",
+        "value": true
+      },
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "heading_rad": {
+      "source": null,
+      "status": "unknown",
+      "value": null
+    },
+    "measured_v_m_s": {
+      "source": null,
+      "status": "missing",
+      "value": null
+    },
+    "measured_w_rad_s": {
+      "source": "imu",
+      "status": "valid",
+      "value": 0.0
+    },
+    "odometry_distance_m": {
+      "source": "odometry",
+      "status": "valid",
+      "value": 0.0
+    },
+    "output": {
+      "evaluation_ref": {
+        "domain": "motion",
+        "evaluation_seq": 130,
+        "producer_boot_id": "synthetic-a-start",
+        "producer_id": "synthetic-a-release",
+        "robot_id": "RM02"
+      },
+      "issued_mono_s": 1226.0,
+      "output_seq": 130,
+      "producer_boot_id": "synthetic-drive-start",
+      "producer_id": "synthetic-drive-output",
+      "reason": null,
+      "request_reason": "NO_REQUEST",
+      "request_ref": null,
+      "robot_id": "RM02",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001",
+      "v_m_s": 0.0,
+      "w_rad_s": 0.0
+    },
+    "package_use": {
+      "evaluation_ref": {
+        "domain": "motion",
+        "evaluation_seq": 130,
+        "producer_boot_id": "synthetic-a-start",
+        "producer_id": "synthetic-a-release",
+        "robot_id": "RM02"
+      },
+      "mode": "current",
+      "reason": null
+    },
+    "release": {
+      "decision": "blocked",
+      "decision_seq": 130,
+      "evaluated_mono_s": 1226.0,
+      "evaluation_ref": {
+        "domain": "motion",
+        "evaluation_seq": 130,
+        "producer_boot_id": "synthetic-a-start",
+        "producer_id": "synthetic-a-release",
+        "robot_id": "RM02"
+      },
+      "output_reason": null,
+      "output_ref": {
+        "output_seq": 130,
+        "producer_boot_id": "synthetic-drive-start",
+        "producer_id": "synthetic-drive-output",
+        "robot_id": "RM02"
+      },
+      "owner_ref": {
+        "producer_boot_id": "synthetic-a-start",
+        "producer_id": "synthetic-a-release",
+        "robot_id": "RM02"
+      },
+      "reason": null,
+      "request_reason": "NO_REQUEST",
+      "request_ref": null,
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "request": null
+  },
+  "obstacles": {
+    "corridor": "free",
+    "distance_locks": [],
+    "front_clearance_m": {
+      "source": "lidar_0",
+      "status": "valid",
+      "value": 1.8
+    },
+    "objects": [],
+    "unknown_areas": false
+  },
+  "protection": {
+    "evidence_ref": null,
+    "policy_id": null,
+    "policy_version": null,
+    "reason": "NOT_INITIALIZED",
+    "status": "unknown"
+  },
+  "robot_id": "RM02",
+  "route": {
+    "allowed_exits": [],
+    "approach_from": null,
+    "direction": null,
+    "history": {
+      "dropped_entries": null,
+      "entries": null,
+      "producer_boot_id": null,
+      "producer_id": null,
+      "reason": "NOT_INITIALIZED",
+      "status": "unknown",
+      "time_basis_id": null
+    },
+    "localization_quality": null,
+    "localization_status": "unknown",
+    "maneuver": null,
+    "maneuver_progress": null,
+    "node": null,
+    "section": null,
+    "selected_exit": null
+  },
+  "runtime": {
+    "evaluation_ref": {
+      "domain": "motion",
+      "evaluation_seq": 130,
+      "producer_boot_id": "synthetic-a-start",
+      "producer_id": "synthetic-a-release",
+      "robot_id": "RM02"
+    },
+    "fault_latched": false,
+    "faults": [],
+    "hold_reasons": [
+      "STOP_LATCHED"
+    ],
+    "mode": "GRUNDBETRIEB",
+    "motor_enabled": false,
+    "state": "GESTOPPT",
+    "stop_latched": true
+  },
+  "schema_version": "2.0",
+  "sensor_requirements": {
+    "evidence_ref": null,
+    "matrix_id": null,
+    "matrix_version": null,
+    "reason": "NOT_INITIALIZED",
+    "status": "unknown"
+  },
+  "sensors": {
+    "board": {
+      "age_s": 0.02,
+      "captured_at_s": 1792484499.98,
+      "captured_mono_s": 1226.180000000,
+      "coord_frame": null,
+      "frame_id": null,
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-board",
+      "rate_hz": 1.0,
+      "reason": null,
+      "received_mono_s": 1226.180000000,
+      "source_id": "synthetic/board/voltage",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "camera": {
+      "age_s": 0.08,
+      "captured_at_s": 1792484499.92,
+      "captured_mono_s": 1226.120000000,
+      "coord_frame": "camera_color_optical",
+      "frame_id": "rgb-000120",
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-camera",
+      "rate_hz": 15.0,
+      "reason": null,
+      "received_mono_s": 1226.120000000,
+      "source_id": "camera/color",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "depth": {
+      "age_s": 0.09,
+      "captured_at_s": 1792484499.91,
+      "captured_mono_s": 1226.110000000,
+      "coord_frame": "camera_depth_optical",
+      "frame_id": "depth-000118",
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-depth",
+      "rate_hz": 15.0,
+      "reason": null,
+      "received_mono_s": 1226.110000000,
+      "source_id": "camera/depth",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "imu": {
+      "age_s": 0.01,
+      "captured_at_s": 1792484499.99,
+      "captured_mono_s": 1226.190000000,
+      "coord_frame": "imu_link",
+      "frame_id": null,
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-imu",
+      "rate_hz": 100.0,
+      "reason": null,
+      "received_mono_s": 1226.190000000,
+      "source_id": "imu/data_raw",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "lidar_0": {
+      "age_s": 0.03,
+      "captured_at_s": 1792484499.97,
+      "captured_mono_s": 1226.170000000,
+      "coord_frame": "laser0",
+      "frame_id": "scan0-004410",
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-lidar_0",
+      "rate_hz": 10.0,
+      "reason": null,
+      "received_mono_s": 1226.170000000,
+      "source_id": "scan0",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "lidar_1": {
+      "age_s": 0.035,
+      "captured_at_s": 1792484499.965,
+      "captured_mono_s": 1226.165000000,
+      "coord_frame": "laser1",
+      "frame_id": "scan1-004402",
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-lidar_1",
+      "rate_hz": 10.0,
+      "reason": null,
+      "received_mono_s": 1226.165000000,
+      "source_id": "scan1",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    },
+    "odometry": {
+      "age_s": 0.02,
+      "captured_at_s": 1792484499.98,
+      "captured_mono_s": 1226.180000000,
+      "coord_frame": "odom",
+      "frame_id": null,
+      "producer_boot_id": "sensor-start-0001",
+      "producer_id": "synthetic-odometry",
+      "rate_hz": 50.0,
+      "reason": null,
+      "received_mono_s": 1226.180000000,
+      "source_id": "odom_raw",
+      "status": "valid",
+      "time_basis_id": "synthetic-device-clock-0001"
+    }
+  },
+  "seq": 131,
+  "software_version": "beispiel-commit",
+  "time_basis_id": "synthetic-device-clock-0001",
+  "time_sync": {
+    "source": null,
+    "status": "unsynced"
+  },
+  "traffic": {
+    "crossings": [],
+    "signal": "unknown",
+    "signal_confidence": null,
+    "signal_id": null,
+    "signal_status": "missing",
+    "signs": []
+  }
 }

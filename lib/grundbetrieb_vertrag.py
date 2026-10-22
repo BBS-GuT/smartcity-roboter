@@ -124,6 +124,15 @@ def _kein_nan(wert):
     raise ValueError(f'nicht erlaubter JSON-Wert {wert}')
 
 
+def _eindeutige_json_felder(paare):
+    ergebnis = {}
+    for key, value in paare:
+        if key in ergebnis:
+            raise ValueError('doppeltes JSON-Feld: ' + key)
+        ergebnis[key] = value
+    return ergebnis
+
+
 def _json_wert(v):
     """Begrenzter JSON-Writer: Zahlen ausgeben, Strings ausschliesslich escapen."""
     if v is None:
@@ -145,18 +154,21 @@ def _json_wert(v):
     raise ValueError('nicht unterstuetzter JSON-Typ')
 
 
-def als_json(d, *, detail_kontext=None):
+def als_json(d, *, detail_kontext=None, historie_kontext=None, vorherige_historie=None, raeum_kontext=None):
     """Strenges JSON. Wirft ValueError, wenn der Datensatz ungueltig ist oder NaN/Unendlich enthaelt."""
-    fehler = pruefe(d, detail_kontext=detail_kontext)
+    fehler = pruefe(d, detail_kontext=detail_kontext, historie_kontext=historie_kontext,
+                    vorherige_historie=vorherige_historie, raeum_kontext=raeum_kontext)
     if fehler:
         raise ValueError('ungueltiger Zustandsdatensatz: ' + '; '.join(fehler))
     return _json_wert(d)
 
 
-def lade_json(text, *, detail_kontext=None):
+def lade_json(text, *, detail_kontext=None, historie_kontext=None, vorherige_historie=None, raeum_kontext=None):
     """JSON lesen und pruefen. Wirft ValueError bei NaN/Infinity oder ungueltigem Datensatz."""
-    d = json.loads(text, parse_float=Decimal, parse_constant=_kein_nan)
-    fehler = pruefe(d, detail_kontext=detail_kontext)
+    d = json.loads(text, parse_float=Decimal, parse_constant=_kein_nan,
+                   object_pairs_hook=_eindeutige_json_felder)
+    fehler = pruefe(d, detail_kontext=detail_kontext, historie_kontext=historie_kontext,
+                    vorherige_historie=vorherige_historie, raeum_kontext=raeum_kontext)
     if fehler:
         raise ValueError('ungueltiger Zustandsdatensatz: ' + '; '.join(fehler))
     return d
@@ -260,10 +272,11 @@ class _Pruefer:
 
 FELDER = ('schema_version', 'robot_id', 'boot_id', 'seq', 'generated_at', 'generated_mono_s', 'time_basis_id', 'time_sync',
           'software_version', 'map_version', 'config_version', 'runtime', 'motion', 'lane', 'route', 'traffic',
-          'obstacles', 'sensors', 'diagnostics', 'communication', 'details')
+          'obstacles', 'sensors', 'diagnostics', 'communication', 'details',
+          'clearing', 'arm', 'camera_pose', 'protection', 'sensor_requirements')
 
 
-def pruefe(d, *, detail_kontext=None):
+def pruefe(d, *, detail_kontext=None, historie_kontext=None, vorherige_historie=None, raeum_kontext=None):
     """Alle Fehler des Datensatzes (leer = gueltig). Struktur wie im JSON-Schema plus fachliche Regeln R1-R11
     (siehe docs/schnittstellen-grundbetrieb.md)."""
     p = _Pruefer()
@@ -293,12 +306,12 @@ def pruefe(d, *, detail_kontext=None):
 
     rt = d.get('runtime')
     if p.obj(rt, '$.runtime', ('mode', 'state', 'motor_enabled', 'stop_latched', 'fault_latched', 'hold_reasons',
-                               'faults')):
+                               'faults', 'evaluation_ref')):
         if rt.get('mode') != 'GRUNDBETRIEB':
             p.f('$.runtime.mode', "muss 'GRUNDBETRIEB' sein (andere Modi sind nicht Teil von v2)")
         p.text(rt, '$.runtime', 'state', auswahl=ZUSTAENDE)
         for k in ('motor_enabled', 'stop_latched', 'fault_latched'):
-            p.janein(rt, '$.runtime', k)
+            p.janein(rt, '$.runtime', k, null=k != 'motor_enabled')
         p.liste(rt, '$.runtime', 'hold_reasons', auswahl=HALTEGRUENDE)
         p.liste(rt, '$.runtime', 'faults')
     else:
@@ -307,20 +320,14 @@ def pruefe(d, *, detail_kontext=None):
     mo = d.get('motion')
     out = {}
     if p.obj(mo, '$.motion', ('request', 'output', 'measured_v_m_s', 'measured_w_rad_s', 'odometry_distance_m',
-                              'heading_rad')):
+                              'heading_rad', 'release', 'blocks', 'package_use')):
         rq = mo.get('request')
-        if rq is not None and p.obj(rq, '$.motion.request', ('request_id', 'valid_until_mono_s', 'v_m_s', 'w_rad_s',
-                                                             'maneuver', 'hold_reasons')):
-            p.text(rq, '$.motion.request', 'request_id')
-            p.zahl(rq, '$.motion.request', 'valid_until_mono_s', mini=0)
-            p.zahl(rq, '$.motion.request', 'v_m_s', mini=-1, maxi=1)
-            p.zahl(rq, '$.motion.request', 'w_rad_s', mini=-10, maxi=10)
-            p.text(rq, '$.motion.request', 'maneuver', null=True)
-            p.liste(rq, '$.motion.request', 'hold_reasons', auswahl=HALTEGRUENDE)
-        if p.obj(mo.get('output'), '$.motion.output', ('v_m_s', 'w_rad_s')):
-            out = mo['output']
-            p.zahl(out, '$.motion.output', 'v_m_s', mini=-1, maxi=1)
-            p.zahl(out, '$.motion.output', 'w_rad_s', mini=-10, maxi=10)
+        if rq is not None:
+            p.fehler.extend('$.motion.request' + f[1:] if f.startswith('$') else '$.motion.request: ' + f
+                            for f in pruefe_fahrwunsch(rq))
+            if isinstance(rq, dict) and rq.get('robot_id') != d.get('robot_id'):
+                p.f('$.motion.request.robot_id', 'muss zum aeusseren robot_id passen')
+        out = mo.get('output') if isinstance(mo.get('output'), dict) else {}
         p.messwert(mo, '$.motion', 'measured_v_m_s', -1, 1)
         p.messwert(mo, '$.motion', 'measured_w_rad_s', -10, 10)
         p.messwert(mo, '$.motion', 'odometry_distance_m', 0)
@@ -335,7 +342,7 @@ def pruefe(d, *, detail_kontext=None):
 
     ro = d.get('route')
     if p.obj(ro, '$.route', ('section', 'node', 'approach_from', 'direction', 'allowed_exits', 'selected_exit',
-                             'maneuver', 'maneuver_progress', 'localization_status', 'localization_quality')):
+                             'maneuver', 'maneuver_progress', 'localization_status', 'localization_quality', 'history')):
         for k in ('section', 'node', 'approach_from', 'direction', 'selected_exit', 'maneuver'):
             p.text(ro, '$.route', k, null=True)
         ausgaenge = p.liste(ro, '$.route', 'allowed_exits')
@@ -473,7 +480,15 @@ def pruefe(d, *, detail_kontext=None):
                 p.f(f'$.{bereich}.{feld}.source', 'muss ein registrierter sensors-Schluessel sein (R2)')
 
     if not p.fehler:
-        _betrieb(p, rt, out)
+        # Historische Ausgaben bleiben Diagnose und werden nicht aktuell projiziert.
+        aktuell = isinstance(mo, dict) and isinstance(mo.get('package_use'), dict) and mo['package_use'].get('mode') == 'current'
+        _betrieb(p, rt, out if aktuell else {})
+    if isinstance(ro, dict):
+        p.fehler.extend('$.route.' + f for f in pruefe_historie(
+            ro.get('history'), robot_id=d.get('robot_id'), map_version=d.get('map_version'),
+            time_basis_id=d.get('time_basis_id'), generated_mono_s=d.get('generated_mono_s'),
+            kontext=historie_kontext, vorher=vorherige_historie))
+    p.fehler.extend(pruefe_raeumzustand(d, kontext=raeum_kontext))
     return p.fehler
 
 
@@ -767,3 +782,10 @@ def _betrieb(p, rt, out):
         p.f('$.runtime.fault_latched', 'FEHLER braucht fault_latched (R8)')
     if rt['fault_latched'] and not rt['faults']:
         p.f('$.runtime.faults', 'Fehlersperre ohne Fehlerbeschreibung (R8)')
+
+
+# Eigene Annahmeobjekte halten Replay-Zustand; diese Fassade validiert nur.
+from c1_fahrwunsch import (FahrwunschAnnahme, pruefe_fahrwunsch,
+                          fahrwunsch_als_json, lade_fahrwunsch_json)
+from c1_fahrhistorie import pruefe_historie
+from c1_raeumzustand import RaeumKontext, pruefe_raeumzustand

@@ -22,13 +22,37 @@
       "SENSOR_STALE",
       "SENSOR_MISSING"
     ],
-    "faults": []
+    "faults": [],
+    "evaluation_ref": {
+      "robot_id": "RM02",
+      "producer_id": "synthetic-a-release",
+      "producer_boot_id": "synthetic-a-start",
+      "domain": "motion",
+      "evaluation_seq": 90
+    }
   },
   "motion": {
     "request": null,
     "output": {
+      "robot_id": "RM02",
+      "producer_id": "synthetic-drive-output",
+      "producer_boot_id": "synthetic-drive-start",
+      "output_seq": 90,
+      "time_basis_id": "synthetic-device-clock-0001",
+      "issued_mono_s": 1218.0,
       "v_m_s": 0.0,
-      "w_rad_s": 0.0
+      "w_rad_s": 0.0,
+      "request_ref": null,
+      "request_reason": "NO_REQUEST",
+      "evaluation_ref": {
+        "robot_id": "RM02",
+        "producer_id": "synthetic-a-release",
+        "producer_boot_id": "synthetic-a-start",
+        "domain": "motion",
+        "evaluation_seq": 90
+      },
+      "status": "valid",
+      "reason": null
     },
     "measured_v_m_s": {
       "value": null,
@@ -49,6 +73,104 @@
       "value": null,
       "status": "unknown",
       "source": null
+    },
+    "release": {
+      "owner_ref": {
+        "robot_id": "RM02",
+        "producer_id": "synthetic-a-release",
+        "producer_boot_id": "synthetic-a-start"
+      },
+      "decision_seq": 90,
+      "evaluation_ref": {
+        "robot_id": "RM02",
+        "producer_id": "synthetic-a-release",
+        "producer_boot_id": "synthetic-a-start",
+        "domain": "motion",
+        "evaluation_seq": 90
+      },
+      "time_basis_id": "synthetic-device-clock-0001",
+      "evaluated_mono_s": 1218.0,
+      "decision": "blocked",
+      "request_ref": null,
+      "request_reason": "NO_REQUEST",
+      "output_ref": {
+        "robot_id": "RM02",
+        "producer_id": "synthetic-drive-output",
+        "producer_boot_id": "synthetic-drive-start",
+        "output_seq": 90
+      },
+      "output_reason": null,
+      "status": "valid",
+      "reason": null
+    },
+    "blocks": {
+      "producer_id": "synthetic-a-release",
+      "producer_boot_id": "synthetic-a-start",
+      "seq": 90,
+      "evaluation_ref": {
+        "robot_id": "RM02",
+        "producer_id": "synthetic-a-release",
+        "producer_boot_id": "synthetic-a-start",
+        "domain": "motion",
+        "evaluation_seq": 90
+      },
+      "time_basis_id": "synthetic-device-clock-0001",
+      "evaluated_mono_s": 1218.0,
+      "entries": [
+        {
+          "block_ref": {
+            "robot_id": "RM02",
+            "producer_id": "synthetic-a-release",
+            "producer_boot_id": "synthetic-a-start",
+            "block_id": "SENSOR_STALE"
+          },
+          "code": "SENSOR_STALE",
+          "effect": "motion",
+          "frame_ref": null,
+          "time_basis_id": "synthetic-device-clock-0001",
+          "reported_mono_s": 1218.0,
+          "status": "valid",
+          "reason": null
+        },
+        {
+          "block_ref": {
+            "robot_id": "RM02",
+            "producer_id": "synthetic-a-release",
+            "producer_boot_id": "synthetic-a-start",
+            "block_id": "SENSOR_MISSING"
+          },
+          "code": "SENSOR_MISSING",
+          "effect": "motion",
+          "frame_ref": null,
+          "time_basis_id": "synthetic-device-clock-0001",
+          "reported_mono_s": 1218.0,
+          "status": "valid",
+          "reason": null
+        }
+      ],
+      "stop_latched": {
+        "value": false,
+        "status": "valid",
+        "reason": null
+      },
+      "fault_latched": {
+        "value": false,
+        "status": "valid",
+        "reason": null
+      },
+      "status": "valid",
+      "reason": null
+    },
+    "package_use": {
+      "mode": "current",
+      "reason": null,
+      "evaluation_ref": {
+        "robot_id": "RM02",
+        "producer_id": "synthetic-a-release",
+        "producer_boot_id": "synthetic-a-start",
+        "domain": "motion",
+        "evaluation_seq": 90
+      }
     }
   },
   "lane": {
@@ -66,7 +188,16 @@
     "maneuver": null,
     "maneuver_progress": null,
     "localization_status": "unknown",
-    "localization_quality": null
+    "localization_quality": null,
+    "history": {
+      "producer_id": null,
+      "producer_boot_id": null,
+      "time_basis_id": null,
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED",
+      "entries": null,
+      "dropped_entries": null
+    }
   },
   "traffic": {
     "signal_id": null,
@@ -234,5 +365,101 @@
       "age_s": null
     }
   ],
-  "time_basis_id": "synthetic-device-clock-0001"
+  "time_basis_id": "synthetic-device-clock-0001",
+  "arm": {
+    "request": null,
+    "output": null,
+    "release": {
+      "owner_ref": null,
+      "decision_seq": null,
+      "evaluation_ref": null,
+      "time_basis_id": null,
+      "evaluated_mono_s": null,
+      "command_ref": null,
+      "output_ref": null,
+      "decision": "unknown",
+      "command_reason": "COMMAND_REFERENCE_UNKNOWN",
+      "output_reason": "OUTPUT_UNKNOWN",
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "blocks": {
+      "producer_id": null,
+      "producer_boot_id": null,
+      "seq": null,
+      "evaluation_ref": null,
+      "time_basis_id": null,
+      "evaluated_mono_s": null,
+      "entries": null,
+      "stop_latched": {
+        "value": null,
+        "status": "unknown",
+        "reason": "NOT_INITIALIZED"
+      },
+      "fault_latched": {
+        "value": null,
+        "status": "unknown",
+        "reason": "NOT_INITIALIZED"
+      },
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "package_use": {
+      "mode": "unknown",
+      "reason": "NOT_INITIALIZED",
+      "evaluation_ref": null
+    },
+    "ack": null,
+    "measured": {
+      "measurements": null,
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    },
+    "load": {
+      "measurements": null,
+      "status": "unknown",
+      "reason": "NOT_INITIALIZED"
+    }
+  },
+  "clearing": {
+    "producer_id": null,
+    "producer_boot_id": null,
+    "time_basis_id": null,
+    "status": "unknown",
+    "reason": "NOT_INITIALIZED",
+    "phase": null,
+    "execution_status": null,
+    "result": null,
+    "operation_id": null,
+    "started_mono_s": null,
+    "updated_mono_s": null,
+    "object_ref": null,
+    "abort_reason": null,
+    "result_reason": null,
+    "interruption_reason": null,
+    "interrupted_mono_s": null,
+    "verification_ref": null,
+    "travel_pose_ref": null,
+    "observation": null,
+    "estimate": null
+  },
+  "camera_pose": {
+    "measurements": null,
+    "status": "unknown",
+    "reason": "NOT_INITIALIZED"
+  },
+  "protection": {
+    "policy_id": null,
+    "policy_version": null,
+    "evidence_ref": null,
+    "status": "unknown",
+    "reason": "NOT_INITIALIZED"
+  },
+  "sensor_requirements": {
+    "matrix_id": null,
+    "matrix_version": null,
+    "evidence_ref": null,
+    "status": "unknown",
+    "reason": "NOT_INITIALIZED"
+  }
 }

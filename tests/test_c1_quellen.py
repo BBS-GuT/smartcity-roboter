@@ -14,6 +14,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
+from c1_testbauwerte import lade_isoliertes_beispiel, synthetischer_raeumkontext
 
 FIXTURES = ROOT / 'tests' / 'fixtures' / 'grundbetrieb'
 # Explizite fachliche Pfade, unabhaengig von der Implementierung des Pruefers.
@@ -34,7 +35,7 @@ def kontrolle():
     insbesondere spaeter received_mono_s aus C1c. Keine gemessene Bewegung
     wird aus request/output gewonnen.
     """
-    d = V.lade_json((FIXTURES / 'fahrt.json').read_text(encoding='utf-8'))
+    d = lade_isoliertes_beispiel((FIXTURES / 'fahrt.json').read_text(encoding='utf-8'))
     board = copy.deepcopy(d['sensors']['imu'])
     board.update(source_id='synthetic/board/voltage', frame_id=None, coord_frame=None)
     d['sensors']['board'] = board
@@ -151,18 +152,19 @@ class Messwertquellen(unittest.TestCase):
                         self.abgelehnt(d, bereich, feld)
 
     def test_fahrbefehl_ersetzt_keine_fehlende_messung(self):
-        d = copy.deepcopy(self.d)
+        kontext = synthetischer_raeumkontext()
+        d = V.lade_json((FIXTURES / 'fahrt.json').read_text(encoding='utf-8'), raeum_kontext=kontext)
         for feld in ('measured_v_m_s', 'measured_w_rad_s'):
             d['motion'][feld].update(value=None, status='missing', source=None)
         self.assertNotEqual(d['motion']['output']['v_m_s'], 0)
         vorher = copy.deepcopy(d)
-        self.assertEqual(V.pruefe(d), [])
-        self.assertEqual(V.lade_json(V.als_json(d)), vorher)
+        self.assertEqual(V.pruefe(d, raeum_kontext=kontext), [])
+        self.assertEqual(V.lade_json(V.als_json(d, raeum_kontext=kontext), raeum_kontext=kontext), vorher)
         self.assertEqual(d, vorher)
 
     def test_alle_fixtures_verwenden_registrierte_messwertquellen(self):
         for datei in sorted(FIXTURES.glob('*.json')):
-            d = V.lade_json(datei.read_text(encoding='utf-8'))
+            d = lade_isoliertes_beispiel(datei.read_text(encoding='utf-8'))
             for bereich, feld, _, _ in MESSWERTE:
                 m = d[bereich][feld]
                 if m['status'] == 'valid':

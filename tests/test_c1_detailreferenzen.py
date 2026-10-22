@@ -46,6 +46,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / 'tests' / 'fixtures' / 'c1_details'
 sys.path.insert(0, str(ROOT / 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
+from c1_testbauwerte import neutralisiere
 
 
 def read_fixture(name):
@@ -352,6 +353,7 @@ class DetailLaufzeit(unittest.TestCase):
                          received_mono_s=V.sekunden_aus_ns(104950000000),
                          age_s=V.sekunden_aus_ns(100000000))
         d['sensors'].update(copy.deepcopy(self.state['sensors']))
+        neutralisiere(d)
         d['details'] = [copy.deepcopy(detail) for detail in details]
         return d
 

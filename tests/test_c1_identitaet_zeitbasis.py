@@ -10,6 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import grundbetrieb_vertrag as V
+from c1_testbauwerte import lade_isoliertes_beispiel
 try:
     import jsonschema
 except ImportError:
@@ -17,7 +18,7 @@ except ImportError:
 
 
 def beispiel():
-    return V.lade_json((ROOT / 'tests/fixtures/grundbetrieb/fahrt.json').read_text(encoding='utf-8'))
+    return lade_isoliertes_beispiel((ROOT / 'tests/fixtures/grundbetrieb/fahrt.json').read_text(encoding='utf-8'))
 
 
 class IdentitaetUndUhr(unittest.TestCase):

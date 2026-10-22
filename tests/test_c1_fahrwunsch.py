@@ -16,6 +16,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
+from c1_testbauwerte import lade_isoliertes_beispiel
 import c1_fahrwunsch as R  # noqa: E402
 
 FIXTURES = ROOT / 'tests' / 'fixtures' / 'c1_requests'
@@ -362,7 +363,7 @@ class SchemaUndEinbettung(unittest.TestCase):
         self.assertTrue(list(self.validator(separate).iter_errors(bad)))
 
     def test_oeffentlicher_zustands_json_erhaelt_request_unveraendert(self):
-        state = V.lade_json((ROOT / 'tests/fixtures/grundbetrieb/test.json').read_text())
+        state = lade_isoliertes_beispiel((ROOT / 'tests/fixtures/grundbetrieb/test.json').read_text())
         d = fixture('frist120')
         state['motion']['request'] = copy.deepcopy(d)
         self.assertEqual(V.pruefe(state), [])
@@ -382,7 +383,7 @@ class SchemaUndEinbettung(unittest.TestCase):
         self.assertEqual(V.pruefe(state), [])
 
     def test_eingebettet_und_separat_weisen_fehlende_requestfelder_zurueck(self):
-        state = V.lade_json((ROOT / 'tests/fixtures/grundbetrieb/test.json').read_text())
+        state = lade_isoliertes_beispiel((ROOT / 'tests/fixtures/grundbetrieb/test.json').read_text())
         for field in FIELDS:
             with self.subTest(field=field):
                 d = fixture('frist120')

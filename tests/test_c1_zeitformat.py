@@ -14,9 +14,10 @@ from unittest.mock import patch
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 import grundbetrieb_vertrag as V  # noqa: E402
+from c1_testbauwerte import lade_isoliertes_beispiel
 
 with open(os.path.join(HIER, 'fixtures', 'grundbetrieb', 'test.json')) as datei:
-    BEISPIEL = V.lade_json(datei.read())
+    BEISPIEL = lade_isoliertes_beispiel(datei.read())
 
 
 class UtcKalender(unittest.TestCase):
