@@ -4,31 +4,38 @@
 # Idee in einem Satz: Die Kinematik rechnet aus, wohin der Greifer muss (Zielpunkt). Weil Masse, Servos und
 # Kamera nie ganz genau stimmen, greift er trotzdem etwas daneben. Darum zielt er auf
 #     Zielpunkt + Korrektur
-# und die Korrektur (dx vorne, dy links, dz hoch, in m) LERNT er aus seinen Greifversuchen.
+# und die Korrektur (dx vorne, dy links, dz hoch, in m) LERNT er aus seinen Greifversuchen - und zwar
+# ABHAENGIG VON DER LAGE des Gegenstands (weiter vorne/hinten, links/rechts). Grund: Ein Fehler der Kamera
+# (Massstab, Neigung) oder des Arms (Durchhaengen, Servo-Nullpunkt) wirkt vorne anders als hinten, links
+# anders als rechts. Eine feste Grundkorrektur gleicht das nur in der Mitte aus.
 #
 # Fachbegriffe kurz: "Reinforcement Learning" = Lernen durch Ausprobieren und Belohnung (Erfolg/Misserfolg)
 # statt durch vorgerechnete Loesungen. Hier in einer kleinen, nachvollziehbaren Form ("Bayes-Lernen mit
-# Thompson-Sampling", ein "kontextueller Bandit"):
+# Thompson-Sampling", ein "kontextueller Bandit"; gerechnet mit "Importance Sampling" = gewichteten Stichproben):
 #
-#   Er hat eine Liste mit ca. 2600 VERMUTUNGEN, welche Korrektur die richtige ist (ein Gitter: -4..+4 cm
-#   vorne/seitlich, -2..+2 cm hoch, alle 5 mm). Jede Vermutung hat eine Wahrscheinlichkeit.
-#   1. Vorher (Vorwissen): Vermutungen nahe am Vortraining sind wahrscheinlich, weit weg unwahrscheinlich.
+#   Korrektur = Vortraining (W0 * Merkmale)  +  c  +  B * (vorne, seitlich)
+#   c = gelernte Grundkorrektur (3 Zahlen), B = gelernte Lageabhaengigkeit (3 x 2 Zahlen) -> 9 Unbekannte.
+#   Er hat 3000 VERMUTUNGEN (Stichproben) fuer diese 9 Zahlen, jede mit einem Gewicht (= wie wahrscheinlich).
+#   1. Vorher (Vorwissen): c streut wie im Vortraining gemessen, B ist klein (hoechstens einige mm je 5 cm).
 #   2. Ausprobieren: Er zieht zufaellig eine Vermutung - wahrscheinliche oefter - und zielt damit.
 #      So probiert er am Anfang verschiedene Korrekturen aus und wird sicherer, je mehr er weiss.
-#      Nie weiter als die Grenzen des Gitters (sichere, begrenzte Exploration).
-#   3. Belohnung: Nach dem Wegraeumen prueft die Kamera den Weg. Frei = Erfolg, liegt noch da = Misserfolg.
-#   4. Lernen (Satz von Bayes): Erfolg -> alle Vermutungen, bei denen dieser Versuch auch geklappt haette
-#      (Greifer innerhalb der Greiferoeffnung um den Wuerfel), werden wahrscheinlicher. Misserfolg -> genau
-#      diese werden unwahrscheinlicher. Ein einzelner Fehlversuch zaehlt nicht voll (er kann auch Pech sein).
-#      Aeltere Versuche zaehlen etwas weniger (falls sich am Arm etwas veraendert).
+#      Nie weiter als +-4 cm (vorne/seitlich) bzw. +-2 cm (hoch) vom Vortraining (sichere Grenzen).
+#   3. Belohnung (genauer als frueher nur "Weg frei?"): gegriffen (Gegenstand weg UND an der Ablage) /
+#      verschoben (beruehrt, aber nicht gefasst = knapp daneben) / unberuehrt (liegt unveraendert da) /
+#      daneben (nur "nicht frei" bekannt, Grundbetrieb).
+#   4. Lernen (Satz von Bayes): Jede Vermutung wird danach gewichtet, wie gut sie ALLE gemerkten Versuche
+#      erklaert: Bei "gegriffen" passen die Vermutungen, bei denen der Greifer innerhalb der Greiferoeffnung
+#      um den Gegenstand gelandet waere; bei "verschoben" die, bei denen eine Backe ihn knapp getroffen haette.
+#      Ein einzelner Versuch zaehlt nicht voll (kann Pech sein), aeltere zaehlen etwas weniger. Danach werden
+#      neue Vermutungen dort gezogen, wo die guten liegen (mehrere Runden), damit es mit 9 Zahlen genau wird.
 #   Ohne Ausprobieren (z. B. beim Pruefen) nimmt er den Mittelwert aller Vermutungen.
-#   Hat der letzte Versuch geklappt, wiederholt er meist genau diese Korrektur ("Gewinner bleibt", WIEDERHOLEN).
-# Wie die Korrektur von der Lage des Wuerfels abhaengt (weiter vorne/seitlich/hoeher), lernt das
-# Vortraining (Ausgleichsgerade = lineare Regression), auf dem Roboter wird nur die Grundkorrektur gelernt.
+#   Hat der letzte Versuch geklappt, wiederholt er meist diese Korrektur ("Gewinner bleibt", WIEDERHOLEN).
+# Alles ist aus den gemerkten Versuchen und einer festen Zufallszahl (SAAT) berechnet: nach einem Neustart
+# kommt aus denselben Versuchen genau derselbe Lernstand heraus.
 #
 # Vortraining: im Simulator (sim/greifen_trainieren.py) an hunderten zufaellig veraenderten Uebungsrobotern
 # ("Domain Randomization": andere Armmasse, Servo-Nullpunkte, Durchhaengen, Kamera-Lage, Rauschen ...).
-# Es lernt: was bei allen Robotern gleich daneben geht (Mittel) und wie verschieden sie sind (Streuung =
+# Es lernt: was bei allen Robotern gleich daneben geht (W0) und wie verschieden sie sind (Streuung =
 # wie breit er auf einem neuen Roboter anfangs suchen muss). Ergebnis: models/greifen.json (im Repository).
 # Auf dem Roboter lernt er weiter: config/lokal/greifen.json (nicht im Repository, bleibt bei Updates).
 # "Gelerntes zuruecksetzen" (Panel -> Arm) loescht diese Datei -> zurueck zum Vortraining.
@@ -47,24 +54,23 @@ Z_MIN = 0.006           # Greifermitte nie tiefer als 6 mm ueber dem Boden (sons
 OEFFNUNG = 0.085        # so weit ist der Greifer offen (m, geschaetzt) -> so viel darf er danebenliegen
 ERKUNDEN_ANTEIL = 0.4    # beim Ausprobieren hoechstens so viel des Spielraums von der besten Korrektur abweichen
 NAEHER_MAX = 0.15       # so weit faehrt er hoechstens blind naeher heran, wenn der Arm nicht hinreicht (m)
-# Gitter der Vermutungen (m): vorne, links, hoch
-GITTER_XY, GITTER_Z, SCHRITT = 0.04, 0.02, 0.005
+GRENZE = np.array([0.04, 0.04, 0.02])   # gelernte Korrektur nie weiter als so weit vom Vortraining (m)
 STREUUNG_START = np.array([0.012, 0.012, 0.007])   # Vorwissen ohne Vortraining: so unsicher (m)
+STEIGUNG_START = 0.01   # Vorwissen: so stark aendert sich die Korrektur etwa je 5 cm Lage (m, Streuung)
+LAGE = (1, 2)           # Merkmale, von denen die gelernte Korrektur abhaengt: weiter vorne, weiter links
 P_TREFFER, P_DANEBEN = 0.92, 0.06   # Wahrscheinlichkeit fuer Erfolg, wenn die Vermutung stimmt / nicht stimmt
+P_KNAPP, P_ANSTOSSEN = 0.6, 0.05    # "verschoben", wenn eine Backe ihn knapp trifft / sonst (Rutschen, Pech)
+KNAPP = 0.015           # Backe trifft den Gegenstand: bis so weit ausserhalb des Spielraums (m, Backenbreite)
 WEICH = 0.003           # Rand der Greiferoeffnung ist nicht scharf (Messrauschen), m
 VERGESSEN = 0.985       # Gewicht eines Versuchs sinkt mit jedem neueren Versuch
 SPEICHER = 150          # so viele Versuche merkt er sich
 WIEDERHOLEN = 0.7       # nach einem Erfolg: so oft dieselbe Korrektur nochmal (sonst neu ziehen)
-
-
-def _gitter():
-    xy = np.arange(-GITTER_XY, GITTER_XY + 1e-9, SCHRITT)
-    z = np.arange(-GITTER_Z, GITTER_Z + 1e-9, SCHRITT)
-    gx, gy, gz = np.meshgrid(xy, xy, z, indexing='ij')
-    return np.column_stack([gx.ravel(), gy.ravel(), gz.ravel()])
-
-
-GITTER = _gitter()
+STICHPROBEN, RUNDEN, SAAT = 3000, 5, 2026   # Vermutungen, Verfeinerungsrunden, feste Zufallszahl
+# Ergebnis eines Versuchs (letzte Zahl je gemerktem Versuch)
+DANEBEN, GEGRIFFEN, VERSCHOBEN, UNBERUEHRT = 0.0, 1.0, 2.0, 3.0
+ERGEBNISSE = {True: GEGRIFFEN, False: DANEBEN, 'gegriffen': GEGRIFFEN, 'abgelegt': GEGRIFFEN,
+              'verloren': GEGRIFFEN,      # war gefasst, unterwegs verloren: Greifpunkt stimmte
+              'verschoben': VERSCHOBEN, 'unberuehrt': UNBERUEHRT, 'daneben': DANEBEN}
 
 
 def merkmale(obj):
@@ -111,15 +117,22 @@ def _sig(x):
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))
 
 
+def _rund(x):
+    """Zahlen so gerundet, wie sie gespeichert werden: Speicher und Datei sind gleich (Neustart = gleicher Stand)."""
+    return [round(float(v), 5) for v in x]
+
+
 class Politik:
     """Greif-Politik = welche Korrektur fuer welchen Wuerfel. Ein Modell je Kinematik ('eigene' = echter Roboter
     mit eigener Rechnung, 'yahboom' = mit Yahbooms Dienst, 'sim' = ROS-Simulator), weil alle anders danebengreifen.
-    W: 3 x 4 Zahlen = Korrektur = W * merkmale(Wuerfel). Spalte 0 = Grundkorrektur (wird auf dem Roboter
-    gelernt), Spalten 1-3 = Abhaengigkeit von der Lage (aus dem Vortraining)."""
+    W: 3 x 4 Zahlen, Korrektur = W * merkmale(Wuerfel). Gelernt werden Spalte 0 (Grundkorrektur) und die
+    Spalten 1-2 (Abhaengigkeit von vorne/seitlich); Spalte 3 (Hoehe) kommt nur aus dem Vortraining."""
 
-    def __init__(self, schluessel='eigene', lokal=LOKAL, vortrainiert=VORTRAINIERT, modell=None):
-        """lokal/vortrainiert: Dateien (None = keine). modell: {'W', 'streuung'} statt der vortrainierten Datei."""
+    def __init__(self, schluessel='eigene', lokal=LOKAL, vortrainiert=VORTRAINIERT, modell=None, lage=True):
+        """lokal/vortrainiert: Dateien (None = keine). modell: {'W', 'streuung'} statt der vortrainierten Datei.
+        lage=False: nur die feste Grundkorrektur lernen (wie bis Oktober 2026, zum Vergleich)."""
         self.schluessel, self.lokal, self.vortrainiert, self.modell = schluessel, lokal, vortrainiert, modell
+        self.lage = tuple(LAGE) if lage else ()
         self.laden()
 
     # ---------------------------------------------------------------- Datei
@@ -134,7 +147,8 @@ class Politik:
         else:
             self.W0, self.streuung0, self.herkunft = np.zeros((3, 4)), STREUUNG_START.copy(), 'ohne Vortraining'
         m = eigen or {}
-        self.speicher = [list(map(float, x)) for x in m.get('speicher', [])]   # [phi(4), a(3), r, zlo, zhi, erfolg]
+        # [phi(4), a(3), r, zlo, zhi, ergebnis]; aeltere Dateien (nur Erfolg 1/0) passen genauso
+        self.speicher = [_rund(x[:11]) for x in m.get('speicher', []) if len(x) >= 11]
         self.verlauf = list(m.get('verlauf', []))   # 1 / 0 je Versuch (die letzten 200)
         self.versuche, self.erfolge = int(m.get('versuche', 0)), int(m.get('erfolge', 0))
         if eigen:
@@ -143,25 +157,32 @@ class Politik:
 
     def als_dict(self):
         return {'W': np.round(self.W, 5).tolist(), 'unsicher_cm': np.round(self.unsicher * 100, 2).tolist(),
-                'speicher': [[round(v, 5) for v in x] for x in self.speicher[-SPEICHER:]],
-                'verlauf': self.verlauf[-200:], 'versuche': self.versuche, 'erfolge': self.erfolge,
+                'speicher': self.speicher[-SPEICHER:], 'verlauf': self.verlauf[-200:], 'versuche': self.versuche,
+                'erfolge': self.erfolge, 'verfahren': 'lageabhaengig (Bayes, Stichproben)',
                 'geaendert': time.strftime('%Y-%m-%d %H:%M:%S')}
 
     def speichern(self):
+        """Nach JEDEM Versuch: erst eine Hilfsdatei fertig schreiben, dann umbenennen (Strom weg = alte Datei bleibt,
+        nie eine halbe). Andere Modelle in derselben Datei bleiben erhalten."""
         if not self.lokal:
             return
         daten = _lies(self.lokal)
+        if not daten and os.path.exists(self.lokal):
+            # vorhanden, aber unlesbar: nicht einfach ueberschreiben (andere Modelle waeren weg) -> Sicherung
+            os.replace(self.lokal, self.lokal + time.strftime('.kaputt_%Y%m%d_%H%M%S'))
         daten.setdefault('modelle', {})[self.schluessel] = self.als_dict()
         daten['hinweis'] = ('Auf diesem Roboter gelerntes Greifen (lib/greifen.py). Loeschen = zurueck zum '
                             'Vortraining (models/greifen.json). Panel -> Arm -> "Gelerntes zuruecksetzen".')
-        os.makedirs(os.path.dirname(self.lokal), exist_ok=True)
+        os.makedirs(os.path.dirname(os.path.abspath(self.lokal)), exist_ok=True)
         tmp = self.lokal + '.neu'
         with open(tmp, 'w') as f:
             json.dump(daten, f, indent=1)
-        os.replace(tmp, self.lokal)      # erst fertig schreiben, dann tauschen (Strom weg = alte Datei bleibt)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.lokal)
 
     def zuruecksetzen(self):
-        """Gelerntes dieses Roboters vergessen (zurueck zum Vortraining)."""
+        """Gelerntes dieses Roboters vergessen (zurueck zum Vortraining). Nur bewusst aufrufen (Panel-Knopf)."""
         if self.lokal and os.path.exists(self.lokal):
             daten = _lies(self.lokal)
             (daten.get('modelle') or {}).pop(self.schluessel, None)
@@ -174,51 +195,114 @@ class Politik:
         self.laden()
 
     # ---------------------------------------------------------------- Rechnen (Satz von Bayes)
+    def _vorhersage(self, th, phi):
+        """Korrektur je Vermutung th (N x 9) fuer Merkmale phi (T x 4) -> N x T x 3."""
+        aus = (phi @ self.W0.T)[None] + th[:, None, :3]
+        if self.lage:
+            # um die mittlere Lage der gemerkten Versuche (self.bezug): c = Korrektur dort, B = Aenderung je 5 cm.
+            # So haengen c und B kaum voneinander ab -> schneller und genauer gelernt
+            B = th[:, 3:].reshape(-1, 3, len(self.lage))
+            aus = aus + np.einsum('nkj,tj->ntk', B, phi[:, list(self.lage)] - self.bezug)
+        return aus
+
+    def _log_wahrscheinlichkeit(self, th):
+        """Wie gut erklaert jede Vermutung alle gemerkten Versuche? (log, N Werte)"""
+        s = np.array(self.speicher, dtype=float)
+        phi, a, r, zlo, zhi, erg = s[:, :4], s[:, 4:7], s[:, 7], s[:, 8], s[:, 9], s[:, 10]
+        e = a[None] - self._vorhersage(th, phi)      # so weit haette er bei dieser Vermutung danebengelegen
+        d = np.hypot(e[..., 0], e[..., 1]) - r        # > 0: ausserhalb des Spielraums
+        hoehe_ok = _sig((e[..., 2] - zlo) / WEICH) * _sig((zhi - e[..., 2]) / WEICH)
+        drin = _sig(-d / WEICH) * hoehe_ok
+        knapp = _sig(d / WEICH) * _sig((KNAPP - d) / WEICH) * hoehe_ok
+        p_t = P_DANEBEN + (P_TREFFER - P_DANEBEN) * drin
+        p_v = np.minimum(P_ANSTOSSEN + (P_KNAPP - P_ANSTOSSEN) * knapp, 0.98 - p_t)
+        p = np.where(erg == GEGRIFFEN, p_t, np.where(erg == VERSCHOBEN, p_v,
+                                                    np.where(erg == UNBERUEHRT, 1.0 - p_t - p_v, 1.0 - p_t)))
+        gewicht = VERGESSEN ** np.arange(len(s) - 1, -1, -1)
+        return (np.log(np.maximum(p, 1e-6)) * gewicht).sum(axis=1)
+
     def _rechnen(self):
-        """Wahrscheinlichkeit jeder Vermutung (Grundkorrektur c) aus Vorwissen und allen gemerkten Versuchen."""
-        c = GITTER + self.W0[:, 0]                      # Gitter um das Vorwissen herum
-        logp = -0.5 * (((c - self.W0[:, 0]) / self.streuung0) ** 2).sum(axis=1)
-        n = len(self.speicher)
-        for i, x in enumerate(self.speicher):
-            phi, a, r, zlo, zhi, erfolg = np.array(x[:4]), np.array(x[4:7]), x[7], x[8], x[9], x[10]
-            e = a - (c + self.W0[:, 1:] @ phi[1:])       # so weit haette er bei dieser Vermutung danebengelegen
-            drin = _sig((r - np.hypot(e[:, 0], e[:, 1])) / WEICH) * _sig((e[:, 2] - zlo) / WEICH) * _sig((zhi - e[:, 2]) / WEICH)
-            p = P_DANEBEN + (P_TREFFER - P_DANEBEN) * drin
-            logp += VERGESSEN ** (n - 1 - i) * np.log(p if erfolg > 0.5 else 1.0 - p)
-        w = np.exp(logp - logp.max())
-        self.c, self.p = c, w / w.sum()
-        mitte = self.p @ c
-        self.unsicher = np.sqrt(self.p @ (c - mitte) ** 2)
+        """Gewichtete Vermutungen aus Vorwissen und allen gemerkten Versuchen (adaptives Importance Sampling:
+        Vermutungen ziehen, gewichten, dort neu ziehen, wo die guten liegen; RUNDEN mal)."""
+        rng = np.random.default_rng(SAAT)
+        s = np.array(self.speicher, dtype=float).reshape(-1, 11)
+        self.bezug = s[:, list(self.lage)].mean(axis=0) if len(s) and self.lage else np.zeros(len(self.lage))
+        sd0 = np.concatenate([self.streuung0, np.full(3 * len(self.lage), STEIGUNG_START)])
+        n, dim = STICHPROBEN, len(sd0)
+        mu, cov = np.zeros(dim), np.diag(sd0 ** 2)
+        runden = RUNDEN if self.speicher else 1
+        for runde in range(runden):
+            # Vorschlag: 85 % um die bisher besten Vermutungen (breiter gestreut), 15 % aus dem Vorwissen
+            # (damit nichts verloren geht, falls die bisherigen Vermutungen alle falsch liegen)
+            breit = cov * (1.0 if runde == 0 else 2.0) + np.eye(dim) * 1e-8
+            L = np.linalg.cholesky(breit)
+            k = n if runde == 0 else int(0.85 * n)
+            th = np.vstack([mu + rng.standard_normal((k, dim)) @ L.T, rng.standard_normal((n - k, dim)) * sd0])
+            log_vorwissen = -0.5 * ((th / sd0) ** 2).sum(axis=1) - np.log(sd0).sum()
+            if runde == 0:
+                log_vorschlag = log_vorwissen
+            else:
+                z = np.linalg.solve(L, (th - mu).T)
+                log_q = -0.5 * (z ** 2).sum(axis=0) - np.log(np.diag(L)).sum()
+                log_vorschlag = np.logaddexp(np.log(0.85) + log_q, np.log(0.15) + log_vorwissen)
+            logw = log_vorwissen - log_vorschlag
+            if self.speicher:
+                logw = logw + self._log_wahrscheinlichkeit(th)
+            w = np.exp(logw - logw.max())
+            w /= w.sum()
+            mu = w @ th
+            diff = th - mu
+            cov = (diff * w[:, None]).T @ diff + np.diag((sd0 * 0.02) ** 2)
+        if not self.speicher:              # nichts gelernt: genau das Vorwissen (nicht der Zufall der Stichproben)
+            mu, cov = np.zeros(dim), np.diag(sd0 ** 2)
+        self.th, self.p = th, w
+        self.anteil_wirksam = float(1.0 / (w ** 2).sum() / n)   # wie viele Vermutungen wirklich zaehlen
+        self.mitte_th = np.clip(mu, *self._grenzen())
+        self.unsicher = np.sqrt(np.diag(cov)[:3])
         self.W = self.W0.copy()
-        self.W[:, 0] = mitte
+        self.W[:, 0] += self.mitte_th[:3]
+        if self.lage:
+            B = self.mitte_th[3:].reshape(3, len(self.lage))
+            self.W[:, 0] -= B @ self.bezug
+            self.W[:, list(self.lage)] += B
+
+    def _grenzen(self):
+        """Sichere Grenzen der gelernten Zahlen: Grundkorrektur +-GRENZE, Lageabhaengigkeit +-GRENZE/2 je 5 cm."""
+        hoch = np.concatenate([GRENZE, np.repeat(GRENZE / 2, len(self.lage))])
+        return -hoch, hoch
 
     # ---------------------------------------------------------------- Handeln
     def vorschlag(self, obj, rng=None, erkunden=True):
-        """(Korrektur, beste Korrektur) fuer diesen Wuerfel. erkunden=True: Vermutung zufaellig ziehen."""
+        """(Korrektur, beste Korrektur) fuer diesen Wuerfel. erkunden=True: Vermutung zufaellig ziehen.
+        Nie weiter als GRENZE vom Vortraining (W0 * Merkmale)."""
         phi = merkmale(obj)
+        basis = self.W0 @ phi
         mitte = self.W @ phi
         if not erkunden:
             return mitte, mitte
         rng = rng if rng is not None else np.random.default_rng()
-        if self.speicher and self.speicher[-1][10] > 0.5 and rng.random() < WIEDERHOLEN:
-            # "Was gerade geklappt hat, wiederholen": letzter Versuch war ein Erfolg -> meist dieselbe
-            # Grundkorrektur nochmal (angepasst an die Lage dieses Wuerfels). Ab und zu trotzdem etwas Neues,
+        if self.speicher and self.speicher[-1][10] == GEGRIFFEN and rng.random() < WIEDERHOLEN:
+            # "Was gerade geklappt hat, wiederholen": letzter Versuch gegriffen -> meist dieselbe Abweichung vom
+            # gelernten Mittel nochmal (an die Lage dieses Gegenstands angepasst). Ab und zu trotzdem etwas Neues,
             # sonst lernt er die genaue Korrektur nie (Ausprobieren gegen Ausnutzen).
             x = self.speicher[-1]
-            alt = np.array(x[4:7]) - self.W0[:, 1:] @ np.array(x[1:4])
-            return alt + self.W0[:, 1:] @ phi[1:], mitte
-        k = rng.choice(len(self.p), p=self.p)
-        return self.c[k] + self.W0[:, 1:] @ phi[1:], mitte
+            a = mitte + (np.array(x[4:7]) - self.W @ np.array(x[:4]))
+        else:
+            k = rng.choice(len(self.p), p=self.p)
+            a = self._vorhersage(self.th[k:k + 1], phi[None])[0, 0]
+        return basis + np.clip(a - basis, -GRENZE, GRENZE), mitte
 
     def ergebnis(self, obj, korrektur, erfolg):
-        """Ergebnis eines Greifversuchs merken und daraus lernen. obj: gemessener Wuerfel (vor, seite, breite, hoehe)."""
+        """Ergebnis eines Greifversuchs merken und daraus lernen. obj: gemessener Gegenstand (vor, seite, breite,
+        hoehe); korrektur: wirklich angefahrene Korrektur (m); erfolg: True/False (gegriffen ja/nein) oder genauer
+        'abgelegt' | 'verloren' | 'verschoben' | 'unberuehrt' | 'daneben' (siehe ERGEBNISSE)."""
+        code = ERGEBNISSE[erfolg]
         r, zlo, zhi = spielraum(obj)
-        self.speicher.append(list(map(float, merkmale(obj))) + list(map(float, korrektur)) +
-                             [float(r), float(zlo), float(zhi), 1.0 if erfolg else 0.0])
+        self.speicher.append(_rund(list(merkmale(obj)) + list(korrektur) + [r, zlo, zhi, code]))
         self.speicher = self.speicher[-SPEICHER:]
         self.versuche += 1
-        self.erfolge += bool(erfolg)
-        self.verlauf = (self.verlauf + [1 if erfolg else 0])[-200:]
+        self.erfolge += code == GEGRIFFEN
+        self.verlauf = (self.verlauf + [1 if code == GEGRIFFEN else 0])[-200:]
         self._rechnen()
 
     # ---------------------------------------------------------------- Anzeige
@@ -228,10 +312,14 @@ class Politik:
 
     def lernstand(self):
         q = self.quote()
+        steigung = (self.W[:, list(LAGE)] - self.W0[:, list(LAGE)]) * 100
         return {'modell': self.schluessel, 'herkunft': self.herkunft, 'versuche': self.versuche,
                 'erfolge': self.erfolge, 'quote_letzte_20': None if q is None else round(q, 2),
                 'korrektur_cm': [round(float(v) * 100, 1) for v in self.W[:, 0]],
-                'unsicher_cm': [round(float(v) * 100, 2) for v in self.unsicher]}
+                'unsicher_cm': [round(float(v) * 100, 2) for v in self.unsicher],
+                # gelernt: so viel aendert sich die Korrektur (vorne/links/hoch, cm) je 5 cm weiter vorne / links
+                'lage_cm_je_5cm': {'vorne': [round(float(v), 2) for v in steigung[:, 0]],
+                                   'links': [round(float(v), 2) for v in steigung[:, 1]]}}
 
 
 def lernstand_dateien(lokal=LOKAL, vortrainiert=VORTRAINIERT):
@@ -257,10 +345,12 @@ def _merke(ik):
     return neu
 
 
-def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, boden=0.0, erkunden=True, anlegen=None):
+def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, boden=0.0, erkunden=True, anlegen=None,
+          ablage=None):
     """Armbewegung zum Wegraeumen: Zielpunkt (Messung) + gelernte Korrektur -> Servowinkel (ik).
     punkt: Zielpunkt schon umgerechnet (Yahboom-Kinematik), sonst aus obj. boden: Hoehe des Bodens im System
-    der Kinematik. Rueckgabe wie arm.plane_wegraeumen, zusaetzlich 'lernen' (fuer politik.ergebnis) und
+    der Kinematik. ablage: feste Ablagestelle (x, y) im Roboter-System (Arm-Gehirn) statt der Suche neben der
+    Strasse. fahr: Pose, in die der Arm am Ende zurueckfaehrt. Rueckgabe wie arm.plane_wegraeumen, zusaetzlich 'lernen' (fuer politik.ergebnis) und
     'korrektur' (m). Erreicht der Arm den korrigierten Punkt nicht, nimmt er die beste Korrektur ohne
     Streuung, dann gar keine."""
     import arm as armlib
@@ -269,8 +359,9 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
     # Ablagestellen sind im Roboter-System gedacht; rechnet die Kinematik in einem anderen System (Yahboom:
     # base_link), um denselben Versatz verschieben wie den Greifpunkt. Belegte Stellen (LiDAR) fallen weg.
     versatz = basis[:2] - greifpunkt(obj)[:2] if punkt is not None else np.zeros(2)
-    ablagen = [(x + float(versatz[0]), y + float(versatz[1]), z)
-               for x, y, z in armlib.ablagestellen(seite, boden + h / 2 + 0.01, obj.get('belegt'))]
+    stellen = ([(ablage[0], ablage[1], boden + h / 2 + 0.01)] if ablage is not None
+               else armlib.ablagestellen(seite, boden + h / 2 + 0.01, obj.get('belegt')))
+    ablagen = [(x + float(versatz[0]), y + float(versatz[1]), z) for x, y, z in stellen]
     ik = _merke(ik)
     versuche = [np.zeros(3)]
     if politik is not None:
@@ -288,12 +379,14 @@ def plane(obj, seite, ik, fahr, auf, zu, politik=None, rng=None, punkt=None, bod
         plan = armlib.plane_wegraeumen(ik, tuple(float(v) for v in g), ablagen, h, fahr, auf, zu, anlegen)
         if not plan.get('fehler'):
             plan['schritte'] = armlib.begrenze_tempo(plan['schritte'], fahr)
-            plan['korrektur'] = [float(v) for v in a]
+            # wirklich angefahrene Korrektur (nach Z_MIN): sonst lernt er aus einem Punkt, den er nie angefahren hat
+            plan['korrektur'] = [float(v) for v in g - basis]
             plan['ziel'] = [float(v) for v in g]
             if politik is not None:
                 plan['lernen'] = {'modell': politik.schluessel, 'a': plan['korrektur'],
                                   'obj': {k: float(obj[k]) for k in ('vor', 'seite', 'breite', 'hoehe')}}
-                plan['info'] += (f", gelernte Korrektur {a[0] * 100:+.1f} / {a[1] * 100:+.1f} / {a[2] * 100:+.1f} cm")
+                k = plan['korrektur']
+                plan['info'] += (f", gelernte Korrektur {k[0] * 100:+.1f} / {k[1] * 100:+.1f} / {k[2] * 100:+.1f} cm")
             return plan
         if plan.get('ablage_fehlt'):
             return plan       # greifen ginge, ablegen nicht: naeher heranfahren hilft da nicht

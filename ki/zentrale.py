@@ -149,6 +149,8 @@ class Zentrale(Node):
         self.eigene_kin, self.kin_quelle = armlib.lade_kinematik_mit_quelle(urdf_suchen=bool(self.arm and self.arm.echt))
         self.eigenes_modell = str(einst.get('greif_modell', 'eigene'))     # Simulator: 'sim'
         self.politik = {}
+        self.letztes_modell = self.eigenes_modell   # mit welchem Modell zuletzt geplant wurde (fuers Panel)
+        self.kin_wahl = None                        # 'yahboom' | 'eigene': beim ersten Plan festgelegt, dann fest
         self.yahboom_kin = None
         if self.arm is not None and self.arm.echt:
             try:
@@ -289,7 +291,7 @@ class Zentrale(Node):
         pol.ergebnis(l['obj'], l['a'], erfolg)
         pol.speichern()
         q = pol.quote()
-        return (f"Greifversuch {pol.versuche}: {'Erfolg' if erfolg else 'daneben'}, Erfolgsquote "
+        return (f"Greifversuch {pol.versuche} (Modell {l['modell']}): {'Erfolg' if erfolg else 'daneben'}, Erfolgsquote "
                 f"{q * 100:.0f} % (letzte {min(20, len(pol.verlauf))}), Korrektur jetzt "
                 f"{pol.W[0, 0] * 100:+.1f} / {pol.W[1, 0] * 100:+.1f} / {pol.W[2, 0] * 100:+.1f} cm")
 
@@ -684,7 +686,7 @@ class Zentrale(Node):
             'arm_erlaubt': self.entscheider.arm_freigabe,
             'arm_status': self.entscheider.warum_kein_arm() or 'bereit (KI darf wegraeumen)',
             'kinematik': self.kinematik_text(),
-            'greifen': self._politik(self.eigenes_modell).lernstand(),
+            'greifen': self._politik(self.letztes_modell).lernstand(),
             'zebra': w.get('zebra'), 'einfahrt_verboten': w.get('einfahrt_verboten', False),
             'kamera_ok': kamera_ok, 'kamera_gier': kamera_gier,   # Linienfolger/Kartograf: wohin schaut die Kamera?
             'objekt': w.get('objekt'), 'weg': self.weg_voraus(), 'fahrschlauch': self.p('fahrschlauch_breite'),
@@ -702,7 +704,14 @@ class Zentrale(Node):
         g = armlib.greifer_plan(obj['breite'])
         anlegen, zu = g['anlegen'], g['zu']
         kin = self.yahboom_kin
-        if kin is not None and kin.bereit() and obj.get('pixel') and obj.get('tiefe_m'):
+        if self.kin_wahl is None:
+            # Einmal festlegen: wechselte die Kinematik von Versuch zu Versuch (Dienst mal bereit, mal nicht), lernte
+            # jeder Versuch in ein anderes Modell ('yahboom' / 'eigene') und keines wurde besser (Diagnose 22.10.)
+            self.kin_wahl = 'yahboom' if kin is not None and kin.bereit() else 'eigene'
+        if self.kin_wahl == 'yahboom' and (kin is None or not kin.bereit()):
+            return {'fehler': 'Yahboom-Kinematik antwortet nicht mehr (KI neu starten)'}
+        if self.kin_wahl == 'yahboom' and obj.get('pixel') and obj.get('tiefe_m'):
+            self.letztes_modell = 'yahboom'
             p = kin.kamera_zu_basis(obj['pixel'], obj['tiefe_m'], obj.get('blick_winkel') or fahr)
             if p is None:
                 return {'fehler': 'Yahboom-Kinematik antwortet nicht'}
@@ -722,6 +731,7 @@ class Zentrale(Node):
                                  self._politik('yahboom'), punkt=punkt, boden=boden, anlegen=anlegen)
             plan['info'] = plan.get('info', '') + f" (Yahboom-Kinematik, {g['text']})"
             return plan
+        self.letztes_modell = self.eigenes_modell
         plan = greifen.plane(obj, seite, self.eigene_kin.inverse, fahr, auf, zu, self._politik(self.eigenes_modell),
                              anlegen=anlegen)
         plan['info'] = plan.get('info', '') + f" (eigene Kinematik, {self.kin_quelle}, {g['text']})"

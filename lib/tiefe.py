@@ -114,6 +114,8 @@ class Bodenmodell:
         hz, wz = treffer.shape
         objekt['pixel'] = [float((np.median(spalten) + 0.5) / wz), float((np.median(zeilen) + 0.5) / hz)]
         objekt['tiefe_m'] = float(np.median(self._t[treffer]))
+        # beruehrt es den Bildrand? Dann ist nur ein Teil zu sehen (Breite/Lage unsicher)
+        objekt['rand'] = bool(zeilen.max() >= hz - 2 or spalten.min() <= 1 or spalten.max() >= wz - 2)
         if quer_karte is not None:   # wie weit neben der Linie (Mitte des Fahrwegs) liegt es?
             objekt['quer'] = float(np.median(quer_karte[treffer][vorne]))
         return True, objekt
