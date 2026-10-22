@@ -261,6 +261,226 @@ die Schemaannahme bescheinigt ihre physische Wirksamkeit nicht. C1 prüft
 Feldtypen, Referenzen und widersprüchliche Angaben, keine erfolgreiche
 Sensor-/Sicherheitsprüfung aus dem Vorhandensein einer Referenz.
 
+### V3a: Zusammengeführter Datenanhang für Auftrag 5
+
+**C-Spezifikation zur anschließenden ausdrücklichen Bestätigung durch A/B/O,
+noch keine angenommene Auftrag-5-Implementierung.** Fachliche Quellen wurden
+vor Bezug erneut abgefragt: A/#145 auf
+`3d6d5e812e66e9975509ca0ddfd21c082c5717ab`, B/#147 auf
+`deba190d7061a65c7e21625b7a21a57747643125`.
+Dieser Anhang konkretisiert die obige Übersicht verbindlich für den Vorschlag.
+Die über O nachgereichten nativen Präzisierungen zu A-Kommentar 4346582538
+(begründeter Nullwunsch auch im Ergebnis) und B-Kommentar 4346589401
+(kein fortbestehender Armwunsch bei Inaktivität) sind unten aufgenommen;
+anschließend tatsächlich abgeglichene Korrekturheads: A
+`69da13138a9d1215dced02b8ca6b00b9c783c617`, B
+`1a1a3e8c22dd52b1adbcd031a482b25b37a720d1`. Deren konkrete ergänzte
+Nullregeln sind fachlich gelesen; Zustimmung zu diesem neuen C-Anhang
+wird daraus nicht abgeleitet.
+Einzige Sperrwirkungsbelegung: **`effect=motion/arm/both`**. B-`scope=drive`
+wird auf `effect=motion` vereinheitlicht; kein paralleles `scope`-Feld.
+`domain=motion/arm` bezeichnet dagegen den Bereich einer Auswertung.
+
+**Gemeinsame Typ-/Nullkonvention:** Alle in den folgenden Tabellen genannten
+Felder sind Pflichtschlüssel; `null` ist nur in den ausdrücklich genannten
+Fällen zulässig. `Q` bedeutet die beiden Felder `status` und `reason`:
+Status aus `valid/unknown/invalid/stale/missing`, bei `valid` Grund `null`,
+sonst nichtleerer Grundcode. `valid` bewertet den jeweiligen Datenbeleg,
+nicht die Erlaubnis einer Bewegung. Bekannte Identitäten bleiben auch bei
+schlechter Qualität erhalten; unbekannte Identitäten werden nicht erfunden.
+Zeit-/Zahltypen folgen V1a, Zähler sind ganze Zahlen ≥ 0 ohne Boolean.
+Zeiten werden nur bei belegter gleicher Uhr verglichen. Nicht verfügbare
+Mess-/Schätzwerte sind `null`; nie eine gültige Nullstellung daraus bilden.
+
+#### Vollständige Referenztypen
+
+Jede Referenz wird als Objekt mit **allen** unten genannten Schlüsselanteilen
+übertragen; keine Abkürzung auf die letzte ID. Das jeweilige Ziel muss im
+gegebenen Datensatz bzw. explizit bereitgestellten historischen Kontext
+auflösbar sein. Fehlender Nachweis ist `unknown`, ein Widerspruch `invalid`.
+Verschiedene fachliche Rollen dürfen unabhängige Produzentenstarts besitzen.
+
+| Typ | Vollständige Pflichtfelder / Ziel |
+|---|---|
+| `OperationRef` | `robot_id, producer_id, producer_boot_id, operation_id`: B-Räumvorgang. |
+| `ObjectRef` | `robot_id, producer_id, producer_boot_id, object_id`: Objektproduzent, nicht automatisch der Vorgangsproduzent. |
+| `FrameRef` | `robot_id, source, producer_id, producer_boot_id, frame_id`: registrierter Sensorframe nach V1/V2; technisches `source_id`, Aufnahmezeit/Uhr und `coord_frame` aus dessen unveränderlichem Registerbeleg. |
+| `DetailRef` | Alle `FrameRef`-Felder plus `channel, data_id`; Format/Metadaten nach C1e. Optionaler Payloadabruf ersetzt keinen Quellenbeleg. |
+| `ObservationRef` / `EstimateRef` | `robot_id, producer_id, producer_boot_id` plus `observation_seq` bzw. `estimate_seq`: eigene Interpretation/Schätzung, nicht Sensorframe oder C-Zustandssequenz. |
+| `RequestRef` / `CommandRef` | `robot_id, producer_id, producer_boot_id` plus `request_seq` bzw. `command_seq`: B-Fahrwunsch oder Armwunsch. |
+| `OutputRef` | `robot_id, producer_id, producer_boot_id, output_seq`: tatsächlich meldender Ausgabeproduzent; Referenzfeld ist durch `motion` oder `arm` typisiert. Sequenz je Ausgabedomäne/Produzentenstart ohne Wiederverwendung. |
+| `EvaluationRef` | `robot_id, producer_id, producer_boot_id, domain, evaluation_seq`: Freigabebesitzer, `domain=motion/arm`, eigene Sequenz je Domäne/Start ohne Wiederverwendung. |
+| `BlockRef` | `robot_id, producer_id, producer_boot_id, block_id`: Ursprung der gemeldeten Sperre; dieselbe Ursache kann in beiden Domänen erscheinen. |
+| `EvidenceRef` | `robot_id, producer_id, producer_boot_id, evidence_seq`: bestätigender Nachweisproduzent mit eigenem Start und Sequenz. |
+
+Opake Textkennungen werden nicht zerlegt. Alle gerätebezogenen Ziele gehören
+zum äußeren `robot_id`. Derselbe Schlüssel mit geändertem Inhalt ist ein
+Widerspruch; Wiederübertragung erzeugt kein neues Ereignis. Reiner C-Neustart
+ändert keinen dieser Schlüssel. Eine Referenz auf einen alten Vorgang darf
+als Diagnose bestehen, wird aber nicht zum Nachweis eines anderen Vorgangs.
+
+#### B-Vorgang, Objekt, Beobachtung und Schätzung
+
+| Objekt / Felder | Typ, Pflicht/null und Qualität |
+|---|---|
+| `clearing` Herkunft | `producer_id, producer_boot_id, time_basis_id`: Text oder bei tatsächlich unbekannter Bindung `null`; `Q`. Gerät aus Zustand; zusammen mit `operation_id` entsteht `OperationRef`. |
+| Vorgang | `operation_id`: Text oder inaktiv/unbekannt `null`; `started_mono_s, updated_mono_s`: Sekunden oder ohne Vorgang `null`; aktiv gilt `started <= updated <= generated`. |
+| Phase | `phase`: `inaktiv/anschauen/ausrichten/greifen/ablegen/nachpruefen/fahrstellung_bestaetigen/beendet`; bei nicht bekanntem Vorgang `null` zulässig. `execution_status`: `laufend/pausiert/beendet` oder bei unbekanntem Ablauf `null`. |
+| Ergebnis / Gründe | `result`: `offen/erfolgreich/nicht_raeumbar/abgebrochen` oder unbekannt `null`. `abort_reason`: nichtleer genau bei Abbruch, sonst `null`. `result_reason`: nichtleer genau bei `nicht_raeumbar`, sonst `null`. Qualitäts-`reason` bleibt davon getrennt. |
+| Unterbrechung | `interruption_reason, interrupted_mono_s`: nichtleerer Code und Zeit genau bei `pausiert`, sonst beide `null`. Pause erhält Phase/Objekt, Ergebnis `offen`; Beginn ≤ Unterbrechung ≤ letzter Übergang. Beispiele für Ursachen: `person_hold/stop/object_lost/sensor_unavailable/actuator_error/limit_unproven`; reine gemeldete Ursachen, keine Schutzentscheidung. |
+| Beziehungen | `object_ref`: vollständige `ObjectRef` oder ohne/bei unbekanntem Objekt `null`; `observation, estimate`: folgende Objekte oder ohne zugeordnetes Objekt `null`. Ein aktiver Vorgang ohne belegtes Objekt darf nicht als vollständig `valid` gelten. |
+| Erfolgsbelege | `verification_ref, travel_pose_ref`: jeweils Nachweislink `{ref: EvidenceRef oder null, status, reason}` oder bei keinem Erfolgsbeleg `null`. Erfolg verlangt beide Links `valid`, auflösbare `valid`-Nachweise mit demselben `operation_ref`, passenden Arten `verification/travel_pose` und `started <= confirmed <= updated <= generated` in belegter gemeinsamer Uhr. Sonst kein belegtes `erfolgreich`. |
+| `observation` | `observation_ref, object_ref, frame_ref`: vollständige Schlüssel; `detail_ref`: passender `DetailRef` oder `null`; `time_basis_id, captured_mono_s, received_mono_s`: nachgewiesene Aufnahme-/Empfangszeiten oder unbekannt `null`; `class_value`: Text oder unbekannt `null`, daneben eigenes `class_status/class_reason`; `spatial` und `Q`. Die Beobachtung behält die echte Aufnahmezeit. |
+| `estimate` | `estimate_ref, object_ref, observation_ref`: vollständige Schlüssel; `odometry_ref`: `FrameRef` oder unbelegt `null`; `time_basis_id, estimated_mono_s`: Uhr/Zeit oder unbekannt `null`; `spatial, uncertainty` und `Q`. `uncertainty` ist ein eigener Qualitäts-/Komponentenblock, bei fehlender Unsicherheit unbekannt, nie automatisch 0. `valid` verlangt belegte Herkunft und bekannte passende Unsicherheit. |
+| `spatial` / `uncertainty` / Ziel-/Messkomponenten | Je `{coord_frame, calibration_version, values, status, reason}`. Bezüge Text oder unbekannt `null`; `values` bei `valid` nichtleere Map aus Komponentenname zu `{value: endliche Zahl, unit: m/rad/N/1}`, sonst `null`. Einheit muss zur im Quellen-/Kalibrierkontext deklarierten Komponente passen (etwa Raum m/rad, gemessene Kraft N); ohne Rückmeldung keine Kraft behaupten. Unsicherheiten nichtnegativ und mit denselben Einheiten wie die benannten Komponenten. Komponentenkennungen stammen aus dem expliziten Quellen-/Kalibrierkontext; keine Servo-/Achsen-/Geometriebelegung erfinden. Vorhandene Komponenten behaupten keine vollständige Schutzraumabdeckung. |
+| Räumerfolgs-Nachweisdatensatz im gegebenen Kontext | `evidence_ref, operation_ref, kind, source_refs, time_basis_id, confirmed_mono_s` und `Q`; `kind=verification/travel_pose`; `source_refs` ist bei `valid` eine nichtleere Liste vollständiger `FrameRef`, sonst unbelegt `null`. Bestätigungen nachgewiesen, keine Erzeugung aus Timer/Befehl. Historische Nachweise bewahren ursprüngliche Qualität und Zuordnung. Politik-/Matrixnachweise haben denselben Referenzschlüsseltyp, aber eigene Arten `policy/sensor_requirements` im getrennten Nachweiskontext und sind keine Räumerfolgs-Nachweise. |
+
+Objektwechsel beendet/abbricht den bisherigen Vorgang und erzeugt einen neuen
+Schlüssel; keine Übernahme alter Griff-/Erfolgsbelege. B-Neustart setzt einen
+Vorgang nicht automatisch fort. Wiederaufnahme nach Pause ist eine ausdrückliche
+neue B-Entscheidung mit passenden getrennten Freigabeergebnissen; der Validator
+prüft deklarierte Beziehungen, er führt keine Wiederaufnahme aus.
+
+**Vollständige Nullbelegung bei belegter gültiger Inaktivität:**
+
+| Felder in `clearing` | Belegung |
+|---|---|
+| `producer_id, producer_boot_id, time_basis_id` | Bekannte gebundene Kennungen, nicht `null`. |
+| `status, reason, phase, execution_status, result` | `valid, null, inaktiv, beendet, offen`. |
+| `operation_id, started_mono_s, updated_mono_s, object_ref` | Alle `null`. |
+| `abort_reason, result_reason, interruption_reason, interrupted_mono_s` | Alle `null`. |
+| `verification_ref, travel_pose_ref, observation, estimate` | Alle `null`. |
+
+Bei gültiger Inaktivität ist zusätzlich **`arm.request=null`**: kein noch
+frischer Wunsch zu einem früheren Vorgang bleibt aktuell verwendbar.
+Ein als aktuell gelieferter alter Armwunsch ist dann ein Datenwiderspruch;
+historische Wünsche dürfen nur mit ihrem alten Bezug als Diagnose bestehen.
+Ein neuer Vorgang braucht eine neue `command_seq`, keine Reaktivierung des
+vorherigen Wunsches. Diese Nullregel beweist weder Auftragsstornierung noch
+mechanischen Stillstand und entfernt keine anderen unabhängigen Sperren.
+Ohne Initialisierungs-/Bindungsbeleg `missing/unknown` mit Grund, niemals
+erfundene gültige Inaktivität. Diese Wunschentwertung setzt **keine** unabhängig
+gemeldeten Arm-/Kameramessungen, Ausgaben, Empfangsbestätigungen, Freigaben,
+Sperrbilder oder Schutzpolitik zurück. Diese behalten ihre eigene Zuordnung;
+Bezüge auf frühere Vorgänge sind als solche erkennbar, nicht aktueller Erfolg.
+
+#### Armwunsch, wirkliche Ausgabe, Empfang und Messung
+
+| Objekt | Pflichtfelder, Nullregeln und Qualitätsaussage |
+|---|---|
+| `arm.request` | Objekt oder kein verfügbarer Wunsch `null`. Objekt: `contract_version, robot_id, producer_id, producer_boot_id, command_seq, time_basis_id, generated_mono_s, valid_until_mono_s, operation_ref, object_ref, action, target`. Vollständige Herkunft und `CommandRef`; bekannte Vorgangs-/Objektbezüge für eine Räumaktion erforderlich. `action` nichtleerer fachlicher Code, `target` Komponentenblock oder bei zielwertfreier Aktion `null` mit ausdrücklich vereinbarter Aktionsbedeutung. `anschauen/ausrichten/greifen/ablegen/fahrstellung` sind Darstellungscodes, keine Gerätebefehle. Zuordnung, Frist, Duplikate, Rücklauf und Anti-Replay entsprechend V2; maximales Budget als gegebener Kontext, kein Default. |
+| `motion.output` | Objekt oder bei fehlender Ausgabe `null`. `robot_id, producer_id, producer_boot_id, output_seq, time_basis_id, issued_mono_s, v_m_s, w_rad_s, request_ref, request_reason, evaluation_ref` und `Q`. Bei `valid` tatsächliche endliche SI-Ausgabe; sonst Werte `null`. `request_ref` vollständig oder eigenständiger Sicherheitshalt `null`; `request_reason` nichtleer genau bei Nullreferenz, sonst `null`. `evaluation_ref` bei bekannter zugeordneter Ausgabe verpflichtend. Keine Ausgabe aus Wunsch rekonstruieren. |
+| `arm.output` | Objekt oder fehlend `null`. `robot_id, producer_id, producer_boot_id, output_seq, time_basis_id, issued_mono_s, action, target, command_ref, command_reason, operation_ref, object_ref, evaluation_ref` und `Q`. Tatsächlicher Ausgabebesitzer, nicht still der Freigabebesitzer; eigener `OutputRef`. `command_ref` vollständig oder eigenständiger Schutzauftrag `null`; `command_reason` nichtleer genau bei Nullreferenz, sonst `null`. Unbekannte Ausgabeaktion/-werte `null`. Vorgangs-/Objektbezug nur ohne entsprechenden Auftrag `null`. `evaluation_ref` bindet die Arm-Auswertung. Keine Aktion aus Wunsch/Phase ableiten. |
+| `arm.ack` | Objekt oder keine Bestätigung `null`; `output_ref, time_basis_id, received_mono_s, status, reason`. Bei bestätigtem Empfang vollständiger `OutputRef` des tatsächlich empfangenen Armauftrags; bei belegter gemeinsamer Uhr `issued <= received <= generated`. Keine Bestätigung aus Sendeaufruf; Empfang ist weder Stellung noch Lastnachweis. |
+| `arm.measured`, `arm.load`, `camera_pose` | Je Qualitätsblock `{status, reason, measurements}`; bei nicht verfügbaren Daten `measurements=null`. Bei `valid` nichtleere Liste unabhängiger Messdatensätze `{frame_ref, time_basis_id, captured_mono_s, received_mono_s, components, status, reason}`. `frame_ref` vollständig, Aufnahme/Empfang nach V1; `components` folgt obigem Komponentenblock. Last kann unbekannt sein; keine Last aus geschlossenem Greifer folgern. Kamera enthält eigenen Raum-/Kalibrierbezug; Armstellung allein bestätigt keine Kameraprojektion. |
+
+#### Atomare Freigabe-/Ausgabe-/Sperrpakete nach A
+
+Die öffentlichen Bereiche sind `motion.release`, `motion.blocks`,
+`motion.output` sowie entsprechend `arm.release`, `arm.blocks`, `arm.output`.
+Ein Paket gehört genau einer `domain`. Es wird vom Freigabebesitzer geliefert;
+C erfindet keinen Besitzer und mischt keine jeweils neuesten Teilwerte.
+
+| Teil | Pflichtfelder und Bindung |
+|---|---|
+| `motion.release` / `arm.release` | `owner_ref` = `{robot_id, producer_id, producer_boot_id}` oder unbekannt `null`; `decision_seq` eigene Sequenz oder unbekannt `null`; `evaluation_ref` vollständiger Schlüssel oder ohne Auswertung `null`; `time_basis_id, evaluated_mono_s`; `decision=allowed/blocked/unknown`; `request_ref, request_reason` bei motion bzw. `command_ref, command_reason` bei arm; `output_ref` voller Ausgabeschlüssel oder fehlend `null`; `output_reason` nichtleer genau bei fehlender Ausgabe, sonst `null`; `Q`. Wunschreferenz vollständig oder bei fehlendem Wunsch/eigenständigem Schutzauftrag `null`, zugehöriger Wunschgrund dann nichtleer, sonst `null`. Bei vorhandener Ausgabe müssen Referenz **und Wunschgrund** mit deren Belegung übereinstimmen; Qualitäts-`reason` ist davon getrennt. Nicht bekannte Zeit/Referenzfelder dürfen `null` sein; ein fehlender Besitzer verlangt `decision=unknown` und `Q=unknown/missing`, kein `allowed`. |
+| `motion.blocks` / `arm.blocks` | `producer_id, producer_boot_id, seq, evaluation_ref, time_basis_id, evaluated_mono_s, entries, stop_latched, fault_latched` und `Q`. Sperrbildproduzent = Freigabebesitzer, eigene `seq`; Auswertungsreferenz identisch zum Ergebnis. Beide Latches sind `{value: bool oder null, status, reason}`. `entries` nur bei geliefertem gültigem vollständigem Bild Liste, sonst `null`. `[]` bedeutet nur dann keine gemeldete Sperre. Unbekannter Besitzer lässt Herkunft/Auswertung unbekannt, kein erfundenes leeres Bild. |
+| Eintrag in `entries` | `block_ref, code, effect, frame_ref, time_basis_id, reported_mono_s, status, reason`. `block_ref` vollständige Herkunft; `code` nichtleer; `effect=motion/arm/both`; `frame_ref` vollständige Quelle oder bei Bedien-/Prozessursache bzw. unbelegtem Sensorbezug `null`. Berichtqualität getrennt von der Qualität seines Belegs; ein gültig gemeldeter Sensorfehler darf sich auf eine alte/fehlende Aufnahme beziehen. Fehlende Berichtzeit/Uhr bleibt unbekannt `null`. |
+| `protection` | `{policy_id, policy_version, evidence_ref, status, reason}`; unbekannte Texte/Referenz `null`, `Q=unknown/missing` mit Grund. `evidence_ref` ist ein vollständiger `EvidenceRef` auf Politik-/Abnahmenachweis im getrennten gegebenen Kontext; diese Nachweisart ist kein Räumerfolgsbeleg. |
+| `sensor_requirements` | Separater Qualitätsblock `{matrix_id, matrix_version, evidence_ref, status, reason}`; unbekannte Werte `null`; Nachweis ebenfalls getrennt von Räumerfolgsbelegen. Keine feste Quellen-/Grenzwertmatrix in C1 berechnen. |
+| Bestehende Laufzeitprojektion | `runtime.evaluation_ref`: dieselbe vollständige motion-Auswertung oder unbekannt `null`. `runtime.stop_latched/fault_latched` und die motion-bezogenen zusammenfassenden Gründe müssen genau deren Sperrbild wiedergeben; kein drittes unabhängig zusammengesetztes Sperrbild. Unbekannte Latches dürfen nicht als bestätigtes `false` erscheinen. `motor_enabled` bleibt grundsätzliche Bereitschaft, keine aus C berechnete konkrete Fahrt-/Armfreigabe. |
+
+Für ein bekanntes Paket müssen Ergebnis, Sperrbild und vorhandene Ausgabe
+**dieselbe vollständige `evaluation_ref`** tragen. Ergebnis-`owner_ref` stimmt
+mit deren Produzentenanteilen überein; alle Paketzeiten gehören zur belegten
+Uhr, `evaluated_mono_s <= issued_mono_s <= generated_mono_s` bei vorhandener
+Ausgabe. `output_ref` zeigt exakt auf deren `OutputRef`, inklusive Ausgabestart
+und Sequenz; Ausgabeproduzent darf vom Freigabebesitzer verschieden sein.
+Wunschreferenz des Ergebnisses und der Ausgabe muss identisch sein.
+Fehlende Ausgabe wird ausdrücklich im Ergebnis begründet; aus fehlender
+Bestätigung wird kein ausgegebener Nullbefehl.
+
+**Kontrollierter Nullwunsch:** Vollständig belegter Sicherheitshalt ohne
+Fahrwunsch: Ausgabe und Ergebnis jeweils `request_ref=null`, beide
+`request_reason=NO_REQUEST`; vollständig belegter Armschutzauftrag ohne
+Armwunsch entsprechend `command_ref=null`, beide
+`command_reason=PROTECTIVE_ACTION_WITHOUT_REQUEST`. Ergebnis `blocked` und
+Datenqualität `valid` sind dann vereinbar; reale Ausgabeidentität,
+`output_ref` und atomare Auswertung bleiben verpflichtend. Ohne ausgegebenen
+Armauftrag kann ein belegtes fehlendes Wunschangebot mit
+`command_reason=NO_ARM_REQUEST` und gesondertem `output_reason` dargestellt
+werden; es wird kein Schutzauftrag behauptet. Bloß verlorener/unbekannter
+Wunschbezug ist dagegen `unknown` mit
+`REQUEST_REFERENCE_UNKNOWN/COMMAND_REFERENCE_UNKNOWN`, kein belegter
+Nullwunsch und kein `allowed`. Fehlender Pflichtschlüssel ist nie dasselbe
+wie ein ausdrücklich belegter Nullwert. Der A-Begriff Schutzauftragsgrund
+wird hier in eigene `request_reason/command_reason` gefasst, damit er nicht
+mit Qualitäts-`reason=null` bei gültigen Daten kollidiert; diese konkrete
+öffentliche Belegung ist von A/B noch zu bestätigen.
+
+Jede Änderung an Ergebnis, Ausgabe, Sperrbild oder Verriegelungen verlangt
+ein neues vollständiges Paket mit neuer `evaluation_seq`, auch bei gleichem
+Wunsch. Gleiche Auswertungskennung mit geändertem Inhalt ist ungültig.
+Fremde/mischende Teile machen die aktuelle Paketzuordnung `invalid`;
+fehlende Teile/Belege `unknown/missing`. Unvollständige Pakete dürfen nicht
+als aktuelle Freigabe erscheinen; alte vollständige Pakete bleiben Diagnose.
+Ein von seinem Besitzer geliefertes `allowed` mit zugleich wirksamer gemeldeter
+Sperre derselben Domäne ist ein Datenwiderspruch. `both` ist in beiden
+Domänen wirksam, `motion` nur in motion und `arm` nur in arm. Derselbe
+gemeinsame Grund erscheint mit gleicher `BlockRef` in beiden Paketen;
+beide Pakete behalten ihre eigene `EvaluationRef`. STOPP-/Fehlerstatus und
+aktive Gründe müssen innerhalb desselben Pakets konsistent sein.
+
+Bei unbekanntem Armfreigabebesitzer bleibt `arm.release` als unbekanntes
+Ergebnis mit unbekannter Besitzer-/Auswertungs-/Ausgabereferenz und Grund
+darstellbar; eine bekannte `command_ref` bleibt erhalten. `arm.blocks` unbekannt mit
+`entries=null` und unbekannten Latches. Ohne bekanntes Paket ist eine
+zugehörige aktuelle Ausgabe unbekannt/fehlend; separat bekannte historische
+Ausgaben/Messungen werden nicht gelöscht oder als neue Aktion umetikettiert.
+Unbekannte Politik bleibt ebenfalls darstellbar; der Validator leitet daraus
+weder Freigabe noch zusätzliche Sperren ab. Ein explizit gelieferter
+Sicherheitshalt kann auch bei noch unbekannter Politik belegbar sein.
+
+#### Vier knappe synthetische C1h-Darstellungen
+
+Reine **tabellarische Projektionen** des Anhangs, keine v2-Fixtures oder
+Gerätefreigaben. Alle Kennungen mit `demo-` und Zahlen sind erfunden;
+Zeiten sind gleichuhrige illustrative Sekunden, keine Fristen/Grenzen.
+Gemeinsames Gerät `RM02`, Zeitbasis `demo-clock`; Produzentenstarts sind
+unabhängig. Die folgenden Kurzzeichen sind ausschließlich Lesemakros und
+werden im späteren JSON stets als vollständige Referenzobjekte ausgegeben:
+
+| Makro | Vollständig ausgeschriebener Schlüssel (Feldreihenfolge siehe Typ oben) |
+|---|---|
+| O / X | `OperationRef(RM02, demo-b, demo-b-start, demo-op)` / `ObjectRef(RM02, demo-objects, demo-objects-start, demo-object)` |
+| F / D | `FrameRef(RM02, camera, demo-camera, demo-camera-start, demo-frame)` / `DetailRef(RM02, camera, demo-camera, demo-camera-start, demo-frame, demo-color, demo-data)` |
+| Obs / Est | `ObservationRef(RM02, demo-objects, demo-objects-start, 1)` / `EstimateRef(RM02, demo-b, demo-b-start, 1)`; Est referenziert Obs und `FrameRef(RM02, odometry, demo-odom, demo-odom-start, demo-odom-frame)`. |
+| Rn / Cn | `RequestRef(RM02, demo-b, demo-b-start, n)` / `CommandRef(RM02, demo-b-arm, demo-command-start, n)` |
+| Mn / An | `EvaluationRef(RM02, demo-a, demo-a-start, motion, n)` / `EvaluationRef(RM02, demo-arm-check, demo-arm-check-start, arm, n)`; der fiktive Armbesitzer ist **keine** Rollenentscheidung für echte Geräte. |
+| Un / Vn | `OutputRef(RM02, demo-motion-out, demo-motion-out-start, n)` / `OutputRef(RM02, demo-arm-out, demo-arm-out-start, n)` |
+| P / T | `BlockRef(RM02, demo-actors, demo-actors-start, demo-person)` / `BlockRef(RM02, demo-quality, demo-quality-start, demo-depth-stale)` |
+| EP / EM | `EvidenceRef(RM02, demo-policy, demo-policy-start, 1)` / `EvidenceRef(RM02, demo-matrix, demo-matrix-start, 1)`; rein hypothetische Politik-/Matrixbelege, keine Räumerfolgsbelege. |
+
+In jeder Zeile sind die genannten bekannten Pakete vollständig und atomar
+geliefert gedacht: Ergebnis und Sperrbild tragen Mn/An, die Ausgabe zusätzlich
+Un/Vn; `output_ref` und Request-/Commandbezug stimmen überein. Alle übrigen
+Pflichtfelder/Nullregeln gelten nach obigen Tabellen, werden hier zur Kürze
+nicht wiederholt. `blocked` mit bestätigtem Fahr-Nullbefehl ist kein gemessener
+Stillstand. Arm-`blocked` ohne neue Ausgabe hat `output_ref=null` und Grund.
+
+| Fall / Vorgang | Beobachtung, Wunsch und tatsächliche Daten | Gelieferte Pakete, Sperren und Aussage |
+|---|---|---|
+| Anschauen, Zustand 10, Zeit 100 | O/X, `phase=anschauen`, `laufend/offen`; Obs mit F/D bei 99, Klasse unbekannt; C10 wünscht Blickstellung. Kamerapose `unknown`, Messwerte `null`. | M10: `blocked`, R10, U10 mit tatsächlicher Ausgabe 0/0. Arm-Besitzer unbekannt: Ergebnis `unknown`, keine An/Vn erfinden, Sperrbild `entries=null`. Politik-ID/-Version/Nachweis unbekannt mit Grund. Kein bestätigter Blick oder Griff. |
+| Ausrichten, Zustand 11, Zeit 101 | Derselbe O/X und die unveränderte Obs-Aufnahmezeit 99; R11 verlangt gemeldete begrenzte Bewegung, `arm.request=null`, kein neuer Griff. Im Beispiel neue echte Arm-/Kameramessungen getrennt belegt; hypothetische `protection=(demo-policy, demo-v1, EP, valid)` und `sensor_requirements=(demo-matrix, demo-v1, EM, valid)`, jeweiliger Qualitätsgrund `null`. | M11: hypothetisch geliefert `allowed`, U11 mit tatsächlicher SI-Ausgabe; A11: `blocked`, `command_ref=null`, `command_reason=NO_ARM_REQUEST`, `output_ref=null`, `output_reason=blocked_no_output`. Variante: seitlicher Bereich unbelegt → **neues** M12 `blocked`, U12 mit 0/0 und gemeldeter Sperre `effect=motion`; nicht U12 mit altem Ergebnis M11 mischen. |
+| Greifen, Zustand 12, Zeit 102 | O/X, `greifen`, `laufend/offen`; C12 ist Greifwunsch. Est führt Obs/F und eigenständige Odometriequelle, Schätzzeit 102, Unsicherheit `unknown`, Werte daher nicht gültig. Greiferstellung/Last `missing`, kein Griffnachweis. | M13: `blocked`, R12, U13 mit 0/0. A12: `blocked`, C12, `output_ref=null`, Grund `pose_feedback_missing`; keine V12 erfinden. Empfangsbestätigung fehlt. Ergebnis bleibt `offen`, Erfolgsbelege `null`. Phase/Wunsch erzeugen keine Armfreigabe. |
+| Personenhalt, Zustand 13, Zeit 103 | Derselbe O/X, Phase `greifen` bleibt; `pausiert/offen`, `interruption_reason=person_hold`, Unterbrechungszeit 103. Letzte Beobachtung und unbekannte Last bleiben erhalten. | M14/A13: beide geliefert `blocked`; P und T mit `effect=both` in beiden Sperrbildern. U14 bestätigt nur Ausgabe 0/0; keine neue Armausgabe, Grund `blocked_no_output`. Verschwindet P, bleibt T; neuer Sperrstand verlangt neue vollständige Pakete. Zusätzlicher STOPP bleibt verriegelt. Armreaktion/Lasthalten physisch offen; keine automatische Rückfahrt. |
+
+Die Ausrichtvariante ist ein eigener Alternativfall; ihre Auswertungen werden
+nicht in die folgende Sequenz hineingemischt. Objekt-/Nachweisschlüssel bleiben
+in allen vier Fällen unabhängig vom äußeren Zustand. Kein Beispiel setzt
+erfolgreiches Räumen voraus; dafür wären die zwei getrennten bestätigten
+Erfolgsbelege zu O erforderlich.
+
 ## Abhängigkeit #8: begrenztes C1-Tor, offenes Schutztor
 
 **Jetzt beschließbar:** Identitäts- und Zeitbezüge, Qualitäts-/Nullregeln,
@@ -298,7 +518,9 @@ Kein stilles Erweitern unter gleicher Version. `contract_version` des
 Fahr-/Armwunsches entspricht `schema_version` des einbettenden Zustands.
 
 Nach #14 im Sammelbranch neue `schemas/grundbetrieb-v2.schema.json` anlegen;
-den alten v1-Schemaentwurf als ausdrücklich historischen Stand erhalten.
+das tatsächlich veröffentlichte historische v1-Schema aus `88a82d4`
+erhalten bzw. wiederherstellen, nicht den um Pflichtfelder erweiterten
+C1c/C1d-Zwischenstand weiterhin als v1 veröffentlichen.
 Der Python-Vertrag und die aktiven sieben Zustandsfixtures werden auf 2.0
 umgestellt; Version 1.0 und unbekannte Versionen werden dort ausdrücklich
 abgelehnt. Kein Parallelbetrieb zweier aktueller Verträge und kein Adapter,
@@ -325,8 +547,11 @@ abgegrenzten Auftrag. Die Referenz dieser Annahme ist der Dokumentstand
 `68c1cf594bd43c2d8f62eeeb1e3df4908e147d94` mit den in dieser Lieferung
 ausdrücklich aktualisierten Annahmestatusangaben; der Liefercommit steht im PR.
 
-O kann Auftrag 1 nach dem fertig integrierten #14-Stand mit eigener enger
-Dateireservierung vergeben. Vollständige V3-Feldbelegung für Auftrag 5,
+O hat Auftrag 1 als [#149](https://github.com/BBS-GuT/smartcity-roboter/issues/149)
+an einen eigenen alleinigen Produkt-/Schema-/Vertrags-Schreiber vergeben,
+mit fertig getestetem C1d-Stack `43c40e3` als Ausgangspunkt (Managerübergabe).
+Diese Vergabe gibt diesem C-Fachchat keine weiteren Dateien frei.
+Vollständige V3-Feldbelegung für Auftrag 5,
 reale Geräte-/Uhrbindungsnachweise, konkrete Schutzpolitik, Fristen und
 Brokerwerte sind **keine Voraussetzung dieser Fundamentumsetzung**.
 Fehlende reale Daten werden gemäß Vertrag ehrlich als unbekannt/fehlend
@@ -342,17 +567,20 @@ als zwei öffentliche Belegungen umgesetzt.
 
 ## Sechs kleine Folgeaufträge nach #14
 
-Noch nicht vergeben. O benennt je Auftrag einen C-Dateibesitzer und stimmt
+Auftrag 1 ist als #149 vergeben; die weiteren Aufträge bleiben gesondert
+zuzuteilen. O benennt je Auftrag einen C-Dateibesitzer und stimmt
 A/B-Details ab; **streng nacheinander**, da Bibliothek/Schema/Doku gemeinsam
 sind. Grundlage ist jeweils der integrierte Vorgänger im Sammelbranch.
 Alle Aufträge: Refs #3 und zugehöriges Entwurfsissue, ROS-unabhängig,
 kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
 
 1. **Version/Zeitbasis/JSON-Pfad als Fundament (A/B laut O und C angenommen;
-   O vergibt nach #14).**
+   Umsetzung vergeben als #149 auf C1d-Stack).**
    Dateien: `lib/grundbetrieb_vertrag.py` nur Version/Kopf/Quellenidentitäten
    und monotone Quellenaufnahme sowie Zahlenprüfung, exakter Bau-/JSON-Pfad
    und Altersrechnung nach V1a; neue `schemas/grundbetrieb-v2.schema.json`;
+   `schemas/grundbetrieb-v1.schema.json` ausschließlich historische
+   Wiederherstellung aus `88a82d4` gemäß aktuellem Auftrag #149;
    `docs/schnittstellen-grundbetrieb.md` nur Version/Kopf/Quellen;
    sieben bestehende `tests/fixtures/grundbetrieb/*.json`;
    **ausdrückliche Dateiübernahme für `tests/test_zustandsvertrag.py`:**
@@ -428,11 +656,17 @@ kein C2-Produzent, ROS-Adapter, Panelumbau, MQTT-Transport oder Aktorzugriff.
    Bibliothek, v2-Schema und Vertragsdoku nur V3-Bereiche; bestehende
    Zustandsfixtures nur neue Felder; neue `tests/test_c1_raeumzustand.py`,
    `tests/fixtures/c1_clearing/*.json`.
-   Vorher genaue Feld-/Codebelegung von V3 durch A/B/C/O annehmen.
+   Vorher den konkreten V3a-Datenanhang durch A/B/O bestätigen lassen;
+   diese C-Spezifikation behauptet deren Zustimmung nicht.
    Prüfen: vier C1h-Fälle, Pause versus Abbruch, Objekt-/Framewechsel,
    fehlende Arm-/Kameramessung bleibt unbekannt, Schätzung keine Beobachtung,
    unbekannte Schutzpolitik darstellbar, gleichzeitige Sperren und getrennte
-   Fahrt-/Armresultate. Keine Freigabe aus Phase ableiten; keine physische
+   Fahrt-/Armresultate, vollständige inaktive Nullbelegung und Erfolgsbezüge.
+   Atomare Paketbindung positiv bei gleicher Requestkennung/neuer Auswertung;
+   negativ gemischte evaluation_ref, fremder Ausgabestart/output_seq,
+   unpassende output_ref, fremdes Sperrbild und scope/drive statt effect/motion.
+   Unbekannter Armbesitzer bleibt unbekannt, beide Sperrwirkungen behalten
+   ihre vollständigen Quellenbezüge. Keine Freigabe aus Phase ableiten; keine physische
    Pflichtmatrix erzwingen. Blockiert nur durch fehlende Datenentscheidung,
    nicht durch noch ausstehende echte Gerätefahrt.
 6. **Gemeinsame Annahme/Fixtures (C/O, A/B beteiligen).**
