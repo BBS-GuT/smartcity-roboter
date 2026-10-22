@@ -113,6 +113,21 @@ class Verloren(unittest.TestCase):
         self.assertNotIn('fahren', w.aktionen)
         self.assertFalse(any('sehen nichts mehr -> weiter' in t for t in texte), texte)
 
+    def test_zurueckfahren_ohne_radzaehler_ist_kein_nachweis(self):
+        """Review PR #101: Radzaehler weg, Strecke nur aus Fahrbefehlen geschaetzt (blockierter Roboter 'faehrt' so auch
+        zurueck). Danach darf 'Kamera sieht nichts' nicht 'frei' heissen."""
+        w = Welt(start=0.24)
+        for _ in range(2):
+            w.schritt(strecke_gemessen=False)
+        w.sicht = 1.0                          # unter dem Blickfeld, in Wirklichkeit steht er (blockiert)
+        for _ in range(300):
+            w.schritt(strecke_gemessen=False)
+        texte = w.texte()
+        # Der Ablauf meldet nicht "frei" (danach entscheidet die Hindernis-Erinnerung des Entscheiders, die ohne
+        # Radzaehler ebenfalls nur mit der geschaetzten Strecke rechnet - ausserhalb dieses Ablaufs)
+        self.assertFalse(any('sehen nichts mehr -> weiter' in t for t in texte), texte)
+        self.assertTrue(any('zurueckgefahren ohne Radzaehler' in t for t in texte), texte)
+
     def test_kein_rueckwaerts_heranfahren_ohne_platz_hinten(self):
         w = Welt(start=GREIF - 0.03)          # zu nah: er muesste zum Greifen zurueck
         for _ in range(100):

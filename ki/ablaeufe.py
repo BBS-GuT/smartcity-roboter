@@ -425,6 +425,10 @@ class Wegraeumen(Ablauf):
         if self.phase == 'zurueck':
             hinten = w.get('lidar_hinten')
             self.zurueck_gefahren -= self._gefahren(w, jetzt, -c['zurueck_tempo'])
+            if not w.get('strecke_gemessen'):
+                # Strecke nur aus Fahrbefehlen geschaetzt (Radzaehler weg): kein Nachweis, dass er wirklich
+                # zurueckgefahren ist (ein blockierter Roboter "kaeme" so auch zurueck) -> danach nie "frei"
+                self.zurueck_unbelegt = True
             # Zeitgrenze: melden die Radzaehler keine Bewegung (Rad blockiert, Odometrie weg), sonst ewig rueckwaerts.
             # Dann sicher anhalten und warten - nie so tun, als waere er zurueckgefahren (danach koennte "frei" folgen)
             if (d > 1.5 * c['sicht_zurueck'] / c['zurueck_tempo'] + 1.0       # erwartete Zeit + Reserve
@@ -629,6 +633,9 @@ class Wegraeumen(Ablauf):
             # Kamera sieht in allen Bildern nichts. Meldet der LiDAR noch etwas?
             lid = [x for x in self.lidar_werte if x < c['pruef_dist']]
             if len(lid) < 2:
+                if getattr(self, 'zurueck_unbelegt', False):
+                    return self._ende('fehler', 'Wegraeumen: zurueckgefahren ohne Radzaehler, Kamera sieht nichts '
+                                                '-> nicht sicher frei, warte', 'stopp')
                 if getattr(self, 'verloren_n', 0):
                     # beim Heranfahren verloren und auch nach dem Zurueckfahren nicht wiedergefunden: vielleicht nur
                     # zu niedrig fuer die Kamera, nicht weg -> nicht "frei" (er fuehre drueber)

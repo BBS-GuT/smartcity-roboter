@@ -249,9 +249,15 @@ class LinienSucher:
             richtung, _ = self.zufall.choice(aeste)
             self.wahl = g + richtung
             erg['kreuzung_neu'] = True
-        richtung, ast = min(aeste, key=lambda a: abs(math.remainder(g + a[0] - self.wahl, 2 * math.pi)))
+        abw = lambda a: abs(math.remainder(g + a[0] - self.wahl, 2 * math.pi))   # noqa: E731
+        richtung, ast = min(aeste, key=abw)
         erg['kreuzung'] = {'aeste': sorted(round(math.degrees(r)) for r, _ in aeste),
                            'wahl': round(math.degrees(richtung))}
+        if abw((richtung, ast)) > math.radians(45):
+            # gewaehlter Ast in diesem Bild nicht zu sehen (verdeckt, Rauschen): keinen anderen nehmen, nur den
+            # Stamm - die Wahl bleibt, bis der gewaehlte Ast wieder erkannt wird
+            erg['kreuzung']['wahl'] = None
+            return stamm
         return stamm | ast
 
     def suche(self, img, gier=None, kamera_ok=True, pos=None):

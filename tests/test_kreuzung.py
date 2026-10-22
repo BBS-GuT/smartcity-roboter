@@ -134,6 +134,21 @@ class Kreuzung(unittest.TestCase):
             s.suche(GERADE, 0.0, pos=(0.30, 0.0))
         self.assertIsNone(s.wahl)
 
+    def test_gewaehlter_ast_nicht_sichtbar_kein_anderer(self):
+        """Review PR #101: links gewaehlt, im naechsten Bild nur geradeaus + rechts zu sehen -> keinen davon nehmen."""
+        s = linie.LinienSucher()
+        s.zufall.seed(1)
+        erg = s.suche(T, 0.0)
+        while erg['kreuzung']['wahl'] < 0:
+            s.wahl = None
+            erg = s.suche(T, 0.0)
+        ohne_links = bild([((0.0, 0.0), (0.9, 0.0)), ((0.32, 0.0), (0.32, -0.5))])
+        erg = s.suche(ohne_links, 0.0)
+        self.assertIsNone(erg['kreuzung']['wahl'])
+        self.assertGreater(min(y for _, y in erg['boden']), -0.06)      # nichts vom rechten Ast
+        self.assertLess(max(x for x, _ in erg['boden']), 0.37)          # nichts vom Ast geradeaus
+        self.assertIsNotNone(s.wahl)                                    # Wahl bleibt
+
     def test_kamera_weggedreht_aendert_nichts(self):
         """Arm dreht die Kamera weg (Zebrastreifen, Greifen): Wahl bleibt, auch nach vielen Bildern."""
         s = linie.LinienSucher()
