@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
@@ -63,6 +64,17 @@ class UtcKalender(unittest.TestCase):
                         '10:00:60', '23:59:60', '10:00:99'):
             with self.subTest(uhrzeit=uhrzeit):
                 self.pruefe_zeit('2026-10-22T' + uhrzeit + 'Z', False)
+
+    def test_uhrzeitgrenzen_auch_mit_permissivem_kalenderparser(self):
+        # Native Regression #144: Parser koennen 24:00:00 auf den Folgetag normalisieren.
+        with patch.object(V, 'datetime') as parser:
+            for zeit in ('2026-10-22T24:00:00Z', '2026-10-22T24:00:00.000000000Z',
+                         '2026-10-22T23:60:00Z', '2026-10-22T23:59:60Z'):
+                with self.subTest(zeit=zeit):
+                    self.pruefe_zeit(zeit, False)
+            parser.fromisoformat.assert_not_called()
+            self.pruefe_zeit('2026-10-22T23:59:59.123456789Z', True)
+            parser.fromisoformat.assert_called_with('2026-10-22T23:59:59')
 
     def test_nur_das_vertragliche_utc_format(self):
         for zeit in ('2026-10-22T10:00:00', '2026-10-22T10:00:00+00:00',
