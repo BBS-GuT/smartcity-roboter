@@ -1,8 +1,9 @@
 # LiDAR: Softwarestand und ausstehende Nachweise am 22.10.2026
 
 Bezug: [#58](https://github.com/BBS-GuT/smartcity-roboter/issues/58) mit allen
-Unteraufgaben. Die Schutzkorrektur aus #176 ist nach erfolgreicher nativer Prüfung
-im Sammelbranch integriert; ihre Lieferung nach main bleibt getrennt offen.
+Unteraufgaben. Schutzkorrektur #176 und Mess-/Ausfallvorbereitung #172 sind nach
+erfolgreicher nativer Prüfung im Sammelbranch integriert; ihre Lieferung nach main
+bleibt getrennt offen.
 Es wird keine Gerätefreigabe behauptet. Geprüfte Ausgangsbasis ist main
 `dc6acc25e490edc301a6464af8fe19e17339aa42` mit integriertem
 [PR #170](https://github.com/BBS-GuT/smartcity-roboter/pull/170).
@@ -11,7 +12,7 @@ Es wird keine Gerätefreigabe behauptet. Geprüfte Ausgangsbasis ist main
 
 | Lieferung | Exakter Kandidat | Prüfung / Integrationsgrenze |
 |---|---|---|
-| [#172: Mess- und Ausfallmatrix](https://github.com/BBS-GuT/smartcity-roboter/pull/172) | `a3c81259d69990183ca4eb20f6d9eae9774b243f` | Linux-CI 43/43; [nativer Review](https://github.com/BBS-GuT/smartcity-roboter/pull/172#issuecomment-6349216160) beim Statusabgleich noch laufend. Noch nicht integriert. |
+| [#172: Mess- und Ausfallmatrix](https://github.com/BBS-GuT/smartcity-roboter/pull/172) | `daa8db47ba74c3248bcd0fb62a09494dd5c8abe9` | [Linux-CI 43/43](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39843961334), [nativer Review](https://github.com/BBS-GuT/smartcity-roboter/pull/172#issuecomment-6349216160) am exakten Head abgeschlossen ohne Befunde/offene Befunde. P2 zur gemeinsamen statt nur einzelnen Messlücke behoben, Thread gelöst. Im Sammelbranch integriert; keine Geräteabnahme. |
 | [#176: fehlende Geometrie sperren und explizite Simulationsgeometrie](https://github.com/BBS-GuT/smartcity-roboter/pull/176) | `ac56051b438375ea63220120d4158837d2b690cb` | [Linux-CI 44/44](https://github.com/BBS-GuT/smartcity-roboter/actions/runs/39841340080/job/120042856186), alle Pflichtchecks erfolgreich. [Nativer Review am exakten Head abgeschlossen ohne Befunde](https://github.com/BBS-GuT/smartcity-roboter/pull/176#issuecomment-6349329512). Als `3d4684cb16a3652e3a05c90ff0cc6bdd10a39e2c` in den Sammelbranch integriert; kein main-Merge. |
 
 Die Unter-PRs zielen auf `fix/gb-58-lidar`. Erst nach den geforderten tatsächlichen
@@ -23,7 +24,7 @@ implementierenden Chat und keine Umgehung der Schutzregeln.
 Ein früherer nativer Review von #176 war wegen eines Nutzungslimits abgebrochen.
 Der notwendige Simulationsnachtrag startete regulär eine neue Prüfung am obigen
 Head; erst deren tatsächlich sauberes Ergebnis erlaubte die Unterintegration.
-Die vorbereitete Dokumentation #172 bleibt bis zu ihrem eigenen Abschluss separat.
+Die Dokumentation #172 wurde nach ihrem eigenen sauberen Abschluss zusammengeführt.
 
 ## Ergebnis des Softwareabgleichs
 
@@ -39,7 +40,7 @@ alten Sensorursprung freigeben. Zwei neue Regressionsfälle an beiden tatsächli
 Verbrauchern schlagen dort in vier Kontrollen fehl (Produktdefault sowie zuvor
 gesetzte, dann vollständig entfernte Geometrie).
 
-Kandidat #176 sperrt diesen Fall im gemeinsamen Adapter. Seine 22
+Die Korrektur #176 sperrt diesen Fall im gemeinsamen Adapter. Ihre 22
 Fusionsverbrauchertests prüfen auch partielle/falsche Geometrie, den tatsächlichen
 Nullpublisher trotz Kamera-/KI-Freigabe und die drei #64-Gegenbeispiele für
 Front/Seite/Heck bei 0/+90/-90/180 Grad an KI und finalem Haltpfad. Reine
@@ -74,7 +75,8 @@ wurde nicht ausgeführt.
   Reaktionsgrenzen und Isolation geklärt sein. Offene Voraussetzungen blockieren
   diese Fälle. RM02-Abnahmen werden nicht durch RM01-Ergebnisse abgeschlossen.
 
-Die konkrete allgemeine Matrix und Ergebnisvorlage stehen in Unter-PR #172.
+Die konkrete allgemeine [Matrix und Ergebnisvorlage](lidar-messung-und-ausfallpruefung.md)
+trennt auch eine gemeinsame Messlücke von positiver komplementärer Abdeckung.
 Die bestehende private Morgenanleitung wird zentral gepflegt; diese Datei ist
 kein zweiter Installationsablauf. Für diese Lieferung gab es keinen Gerätezugriff,
 kein Deployment und keinen Fahr-/Armversuch. #58/#64/#66/#67 bleiben offen.
