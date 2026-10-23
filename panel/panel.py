@@ -182,12 +182,6 @@ class PanelNode(Node):
         werte = einstellungen.lade('lichter')
         self.lichter = lichterlib.Lichter({k: v for k, v in werte.items() if k in lichterlib.STANDARD})
 
-        self.betrieb_lock = threading.RLock()
-        self.prozess_start_lock = threading.Lock()
-        self.start_wartet = False
-        self.betrieb = {'target_process_id': None, 'session_id': uuid.uuid4().hex, 'generation': 0, 'start_id': uuid.uuid4().hex, 'angefordert': False}
-        self.betrieb_pub = self.create_publisher(String, '/line_follower/betrieb', 10)
-        self.create_timer(.1, self.betrieb_senden)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.ki_kommando_pub = self.create_publisher(String, '/ki/kommando', 10)
         self.karte_kommando_pub = self.create_publisher(String, '/karte/kommando', 10)
@@ -347,51 +341,6 @@ class PanelNode(Node):
         with self.lock:
             zeit = self.daten.get(name, (None, None))[0]
         return None if zeit is None else round(time.time() - zeit, 1)
-
-    def betrieb_senden(self):
-        with self.betrieb_lock:
-            lf = self.get('lf', max_alter=.6) or {}
-            pid = lf.get('process_id')
-            if not self.betrieb.get('target_process_id') and isinstance(pid, str) and pid:
-                self.betrieb['target_process_id'] = pid
-            if self.start_wartet:
-                target = self.betrieb.get('target_process_id')
-                if pid and target and pid != target:
-                    # Ein Prozesswechsel waehrend START erfordert neue Bedienung.
-                    self.start_wartet = False
-                elif (pid == target and target and lf.get('handshake_bestaetigt') is True
-                      and lf.get('drive') is False and lf.get('betrieb_angefordert') is False
-                      and all(lf.get(k) == self.betrieb[k] for k in ('session_id', 'generation', 'start_id'))):
-                    self.betrieb = dict(self.betrieb, generation=self.betrieb['generation'] + 1,
-                                        start_id=uuid.uuid4().hex, angefordert=True)
-                    self.start_wartet = False
-                    self.ki_kommando_pub.publish(String(data='start'))
-            self.betrieb_pub.publish(String(data=json.dumps(self.betrieb)))
-
-    def betrieb_setzen(self, an):
-        with self.betrieb_lock:
-            lf = self.get('lf', max_alter=.6) or {}
-            gleicher_prozess = bool(lf.get('process_id') and
-                lf['process_id'] == self.betrieb.get('target_process_id'))
-            if an and ((self.start_wartet and (gleicher_prozess or not lf.get('process_id') or
-                    not self.betrieb.get('target_process_id'))) or
-                    (self.betrieb['angefordert'] and gleicher_prozess and
-                     not lf.get('freigabeweg_ausgefallen'))):
-                return dict(self.betrieb)
-            self.start_wartet = bool(an)
-            self.betrieb = {'session_id': self.betrieb['session_id'],
-                            'generation': self.betrieb['generation'] + 1,
-                            'target_process_id': lf.get('process_id'),
-                            'start_id': uuid.uuid4().hex, 'angefordert': False}
-            self.betrieb_senden()
-            return dict(self.betrieb)
-
-    def stopp_bestaetigt(self):
-        with self.betrieb_lock:
-            lf = self.get('lf', max_alter=.6) or {}
-            return (not self.start_wartet and self.betrieb['angefordert'] is False and lf.get('drive') is False and
-                    lf.get('process_id') == self.betrieb.get('target_process_id') and
-                    all(lf.get(k) == self.betrieb[k] for k in ('session_id', 'generation', 'start_id')))
 
     def stillstand(self):
         for _ in range(5):
@@ -659,44 +608,34 @@ def mache_handler(node, prozesse, beenden=None):
 
     def aktion(name, daten, lokal):
         if name == 'stopp':
-            node.betrieb_setzen(False)
+            node.stillstand()                 # sofort Stillstand senden ...
+            prozesse.stopp('fahren')          # ... dann Programm beenden
             node.stillstand()
-            return 'Gestoppt; Wahrnehmung laeuft weiter'
+            return 'Gestoppt'
         if name in ('start', 'test'):
+            if prozesse.laeuft('fahren'):
+                return 'Laeuft schon. Erst STOPP druecken.'
+            if node.get('ki', max_alter=2.0) is None:
+                ki_starten()
+                hinweis = ' KI-Zentrale wird gestartet (ca. 5 s), bis dahin bleibt er stehen.'
+            else:
+                hinweis = ''
+            if 'line_follower' in node.get_node_names():
+                return ('Es laeuft schon ein Linienfolger, der NICHT vom Panel gestartet wurde (alte Version oder '
+                        'aus einem Terminal). Erst beenden: Terminal -> scripts/stopp.sh, dann nochmal.')
             if name == 'start':
-                node.abblend_setzen(True)
-            # Auftrag VOR langsamen Prozess-/Paketabfragen festhalten. STOPP benutzt
-            # nur betrieb_lock und kann den Auftrag jederzeit unwiderruflich entwerten.
-            with node.betrieb_lock:
-                if not prozesse.laeuft('fahren'):
-                    # Veralteter Status eines beendeten Kindes darf den neuen
-                    # bewussten Start nicht an dessen alte Prozesskennung binden.
-                    with node.lock:
-                        node.daten.pop('lf', None)
-                vorher = dict(node.betrieb)
-                auftrag = node.betrieb_setzen(name == 'start')
-            with node.prozess_start_lock:
-                if not prozesse.laeuft('fahren'):
-                    if 'line_follower' in node.get_node_names():
-                        node.betrieb_setzen(False)
-                        return 'Fremder Linienfolger laeuft; zuerst dessen Betreiber stoppen lassen.'
-                    prozesse.start('fahren', lf_befehl(True), 'WAHRNEHMUNG')
-                if node.get('ki', max_alter=2.0) is None:
-                    ki_starten()
-            with node.betrieb_lock:
-                if node.betrieb != auftrag:
-                    return 'Anforderung durch neueren Bedienauftrag verworfen.'
-                if name == 'test':
-                    return 'Testmodus: Wahrnehmung aktiv, Ausgabe gesperrt.'
-                lf = node.get('lf', max_alter=.6) or {}
-                freigegeben = (lf.get('start_id') == auftrag['start_id'] and
-                        lf.get('generation') == auftrag['generation'] and lf.get('betrieb_freigegeben'))
-            if freigegeben:
-                return 'Betrieb freigegeben; Bewegung wird separat gemessen.'
-            return 'START angefordert; wartet auf aktuelle Bereitschaft: ' + lf.get('status', 'Linienfolger startet')
+                node.abblend_setzen(True)       # Licht an, BEVOR er losfaehrt
+            prozesse.start('fahren', lf_befehl(name == 'start'), 'FAEHRT' if name == 'start' else 'TESTMODUS')
+            time.sleep(2.5)       # sofort wieder beendet? Dann den Grund aus dem Protokoll zeigen
+            if not prozesse.laeuft('fahren'):
+                return 'Linienfolger hat sich sofort beendet:\n' + log_ende('fahren')
+            if name == 'start':
+                # ausdruecklicher START: KI quittiert damit Manoever-Fehler und fehlgeschlagenes Wegraeumen
+                node.ki_kommando_pub.publish(String(data='start'))
+            return ('Faehrt los.' if name == 'start' else 'Testmodus: zeigt alles, faehrt nicht.') + hinweis
         if name == 'abblend':
             node.abblend_setzen(bool(daten.get('an')))
-            fahrt = bool((node.get('lf', max_alter=.6) or {}).get('drive'))
+            fahrt = prozesse.laeuft('fahren') and prozesse.info.get('fahren') == 'FAEHRT'
             if node.lichter.abblend:
                 return 'Abblendlicht AN'
             return 'Abblendlicht AUS' + (' - Achtung: er faehrt gerade ohne Licht!' if fahrt else '')
@@ -763,12 +702,12 @@ def mache_handler(node, prozesse, beenden=None):
             return 'KI: ' + (node.get('ki_antwort', max_alter=2.0) or 'keine Antwort (laeuft die KI?)')
         # ---- Arm ----
         if name.startswith('greifer_'):
-            if (node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt())) and name in ('greifer_schritt', 'greifer_messen'):
-                return 'Arm nur bei bestaetigtem STOPP (Kamera sitzt am Arm). Erst STOPP und Quittung abwarten.'
+            if prozesse.laeuft('fahren') and name in ('greifer_schritt', 'greifer_messen'):
+                return 'Arm nur, wenn das Fahrprogramm aus ist (Kamera sitzt am Arm). Erst STOPP.'
             return greifer_einmessen(name, daten)
         if name.startswith('arm_'):
-            if (node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt())) and name in ('arm_pose', 'arm_greifer'):
-                return 'Arm nur bei bestaetigtem STOPP (Kamera sitzt am Arm). Erst STOPP und Quittung abwarten.'
+            if prozesse.laeuft('fahren') and name in ('arm_pose', 'arm_greifer'):
+                return 'Arm nur, wenn das Fahrprogramm aus ist (Kamera sitzt am Arm). Erst STOPP.'
             if name == 'arm_pose':
                 fehler = node.arm_holen().fahre(daten.get('winkel', []), int(daten.get('zeit', 2000)))
                 return fehler or 'Arm faehrt (' + ('echt' if node.arm.echt else 'nur Test-Topic, arm_msgs fehlt') + ')'
@@ -829,8 +768,8 @@ def mache_handler(node, prozesse, beenden=None):
             node.netz_erlaubt = bool(daten.get('erlaubt'))
             return 'Laptop-Zugriff ' + ('AN' if node.netz_erlaubt else 'AUS')
         if name == 'ampel_kalibrieren':
-            if node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt()):
-                return 'Erst STOPP druecken und Quittung abwarten.'
+            if prozesse.laeuft('fahren'):
+                return 'Erst STOPP druecken.'
             env = dict(os.environ, DISPLAY=os.environ.get('DISPLAY', ':0'))
             if not prozesse.start('ampel', [sys.executable, os.path.join(REPO, 'line_follower', 'ampel_kalibrieren.py')],
                                   env=env):
@@ -840,8 +779,8 @@ def mache_handler(node, prozesse, beenden=None):
         if name == 'system_info':
             return system_info()
         if name == 'update':
-            if node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt()):
-                return 'Erst STOPP druecken und Quittung abwarten.'
+            if prozesse.laeuft('fahren'):
+                return 'Erst STOPP druecken.'
             r = subprocess.run(['bash', os.path.join(REPO, 'scripts', 'update.sh')], capture_output=True, text=True,
                                timeout=90)
             return (r.stdout + r.stderr).strip() + '\nPanel neu starten, damit Aenderungen gelten.'
@@ -899,9 +838,7 @@ def mache_handler(node, prozesse, beenden=None):
         posen = armlib.lade_posen()
         e = armlib.lade_einstellungen()
         return {
-            'fahren': bool((node.get('lf', max_alter=.6) or {}).get('drive')),
-            'wahrnehmung': prozesse.laeuft('fahren'),
-            'modus': 'START angefordert' if node.start_wartet or node.betrieb['angefordert'] else 'GESTOPPT',
+            'fahren': prozesse.laeuft('fahren'), 'modus': prozesse.info.get('fahren', ''),
             'ki_prozess': prozesse.laeuft('ki'),
             'lf': node.get('lf', max_alter=1.5), 'ki': node.get('ki', max_alter=1.5),
             'lf_alter': node.alter('lf'), 'fremde': fremde_programme(),
@@ -1121,9 +1058,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        # Freigabe vor langsamer Prozessbereinigung entziehen; Heartbeats duerfen
-        # waehrend alle_stoppen() keine alte Betriebsfreigabe aufrechterhalten.
-        node.betrieb_setzen(False)
+        # Beim Beenden des Panels: Roboter anhalten, Lichter aus und alle gestarteten Programme beenden
         node.stillstand()
         node.leiste_aus()
         prozesse.alle_stoppen()

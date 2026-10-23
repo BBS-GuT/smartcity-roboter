@@ -501,7 +501,6 @@ def plane_wegraeumen(ik, greif, ablagen, hoehe, fahrstellung, auf, zu, anlegen=N
         if ablegen is not None:
             fahr = list(fahrstellung[:6]) + [auf] * (6 - len(fahrstellung))
             return {'schritte': greifen + ablegen + [('zurueck in Fahrstellung', fahr, 1.5)],
-                    'ablage': [ax, ay, az],
                     'info': f'greife bei {gx * 100:.0f} / {gy * 100:+.0f} / {gz * 100:.0f} cm, lege ab bei '
                             f'{ax * 100:.0f} / {ay * 100:+.0f} cm'}
     if not ablagen:

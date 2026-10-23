@@ -21,8 +21,6 @@ class Lauf:
         self.e = Entscheider(**kw)
         self.t = 100.0
         self.nr = 0
-        self.strecke = 0.0
-        self.letzter = None
 
     def schritt(self, n=1, **w):
         befehl = None
@@ -36,14 +34,11 @@ class Lauf:
                 time.sleep(0.001)
             self.t += 0.1
             self.nr += 1
-            self.strecke += ((self.letzter or {}).get('manoever') or {}).get('lin', 0.0) * .1
             daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'aufnahme': self.t, 'objekte': [], 'ampel': None,
                      'stoppschild': False, 'lidar': float('inf'), 'tiefe_hindernis': False,
-                     'lidar_hinten': 1.0, 'strecke': self.strecke,
-                     'strecke_gemessen': True}  # rein synthetische Odometrie der Testwelt
+                     'lidar_hinten': 1.0}   # hinten frei (sonst faehrt er nicht rueckwaerts)
             daten.update(w)
             befehl = self.e.update(self.t, daten)
-            self.letzter = befehl
         return befehl
 
     def bis(self, arm, max_schritte=40, **w):
@@ -155,7 +150,6 @@ for k in range(150):
         l.nr += 1                            # nur alle 0,8 s ein KI-Bild
     sichtbar = k < 16 or gefahren < -0.06    # erst wieder zu sehen, wenn er 6 cm zurueckgefahren ist
     b = l.e.update(l.t, {'bild_nr': l.nr, 'bild_zeit': l.t, 'lidar': float('inf'), 'objekte': [], 'lidar_hinten': 1.0,
-                         'strecke': gefahren, 'strecke_gemessen': True,
                          'objekt': dict(NAH_WEG, vor=0.22 - gefahren) if sichtbar else None})
     if b.get('manoever'):
         gefahren += b['manoever']['lin'] * 0.1
@@ -1049,15 +1043,15 @@ print(f"{'OK  ' if ok else 'FEHLER'} nach fehlgeschlagenem Wegraeumen: STOPP + S
 # "Weg ist wieder frei" -> drueber gefahren. Jetzt: gemerkte Stelle gilt nicht als frei, bis START.
 for strecke in (False, True):
     l = Lauf(arm_erlaubt=True, posen=POSEN, planer=planer)
-    s = {'strecke': 0.0} if strecke else {'strecke': None, 'strecke_gemessen': False}
+    s = {'strecke': 0.0} if strecke else {}
     b = l.schritt(15, objekt=dict(WUERFEL, vor=0.34), **s)           # anschauen -> in Greifweite fahren
-    ok_anfang = (l.e.ablauf is not None and l.e.ablauf.phase == 'abstand') if strecke else bool(l.e.fehler_halt)
+    ok_anfang = l.e.ablauf is not None and l.e.ablauf.phase == 'abstand'
     if strecke:
         s = {'strecke': 0.04}                                          # 4 cm naeher heran: 30 cm, Kamera verliert es
     folge = [l.schritt(1, **s) for _ in range(80)]                     # Kamera + LiDAR sehen nichts mehr
     # noch bis 2,5 s blind weiter heran (Greifweite), aber nie 'fahren'; am Ende Halt mit Grund
     ok = (ok_anfang and all(x['aktion'] != 'fahren' for x in folge) and folge[-1]['aktion'] == 'stopp'
-          and ('zu nah fuer die Kamera' in folge[-1]['grund'] if strecke else 'Odometrie' in folge[-1]['grund']))
+          and 'zu nah fuer die Kamera' in folge[-1]['grund'])
     l.e.fahrt_aktiv = False
     l.schritt(1, **s)
     l.e.kommando(l.t, 'start')

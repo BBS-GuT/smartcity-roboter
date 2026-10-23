@@ -50,7 +50,7 @@ class Lauf:
         self.jetzt = self.ms / 1000
         w = {'neues_bild': neu, 'objekte': [] if akteur is None else [{'name': akteur, 'im_weg': im_weg}],
              'objekt': None if self.objekt is None else dict(self.objekt), 'lidar': self.lidar,
-             'lidar_hinten': 1.0, 'strecke': self.strecke, 'strecke_gemessen': True}
+             'lidar_hinten': 1.0, 'strecke': self.strecke}
         self.letzter = self.ablauf.schritt(self.jetzt, w)
         if self.phasen[-1] != self.ablauf.phase:
             self.phasen.append(self.ablauf.phase)

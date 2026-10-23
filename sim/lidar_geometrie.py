@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Known synthetic geometry for the isolated simulator, never robot calibration."""
 import argparse
-import json
 import math
 import os
 from pathlib import Path
@@ -14,40 +13,10 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 import arm  # noqa: E402
-from welt import Welt, KAMERA, AUFLOESUNG, ARM_STRICH_PX, FAHRZEUG_GRENZEN, GREIFER_RADIUS_PX  # noqa: E402
+from welt import AUFLOESUNG, ARM_STRICH_PX, FAHRZEUG_GRENZEN, GREIFER_RADIUS_PX  # noqa: E402
 
 LIDAR_STANDARD = (0.0, 0.0, 0.0)
 LIDAR_SCHWER = (-.12, 0.0, 4.0)
-
-
-def kamera_intrinsik(breite, hoehe):
-    """Exact pinhole calibration used by Welt._strahlen, including pixel centres."""
-    f = (breite / 2) / math.tan(math.radians(KAMERA['fov_deg']) / 2)
-    return [f, 0., breite / 2 - .5, 0., f, hoehe / 2 - .5, 0., 0., 1.]
-
-
-def simulations_bodenreferenz(pfad, pose):
-    """Write a separate synthetic free-plane reference, never a device reference.
-
-    Called by simulation setup before any perception consumer is started.
-    The correction is computed from the renderer's actual depth sampling grid.
-    """
-    from tiefenstatus import strahlen
-    kamera = dict(kamera_hoehe=KAMERA['hoehe'], kamera_neigung=KAMERA['neigung_deg'],
-                  kamera_fov=KAMERA['fov_deg'], kamera_x=KAMERA['x'])
-    welt = Welt.__new__(Welt)
-    welt._cache = {}
-    _, _, _, depth, _, _, _ = welt._vorberechnet(0., 2)
-    sample = depth[::2, ::2]
-    _, _, rz = strahlen(kamera, sample.shape)
-    correction = kamera['kamera_hoehe'] + sample * rz
-    correction = np.where(np.isfinite(correction), correction, 0.).astype(np.float32)
-    meta = dict(frei_bestaetigt=True, pose=list(pose), kamera=kamera,
-                bild_shape=list(depth.shape), modell_shape=list(sample.shape),
-                frame='camera_color', k=kamera_intrinsik(depth.shape[1], depth.shape[0]),
-                quellen=['synthetisch: sim/welt.py freies Bodenmodell, keine RM01-Aufnahme'])
-    np.savez_compressed(pfad, korrektur=correction, metadaten=json.dumps(meta))
-    return dict(kamera, bodenreferenz=os.path.abspath(pfad))
 
 
 def schwer_argumente():
@@ -102,13 +71,9 @@ def parameter(schwer=False, arm_datei=None):
 def schreibe_parameter(schwer=False, arm_datei=None):
     if os.environ.get('ROS_DOMAIN_ID') != '77':
         raise ValueError('Synthetische LiDAR-Geometrie nur in Simulationsdomain 77')
-    values = parameter(schwer, arm_datei)
-    with open(arm_datei or ROOT / 'sim' / 'arm_sim.yaml', encoding='utf-8') as pose_file:
-        pose = yaml.safe_load(pose_file)['posen']['fahrstellung']
-    data = {'/**': {'ros__parameters': values}}
+    data = {'/**': {'ros__parameters': parameter(schwer, arm_datei)}}
     with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', prefix='smartcity-sim-',
                                      encoding='utf-8', delete=False) as f:
-        values.update(simulations_bodenreferenz(f.name + '.boden.npz', pose))
         f.write('# NUR synthetischer Simulator, keine Geraetekalibrierung.\n')
         yaml.safe_dump(data, f, sort_keys=False)
         return f.name

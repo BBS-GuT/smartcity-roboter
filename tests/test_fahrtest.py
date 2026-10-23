@@ -164,22 +164,10 @@ class DepthAndArm(unittest.TestCase):
 
 
 class FinalPublisher(unittest.TestCase):
-    def heartbeat(self, n):
-        ids = dict(session_id='test', generation=1, start_id='test')
-        if hasattr(n, 'betrieb'):
-            if hasattr(n.betrieb, 'process_id'):
-                ids['target_process_id'] = n.betrieb.process_id
-                if not n.betrieb.handshake_bestaetigt:
-                    self.assertTrue(n.betrieb.empfang(dict(ids, generation=0, angefordert=False)))
-            n.betrieb.empfang(dict(ids, angefordert=True))
-            n.start_bereit = lambda: True  # Hier wird nur der finale Publisher isoliert.
-        n.ki = (q.time.time(), dict(ids, aktion='fahren', begleiteter_fahrbetrieb=True,
-                                  sensoren_bereit=True))
-
     def ready(self):
         n = node(q.lf.LineFollower)
         n._p.update(drive=True, show=False, publish_image=False)
-        self.heartbeat(n)
+        n.ki = (q.time.time(), {'aktion': 'fahren', 'begleiteter_fahrbetrieb': True})
         return n
 
     def test_actual_publisher_has_no_artificial_speed_or_six_second_limit(self):
@@ -188,7 +176,7 @@ class FinalPublisher(unittest.TestCase):
             for elapsed in (0, 7, 60):
                 with q.spaeter(elapsed):
                     c.feed(n)
-                    self.heartbeat(n)
+                    n.ki = (q.time.time(), {'aktion': 'fahren', 'begleiteter_fahrbetrieb': True})
                     n.steuern()
                     t = n.pub.letzte
                     self.assertEqual((t.linear.x, t.linear.y, t.angular.z), (.15, 0., .5))

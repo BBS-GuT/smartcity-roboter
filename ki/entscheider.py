@@ -26,7 +26,6 @@
 # Mehrschrittige Ablaeufe (Zebrastreifen, Wenden, Wegraeumen) stehen in ki/ablaeufe.py.
 
 import random
-import math
 
 from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen, akteure_nah
 
@@ -158,7 +157,6 @@ class Entscheider:
         self.lebewesen_bild = float('-inf')   # ... Aufnahmezeit (bild_zeit) dieses Bildes
         # Arm
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
-        self.arm_recovery_seit = None   # Neue Fahrstellungsanforderung muss nach diesem Abbruch/STOPP liegen.
         self.arm_zurueck_wegraeumen = False  # ... wegen eines Wegraeumens (dann erst zurueck, wenn niemand in Sicht ist)
         self.arm_warten_bis = 0.0
         self.letzte_aktion = None
@@ -207,19 +205,6 @@ class Entscheider:
         Rueckgabe: {'aktion', 'faktor', 'grund', 'arm', 'manoever'}
         """
         self.jetzt = jetzt
-        betrieb = w.get('betrieb')
-        if betrieb is not None:
-            epoche = tuple(betrieb.get(k) for k in ('session_id', 'generation', 'start_id'))
-            aktiv = betrieb.get('betrieb_freigegeben') is True
-            if (self.arm_zurueck_noetig and not aktiv
-                    and epoche != getattr(self, 'betriebsepoche', None)):
-                self.arm_recovery_seit = jetzt
-            if self.ablauf is not None and self.ablauf.name == 'wegraeumen' and (
-                    not aktiv or epoche != getattr(self, 'betriebsepoche', epoche)):
-                self._ereignis(jetzt, 'Raeumauftrag verworfen: STOPP oder neue Betriebsepoche', 'stopp')
-                self._ablauf_abbrechen()
-            self.betriebsepoche = epoche
-            self.fahrt_aktiv = aktiv
         if not self.arm_freigabe and self.ablauf is not None and self.ablauf.braucht_arm:
             # Schalter "KI darf den Arm bewegen" waehrend eines Ablaufs ausgeschaltet: wie STOPP behandeln,
             # Arm faehrt zurueck in die Fahrstellung, bevor wieder gefahren wird
@@ -297,17 +282,10 @@ class Entscheider:
             # dann ist nichts geprueft): Arm bleibt, wo er ist, und der Roboter steht
             befehl = self._b('stopp', f'Arm muss zurueck in Fahrstellung, aber {halten} -> warte')
         elif self.arm_zurueck_noetig and self.fahrt_aktiv and not notbremse:
-            if w.get('aktionsquittung_pflicht'):
-                # Ohne konkreten autorisierten Rueckkehrplan wuerde die finale
-                # Pruefung diesen generischen Befehl verwerfen. Keine Fahrpose
-                # oder Wartezeit aus einem verworfenen Sollbefehl ableiten.
-                befehl = self._b('stopp', 'Arm nach Abbruch nicht in bestaetigter Fahrstellung; '
-                                 'sichere Rueckkehr pruefen')
-            else:
-                self.arm_zurueck_noetig = False
-                self.arm_zurueck_wegraeumen = False
-                self.arm_warten_bis = jetzt + self.c['arm_zeit']
-                befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung', arm='fahrstellung')
+            self.arm_zurueck_noetig = False
+            self.arm_zurueck_wegraeumen = False
+            self.arm_warten_bis = jetzt + self.c['arm_zeit']
+            befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung', arm='fahrstellung')
         elif jetzt < self.arm_warten_bis and befehl['aktion'] != 'stopp':
             befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung')
         if not self.fahrt_aktiv and befehl.get('arm'):
@@ -546,7 +524,6 @@ class Entscheider:
         a, self.ablauf = self.ablauf, None
         if a.arm_bewegt or (a.name == 'wegraeumen' and not nur_wenn_bewegt):
             self.arm_zurueck_noetig = True
-            self.arm_recovery_seit = self.jetzt
         if a.arm_bewegt and a.name == 'wegraeumen':
             self.arm_zurueck_wegraeumen = True     # Arm steht wirklich woanders: erst zurueck, wenn niemand in Sicht
         if a.name == 'wegraeumen' and a.merk is not None:
@@ -569,7 +546,6 @@ class Entscheider:
         self.ablauf = None
         if a.arm_bewegt:
             self.arm_zurueck_noetig = True
-            self.arm_recovery_seit = jetzt
             self.arm_zurueck_wegraeumen = self.arm_zurueck_wegraeumen or a.name == 'wegraeumen'
         if a.name == 'zebra':
             self.zebra_gesperrt = True
@@ -593,8 +569,6 @@ class Entscheider:
             elif a.ergebnis == 'fehler':
                 self.aufheben_gesperrt = True
                 self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen hat nicht geklappt', False
-                if getattr(a, 'odometrie_fehlt', False):
-                    self.fehler_halt = 'Raeumkorrektur ohne gemessene Odometrie'
             else:                        # frei: Fehlalarm oder weggeraeumt UND geprueft
                 self.meldung_seit = None
 
@@ -610,7 +584,7 @@ class Entscheider:
             return None
         vor, s0, vorgefahren = self.hindernis_merk
         s1 = w.get('strecke')
-        if w.get('strecke_gemessen') and s0 is not None and s1 is not None:
+        if s0 is not None and s1 is not None:
             rest = vor - (s1 - s0)
         else:
             # ohne Radzaehler: ist er seit der Messung vorwaerts gefahren, ist unbekannt wie weit -> direkt davor
@@ -658,33 +632,6 @@ class Entscheider:
         a = self.ablauf                    # einmal lesen: die KI fragt aus einem anderen Thread
         return (not self.arm_zurueck_noetig and self.jetzt >= self.arm_warten_bis
                 and not (a is not None and a.arm_bewegt))
-
-    def bestaetige_fahrstellung(self, jetzt, anforderung_zeit, bewegung_bis,
-                               rgb_aufnahme, tiefe_aufnahme, *, erfolgreich_gesendet=False):
-        """Eine neue, bestaetigte manuelle Rueckkehr nach Armabbruch quittieren.
-
-        Der Aufrufer belegt gespeicherte Fahrpose, erfolgreichen Sendeweg,
-        passende Frames/Referenz und gueltige neue RGB-/Tiefenmessung. Ein
-        alter Sollwinkel, START oder eine abgewiesene Anforderung genuegt nie.
-        Hier wird keine Betriebsfreigabe und keine START-Quittung erzeugt.
-        """
-        werte = (jetzt, anforderung_zeit, bewegung_bis, rgb_aufnahme, tiefe_aufnahme,
-                 self.arm_recovery_seit)
-        if (not self.arm_zurueck_noetig or erfolgreich_gesendet is not True
-                or (self.ablauf is not None and self.ablauf.braucht_arm)
-                or not all(type(v) in (int, float) and math.isfinite(v) for v in werte)):
-            return False
-        if not (self.arm_recovery_seit < anforderung_zeit <= bewegung_bis <= jetzt
-                and bewegung_bis < rgb_aufnahme <= jetzt
-                and bewegung_bis < tiefe_aufnahme <= jetzt
-                and jetzt - min(rgb_aufnahme, tiefe_aufnahme) <= .5
-                and abs(rgb_aufnahme - tiefe_aufnahme) <= .15):
-            return False
-        self.arm_zurueck_noetig = self.arm_zurueck_wegraeumen = False
-        self.arm_warten_bis = 0.
-        self.arm_recovery_seit = None
-        self._ereignis(jetzt, 'Neue Fahrstellung nach Armabbruch mit neuen passenden Bildern bestaetigt', 'info')
-        return True
 
     @staticmethod
     def _b(aktion, grund, faktor=None, arm=None):

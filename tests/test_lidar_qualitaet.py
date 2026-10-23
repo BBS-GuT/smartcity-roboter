@@ -80,16 +80,6 @@ def ungueltige():
         }
 
 
-def start_auftrag(n):
-    """Bewusster START; keine Umgehung von echter Datenbereitschaft."""
-    auftrag = dict(target_process_id=n.betrieb.process_id, session_id='sensor-test', generation=1, start_id='sensor-start', angefordert=True)
-    if not n.betrieb.handshake_bestaetigt:
-        n.on_betrieb(types.SimpleNamespace(data=json.dumps(dict(auftrag, generation=0, angefordert=False))))
-    n.on_betrieb(types.SimpleNamespace(data=json.dumps(auftrag)))
-    if n.ki[1]:
-        n.ki[1].update({k: auftrag[k] for k in ('session_id', 'generation', 'start_id')})
-
-
 class ReineQualitaet(unittest.TestCase):
     def test_ungueltige_scans_haben_grund(self):
         for name, m in ungueltige().items():
@@ -163,12 +153,10 @@ class Linienfolger(Halt):
     def test_publisherattrappe_bekommt_nullbefehl(self):
         n = self.neu(scan(0.0))
         n._p['drive'] = True
-        start_auftrag(n)
         n.steuern()
         cmd = n.pub.letzte
         self.assertEqual((cmd.linear.x, cmd.linear.y, cmd.angular.z), (0.0, 0.0, 0.0))
         self.assertIn('LIDAR UNBEKANNT', json.loads(n.pub_status.letzte.data)['status'])
-        self.assertIn('START WARTET', json.loads(n.pub_status.letzte.data)['status'])
 
     def test_gueltig_frei(self):
         self.assertGreater(self.neu().entscheide()[0], 0)

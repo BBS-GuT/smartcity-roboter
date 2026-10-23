@@ -57,8 +57,6 @@ sys.path.insert(0, os.path.join(REPO, 'line_follower'))
 import lidar  # noqa: E402
 import lidar_fusion  # noqa: E402
 import fahrtest  # noqa: E402
-from betriebsfreigabe import Betriebsfreigabe
-import sensorstatus
 import linie  # noqa: E402
 
 # LiDAR-Bereiche der Notbremse: Mitte (Grad, links positiv), je +-obstacle_half_deg
@@ -119,8 +117,6 @@ class LineFollower(Node):
         self.scan_lock = threading.Lock()  # Geometrie und Kanalstatus bilden genau einen Scanstand
         self.scans = {}
         self.scan_stempel = {}           # Kanal -> neueste akzeptierte Aufnahmezeit (muss vorwaerts laufen)
-        self.betrieb = Betriebsfreigabe()
-        self.betrieb_lock = threading.RLock()
         self.ki = (0.0, None)            # (zeit, befehl)
         self.last_image_pub = 0.0
         self.status_text = 'startet ...'
@@ -150,7 +146,6 @@ class LineFollower(Node):
         for i, t in enumerate(self.p('scan_topics')):
             self.create_subscription(LaserScan, t, lambda m, t=t, i=i: self.on_scan(m, t, i),
                                      qos_profile_sensor_data, callback_group=scan_gruppe)
-        self.create_subscription(String, '/line_follower/betrieb', self.on_betrieb, 10, callback_group=rest_gruppe)
         self.create_subscription(String, '/ki/befehl', self.on_ki, 10, callback_group=rest_gruppe)
         self.create_subscription(Float32, '/line_follower/tempo', self.on_tempo, 10, callback_group=rest_gruppe)
         self.create_subscription(Odometry, '/odom_raw', self.on_odom, qos_profile_sensor_data, callback_group=scan_gruppe)
@@ -272,49 +267,8 @@ class LineFollower(Node):
         if alt and jetzt - alt > 0.6:     # Diagnose: wie lange war die KI still? (dann stand er)
             self.get_logger().warn(f"KI-Zentrale war {jetzt - alt:.1f} s still (KI-Bild {self.ki[1].get('ki_ms')} ms, "
                                    f"Takt max {self.ki[1].get('takt_max_ms')} ms)")
-        if (self.ki[1].get('ablauf') != 'wegraeumen' and
-                all(self.ki[1].get(k) == getattr(self.betrieb, k)
-                    for k in ('session_id', 'generation', 'start_id'))):
-            self.raeumziel_bindung = None
         if self.ki[1].get('kamera_ok') is False:
             self.kamera_weg_bis = self.ki[0]      # bis hierhin schaute die Kamera woanders hin
-
-    def on_betrieb(self, msg):
-        try:
-            auftrag = json.loads(msg.data)
-        except (ValueError, TypeError):
-            return
-        if not isinstance(auftrag, dict):
-            return
-        with self.betrieb_lock:
-            if self.betrieb.empfang(auftrag) and not self.betrieb.angefordert:
-                self.pub.publish(Twist())
-                self.letzter_cmd = (0.0, 0.0, 0.0)
-
-    def start_bereit(self):
-        jetzt = time.time()
-        with self.scan_lock:
-            scanstand = self.scans.copy()
-            felder = self.scan_geometrie.received.copy()
-        frisch, grund = lidar.pflichtkanaele(scanstand, self.p('scan_topics'), time.monotonic())
-        if grund:
-            return False
-        stamps = {t: e[3] for t, e in zip(self.p('scan_topics'), frisch)}
-        if any(e[2] or lidar.aufnahme_alter(e[3], self.ros_jetzt(),
-                max_zukunft=fahrtest.scan_uhrspielraum(self)) for e in frisch):
-            return False
-        _, grund = self.scan_geometrie.sicht(stamps, felder)
-        if grund:
-            return False
-        with self.lock:
-            if (jetzt - self.bild_zeit > .5 or not self.stempel_ok
-                    or self.bild_alter + max(0., jetzt - self.bild_zeit) > self.p('bild_alter_max')):
-                return False
-        zeit, ki = self.ki
-        return bool(ki and jetzt - zeit <= .6 and
-                    all(ki.get(k) == getattr(self.betrieb, k) for k in ('session_id', 'generation', 'start_id')) and
-                    (not self.p('begleiteter_fahrbetrieb') or
-                     (ki.get('begleiteter_fahrbetrieb') is True and ki.get('sensoren_bereit') is True)))
 
     def on_tempo(self, msg):
         # Geschwindigkeit vom Panel (Regler). Begrenzt auf 0..0,5 m/s.
@@ -472,66 +426,21 @@ class LineFollower(Node):
     def entscheide(self):
         """Rueckgabe: (vorwaerts, seitwaerts, drehen, status). Die LiDAR-Notbremse prueft zuletzt GENAU den Befehl,
         der hinausgeht (auch KI-Manoever rueckwaerts/drehend), nicht die eingestellte Fahrtrichtung."""
-        self.manoever_berechnet = False
         lin, quer, dreh, status = self._wunsch()
         grund = self.notbremse(lin, quer, dreh)
         if grund:
             return 0.0, 0.0, 0.0, grund + ' -> STOPP'
         if self.p('begleiteter_fahrbetrieb'):
-            raeumen = self.raeumfreigabe_gueltig(self.ki[1] or {}, self.betrieb.status())
-            if not raeumen and (lin < 0 or abs(quer) > 1e-9 or (lin == 0 and dreh != 0)):
+            if lin < 0 or abs(quer) > 1e-9 or (lin == 0 and dreh != 0):
                 return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: keine Frontausnahme fuer Rueck-/Seitwaertsfahrt oder Suchdrehung -> STOPP'
             if not self.p('ki_pflicht') or not self.p('obstacle_check'):
                 return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: Pflichtpruefungen muessen aktiv sein -> STOPP'
             _, ki = self.ki
             if not ki or ki.get('begleiteter_fahrbetrieb') is not True:
                 return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: KI bestaetigt Betriebsart nicht -> STOPP'
-            if ki.get('manoever') and not raeumen:
+            if ki.get('manoever'):
                 return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: KI-Manoever gesperrt -> STOPP'
-        self.manoever_zugelassen = self.manoever_berechnet
         return lin, quer, dreh, status
-
-    def raeumfreigabe_gueltig(self, ki, betrieb):
-        """Standard-KI autorisiert durch ihre aktuelle gebundene Automatenphase.
-
-        Der begleitete Pfad liefert zusaetzlich das Ergebnis von befehl_sichern.
-        Ein explizites Veto wird in keinem Betriebsmodus umgedeutet.
-        """
-        if not isinstance(ki, dict):
-            return False
-        r = ki.get('raeumfreigabe')
-        if not isinstance(r, dict) or not r.get('auftrag_id') or not r.get('ziel_id'):
-            return False
-        if self.p('begleiteter_fahrbetrieb'):
-            return fahrtest.raeumfreigabe_gueltig(ki, betrieb)
-        if 'zugelassen' in r and r['zugelassen'] is not True:
-            return False
-        phase = ki.get('ablauf_phase')
-        token = r.get('phase')
-        if (ki.get('aktion') != 'manoever' or ki.get('ablauf') != 'wegraeumen'
-                or phase not in ('naeher', 'rueckweg', 'zurueck', 'abstand')
-                or not isinstance(token, str) or not token.startswith(phase + ':')
-                or not token[len(phase) + 1:].isdigit()
-                or not all(ki.get(k) == r.get(k) for k in ('session_id', 'generation', 'start_id'))):
-            return False
-        objekt = ki.get('objekt') or {}
-        if isinstance(objekt, dict) and objekt.get('ziel_id') and objekt['ziel_id'] != r.get('ziel_id'):
-            return False
-        # Innerhalb derselben Betriebsepoche darf ein Auftrag nie sein Ziel wechseln.
-        key = tuple(r.get(k) for k in ('session_id', 'generation', 'start_id', 'auftrag_id'))
-        bindung = getattr(self, 'raeumziel_bindung', None)
-        nummer = int(token[len(phase) + 1:])
-        if nummer <= 0:
-            return False
-        if bindung and bindung[0][:3] == key[:3]:
-            if bindung[0] != key or bindung[1] != r.get('ziel_id'):
-                return False
-            if nummer < bindung[2] or (nummer == bindung[2] and token != bindung[3]):
-                return False
-        erlaubt = fahrtest.raeumfreigabe_gueltig(dict(ki, raeumfreigabe=dict(r, zugelassen=True)), betrieb)
-        if erlaubt:
-            self.raeumziel_bindung = (key, r['ziel_id'], nummer, token)
-        return erlaubt
 
     def _wunsch(self):
         """Fahrbefehl vor der letzten LiDAR-Pruefung: (vorwaerts, seitwaerts, drehen, status)."""
@@ -556,9 +465,6 @@ class LineFollower(Node):
         # AUFGENOMMENES Bild der KI (Kamera-Zeitstempel, nicht Auswertezeit). Vorher blockierte jeder Aussetzer der
         # Linienbilder das Heranfahren (RM02 22.10.).
         ki_aufnahme = ki.get('aufnahme') if ki else None
-        if (manoever and (self.p('begleiteter_fahrbetrieb') or ki.get('raeumfreigabe'))
-                and not self.raeumfreigabe_gueltig(ki, self.betrieb.status())):
-            return 0.0, 0.0, 0.0, 'RAEUMAUFTRAG NICHT FREIGEGEBEN -> STOPP'
         if (manoever and self.p('ki_pflicht') and isinstance(ki_aufnahme, (int, float))
                 and 0.0 <= jetzt - ki_aufnahme <= 0.5):
             return self._manoever(manoever, 'KI-Manoever: ')
@@ -592,7 +498,6 @@ class LineFollower(Node):
 
     def _manoever(self, m, text):
         """Fahrbefehl der KI (z. B. wenden, zum Greifen ausrichten), begrenzt."""
-        self.manoever_berechnet = True
         lin = max(-MANOEVER_MAX['lin'], min(MANOEVER_MAX['lin'], float(m.get('lin', 0.0))))
         quer = max(-MANOEVER_MAX['quer'], min(MANOEVER_MAX['quer'], float(m.get('quer', 0.0))))
         dreh = max(-MANOEVER_MAX['dreh'], min(MANOEVER_MAX['dreh'], float(m.get('dreh', 0.0))))
@@ -606,57 +511,22 @@ class LineFollower(Node):
             # eigene Bewegung seit dem letzten Befehl ins Linien-Gedaechtnis rechnen
             lin_alt, quer_alt, dreh_alt = self.bewegung(dt)
             self.gedaechtnis.bewegen(lin_alt, dreh_alt, dt, quer_alt, jetzt)
-        self.manoever_zugelassen = False
         lin, quer, dreh, status = self.entscheide()
-        entscheidungsstatus = status
-        with self.betrieb_lock:
-            bereit = self.start_bereit()
-            freigegeben = self.betrieb.pruefen(bereit) and self.p('drive')
-            ki_zeit, ki = self.ki
-            ki_aktuell = bool(ki and time.time() - ki_zeit <= .6 and
-                all(ki.get(k) == getattr(self.betrieb, k) for k in ('session_id', 'generation', 'start_id')))
-            if freigegeben and not ki_aktuell:
-                lin = quer = dreh = 0.0
-                status = 'KI-BETRIEBSKENNUNG/FRISCHE UNGUELTIG -> STOPP'
-            if (ki and ki.get('manoever') and (self.p('begleiteter_fahrbetrieb') or ki.get('raeumfreigabe'))
-                    and not self.raeumfreigabe_gueltig(ki, self.betrieb.status())):
-                lin = quer = dreh = 0.0
-                status = 'RAEUMAUFTRAG NICHT FREIGEGEBEN -> STOPP'
-            if not freigegeben:
-                lin = quer = dreh = 0.0
-                status = ('FREIGABEWEG AUSGEFALLEN -> STOPP' if self.betrieb.abgelaufen else
-                          'START WARTET: ' + status if self.betrieb.angefordert else 'BEDIEN-STOPP')
-            if status != entscheidungsstatus:
-                status += ' | ' + entscheidungsstatus
+        self.status_text = status
+        if self.p('drive'):
             t = Twist()
             t.linear.x, t.linear.y, t.angular.z = lin, quer, dreh
             self.pub.publish(t)
             self.letzter_cmd = (lin, quer, dreh)
-            betriebsstatus = self.betrieb.status()
-            raeumung = (ki or {}).get('raeumfreigabe')
-            aktionsstatus = None
-            if isinstance(raeumung, dict) and raeumung.get('auftrag_id'):
-                erlaubt = bool(freigegeben and ki_aktuell and self.manoever_zugelassen and
-                    self.raeumfreigabe_gueltig(ki, betriebsstatus))
-                aktionsstatus = {k: raeumung.get(k) for k in
-                    ('auftrag_id', 'phase', 'session_id', 'generation', 'start_id')}
-                aktionsstatus.update(status='zugelassen' if erlaubt else 'verworfen',
-                    ausgegeben={'lin': lin, 'quer': quer, 'dreh': dreh}, grund=status)
-        self.status_text = status
-        if freigegeben and 'Lagesensor' in self.bewegung_quelle:
-            self.verzoegerung.hinzu(dreh, self.imu[1])
+            if 'Lagesensor' in self.bewegung_quelle:     # Verzoegerung Lenkbefehl -> gemessene Drehung lernen
+                self.verzoegerung.hinzu(dreh, self.imu[1])
+        else:
+            self.letzter_cmd = (0.0, 0.0, 0.0)  # Testmodus: Roboter bewegt sich nicht
         with self.lock:
             lokal = self.gedaechtnis.lokal()
             weg = self.gedaechtnis.weg()
-        with self.scan_lock:
-            scanstatus = self.scans.copy()
-        lidar_status = sensorstatus.lidar_status(scanstatus, self.p('scan_topics'), time.monotonic(),
-            self.ros_jetzt(), layout='lf', max_zukunft=fahrtest.scan_uhrspielraum(self))
         self.pub_status.publish(String(data=json.dumps({
-            **betriebsstatus, 'bereit': bereit, 'lidar_status': lidar_status,
-            'aktionsstatus': aktionsstatus,
-            'bewegung': {'gueltig': jetzt - self.odom[0] < .5, 'linear': self.odom[1], 'quer': self.odom[2], 'angular': self.odom[3]},
-            'status': status, 'drive': freigegeben, 'begleiteter_fahrbetrieb': self.p('begleiteter_fahrbetrieb'),
+            'status': status, 'drive': self.p('drive'), 'begleiteter_fahrbetrieb': self.p('begleiteter_fahrbetrieb'),
             'linear': round(lin, 3), 'quer': round(quer, 3),
             'angular': round(dreh, 3), 'fps': round(self.fps, 1), 'speed': self.p('speed'),
             'linie': self.linie_gesehen or lokal is not None, 'linie_kamera': self.linie_gesehen,

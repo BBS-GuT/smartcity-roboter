@@ -100,7 +100,6 @@ class ConsumerGeometry(unittest.TestCase):
     def test_slow_candidate_cannot_prevent_stale_stop_publication(self):
         node = self.follower()
         node._p.update(drive=True, show=False, publish_image=False)
-        q.start_auftrag(node)
         node.letzter_cmd = (.1, 0.0, 0.0)
         feed(node)
         prepared, resume = threading.Event(), threading.Event()
@@ -185,11 +184,9 @@ class ConsumerGeometry(unittest.TestCase):
     def test_missing_geometry_reaches_null_publisher_despite_camera_and_ki(self):
         node = q.lf.LineFollower()
         node._p.update(drive=True, show=False, publish_image=False)
-        q.start_auftrag(node)
         node.gedaechtnis.hinzufuegen([(.05 + .02 * k, 0.0) for k in range(30)])
         node.bild_zeit, node.stempel_ok = q.time.time(), True
         node.ki = (q.time.time(), {'aktion': 'fahren', 'faktor': 1.0})
-        q.start_auftrag(node)
         for i, topic in enumerate(['/scan0', '/scan1']):
             node.on_scan(q.scan(3.0), topic, i)
         node.steuern()
