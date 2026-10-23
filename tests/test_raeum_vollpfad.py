@@ -4,6 +4,7 @@ Nur Boardausgabe, Kamera-Pose und Startbereitschaft sind Geraeteattrappen;
 Auftragsentscheidung, Schutzpruefung und Quittierung bleiben Produktcode.
 """
 import math
+import json
 import time
 import types
 import unittest
@@ -43,7 +44,8 @@ class Vollpfad(unittest.TestCase):
                     (n._scan if hasattr(n, '_scan') else n.on_scan)(msg, '/scan0', 0)
             lf.betrieb.empfang(dict(ids, angefordert=True))
             lf.betrieb.pruefen(True)
-            z.linie_status = dict(ids, _zeit=now, drive=True, betrieb_freigegeben=True)
+            lf.steuern()
+            z.linie_status = dict(json.loads(lf.pub_status.letzte.data), _zeit=now)
             z.odom_zeit, z.odom_pose, z.odom_bewegung = now, (0.,0.,0.), (0.,0.,0.)
             z.wahrnehmung.update(bild_nr=k, tiefe_nr=k, bild_zeit=now, aufnahme=now,
                 blick='fahr', tiefe_aufnahme=now, tiefe_empfang=mono, tiefe_gueltig=True,
@@ -82,6 +84,9 @@ class Vollpfad(unittest.TestCase):
                 requests.append(b)
                 self.assertLess(b['manoever']['lin'], 0.)
                 self.assertEqual(lf.pub.letzte.linear.x, 0.)
+                feedback = json.loads(lf.pub_status.letzte.data)['aktionsstatus']
+                self.assertEqual(feedback['status'], 'verworfen')
+                self.assertEqual(feedback['auftrag_id'], b['raeumfreigabe']['auftrag_id'])
             time.sleep(.001)
         self.assertTrue(requests, z.befehl)
         self.assertEqual(z.arm.fahre.call_count, 0)
