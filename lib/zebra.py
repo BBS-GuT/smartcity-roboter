@@ -41,9 +41,55 @@ def finde_zebra(vogel, raster, vorne_max, cfg=None):
         if len(abst) == 0 or abst.mean() <= 0:
             continue
         regelmaessig = np.abs(abst - np.median(abst)) <= c['abstand_toleranz'] * np.median(abst)
-        if regelmaessig.sum() + 1 >= c['min_balken']:
-            treffer.append((int(py), int(ok.sum())))
+        # Getrennte regelmaessige Paare sind keine zusammenhaengende Balkenreihe.
+        lauf = 0
+        for k, gleich in enumerate(regelmaessig):
+            lauf = lauf + 1 if gleich else 0
+            if lauf + 1 >= c['min_balken']:
+                treffer.append((int(py), mitten[k + 1 - lauf:k + 2]))
     if len(treffer) < c['min_zeilen']:
         return None
-    naechste = max(p for p, _ in treffer)          # unterste Zeile = am naechsten am Roboter
-    return {'abstand': float(vorne_max - naechste * raster), 'balken': max(n for _, n in treffer)}
+    # Dieselbe Reihe muss in benachbarten Zeilen sichtbar sein. Vier beliebige
+    # Bildzeilen mit jeweils anderen dunklen Fragmenten genuegen nicht.
+    ketten = []
+    bestaetigt = []
+    for py, mitten in treffer:
+        ketten = [k for k in ketten if k[0] >= py - 1]
+        vorher = [n for y, m, n in ketten if y == py - 1 and len(m) == len(mitten)
+                  and np.max(np.abs(m - mitten)) <= 2 * raster]
+        n = 1 + max(vorher, default=0)
+        ketten.append((py, mitten, n))
+        if n >= c['min_zeilen']:
+            bestaetigt.append((py, len(mitten)))
+    if not bestaetigt:
+        return None
+    naechste = max(p for p, _ in bestaetigt)
+    return {'abstand': float(vorne_max - naechste * raster), 'balken': max(n for _, n in bestaetigt)}
+
+
+class ZebraBestaetigung:
+    """Nur mehrere aufeinanderfolgende neue Aufnahmen erzeugen einen Auftrag."""
+    def __init__(self):
+        self.letzte = None
+        self.treffer = 0
+        self.abstand = None
+
+    def aktualisieren(self, zebra, aufnahme, jetzt):
+        import math
+        if (not isinstance(aufnahme, (int, float)) or not math.isfinite(aufnahme)
+                or not 0 <= jetzt - aufnahme <= 0.5):
+            self.treffer, self.abstand = 0, None
+            return None
+        if self.letzte is not None and aufnahme <= self.letzte:
+            return None
+        luecke = self.letzte is not None and aufnahme - self.letzte > 0.5
+        self.letzte = aufnahme
+        if not zebra:
+            self.treffer, self.abstand = 0, None
+            return None
+        abstand = zebra['abstand']
+        if luecke or self.abstand is None or abs(abstand - self.abstand) > 0.10:
+            self.treffer = 0
+        self.abstand = abstand
+        self.treffer += 1
+        return zebra if self.treffer >= 3 else None
