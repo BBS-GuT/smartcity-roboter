@@ -12,6 +12,17 @@ Bei bestätigter Geometrie werden Messpunkte und freie Bereiche genau einmal in
 Linienfolger-Haltpfad die äußere Fahrzeugfläche in der tatsächlichen Bewegungsrichtung.
 Drehung prüft den gesamten umschriebenen Kreis. Die Überwegprüfung benutzt denselben
 räumlichen Bezug. Panel-Sensoransicht und Kartograf werden nicht mitverschoben.
+Kanalstatus, Aufnahmezeit und geometrisches Messfeld werden beim Empfang gemeinsam
+übernommen und für die Entscheidung als ein konsistenter Stand gelesen. Ein
+gleichzeitig eintreffender Scan darf kein neues Messfeld mit einem alten
+Kanalstatus vermischen und dadurch eine falsche Geometriewarnung auslösen.
+Die Scanberechnung erzeugt zuerst einen vollständigen Kandidaten außerhalb der
+Synchronisation. Gesperrt werden ausschließlich dessen gemeinsame Übergabe und
+das Kopieren des veröffentlichten Stands. Auch die Zusammenstellung der Sicht
+und die Flächenprüfung laufen außerhalb der Sperre. Eine langsame Scanberechnung
+kann daher die Prüfung auf veraltete Daten und deren Nullbefehl nicht am Lock
+festhalten. Empfangsalter wird ab Beginn des Callbacks gemessen; nach der
+Flächenprüfung gilt weiterhin die Altersprüfung genau der ausgewerteten Messungen.
 Diagonale Fahrt schließt die äußere überstrichene Ecke ein. Nach der Berechnung
 wird das Alter genau der ausgewerteten Messungen erneut geprüft.
 
