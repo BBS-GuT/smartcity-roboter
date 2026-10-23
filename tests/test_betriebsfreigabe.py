@@ -119,6 +119,52 @@ class Publisher(unittest.TestCase):
             n.steuern()
             self.assertEqual(n.pub.letzte.linear.x, 0)
 
+    def maneuver(self, n):
+        self.send(n, request())
+        n.steuern()
+        n.ki[1].update(aktion='manoever', aufnahme=time.time(),
+                      manoever={'lin': -.05, 'quer': 0., 'dreh': 0.},
+                      raeumfreigabe=dict(request(), auftrag_id='block-1', phase='rueckfahrt', zugelassen=True))
+
+    def test_bound_clearing_reverse_reaches_real_hull_guard(self):
+        n = self.node()
+        self.maneuver(n)
+        with mock.patch.object(n, 'notbremse', wraps=n.notbremse) as guard:
+            n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, -.05)
+        self.assertEqual(json.loads(n.pub_status.letzte.data)['aktionsstatus']['status'], 'zugelassen')
+        guard.assert_any_call(-.05, 0., 0.)
+        n.ki[1]['raeumfreigabe']['generation'] = 0
+        n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, 0.)
+
+    def test_bound_clearing_maneuver_still_stops_for_measured_second_object(self):
+        n = self.node()
+        self.maneuver(n)
+        c.feed(n, distance=.21)
+        n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, 0.)
+        feedback = json.loads(n.pub_status.letzte.data)['aktionsstatus']
+        self.assertEqual(feedback['status'], 'verworfen')
+        self.assertEqual(feedback['auftrag_id'], 'block-1')
+        self.assertEqual(feedback['phase'], 'rueckfahrt')
+
+    def test_standard_nonclearing_maneuver_keeps_existing_path(self):
+        n = self.node()
+        n._p['begleiteter_fahrbetrieb'] = False
+        n._p['obstacle_check'] = False
+        n.ki[1].update(aktion='manoever', aufnahme=time.time(), manoever={'lin': -.05})
+        self.assertEqual(n._wunsch()[0], -.05)
+
+    def test_late_command_from_old_start_cannot_move_even_with_overridden_wish(self):
+        n = self.node()
+        self.send(n, request())
+        n.steuern()
+        n.ki[1]['start_id'] = 'old'
+        with mock.patch.object(n, 'entscheide', return_value=(.15, 0., 0., 'Linie')):
+            n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, 0.)
+
 
 if __name__ == '__main__':
     unittest.main()
