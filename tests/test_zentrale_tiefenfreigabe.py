@@ -5,6 +5,7 @@ import types
 import unittest
 from pathlib import Path
 from unittest import mock
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lidar_fusion_verbraucher as c
@@ -29,7 +30,7 @@ class Segment(unittest.TestCase):
         n.odom_bewegung=(0.,0.,0.)
         n.arm=types.SimpleNamespace(fahre=mock.Mock(return_value=None))
         n.entscheider.arm_freigabe=True
-        n.entscheider.ablauf=types.SimpleNamespace(name='wegraeumen', phase='ausfuehren',plan={'schritte':[]},
+        n.entscheider.ablauf=types.SimpleNamespace(name='wegraeumen', phase='ausfuehren',plan={'schritte':[],'ablage':[.1,.2,.03]},
                                                  nr=0,auftrag_id='order',ziel_id='target')
         r=dict(ids,auftrag_id='order',ziel_id='target',phase='ausfuehren:1')
         command=dict(aktion='stopp',faktor=0.,grund='Segment',arm={'winkel':[90]*6,'zeit_ms':1000},
@@ -70,6 +71,20 @@ class Segment(unittest.TestCase):
         result=self.run_segment(n,command)
         self.assertEqual(n.arm.fahre.call_count,0)
         self.assertIsNone(n.planbindung)
+        self.assertEqual(result['aktionsstatus']['status'],'verworfen')
+
+    def test_new_side_obstacle_blocks_next_bound_arm_segment(self):
+        n,command=self.scene()
+        self.run_segment(n,command)
+        self.assertEqual(n.arm.fahre.call_count,1)
+        # Camera has moved; bind to the old plan but retain current LiDAR.
+        n.wahrnehmung.update(blick=None,tiefe_gueltig=False)
+        command=dict(command,raeumfreigabe=dict(command['raeumfreigabe'],phase='ausfuehren:2'))
+        xy=n.lidar_xy.copy()
+        with mock.patch.object(n,'lidar_pruefen',side_effect=lambda: (setattr(n,'lidar_xy',
+             np.vstack((xy,[[.1,.2]]))) or (float('inf'),None,float('inf')))):
+            result=self.run_segment(n,command)
+        self.assertEqual(n.arm.fahre.call_count,1)
         self.assertEqual(result['aktionsstatus']['status'],'verworfen')
 
 

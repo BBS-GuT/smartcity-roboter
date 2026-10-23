@@ -806,7 +806,15 @@ class Zentrale(Node):
         # A complete precomputed arm chain uses its initial target binding while
         # the arm camera moves. This is explicitly not a new depth observation.
         if r.get('phase', '').startswith('ausfuehren:'):
-            plan = json.dumps(getattr(ablauf, 'plan', None), sort_keys=True)
+            plan_daten = getattr(ablauf, 'plan', None) or {}
+            plan = json.dumps(plan_daten, sort_keys=True)
+            ablage = plan_daten.get('ablage')
+            xy = w.get('lidar_xy')
+            ablage_frei = bool(ablage and len(ablage) == 3 and xy is not None and w.get('lidar') is not None)
+            if ablage_frei:
+                xy = np.asarray(xy).reshape(-1, 2)
+                ablage_frei = not (np.hypot(xy[:, 0]-ablage[0], xy[:, 1]-ablage[1]) < armlib.ABLAGE_FREI).any()
+            w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_frei
             key = (r.get('auftrag_id'), r.get('ziel_id'), epoche, plan)
             if (self.planbindung is None and aktiv and r.get('ziel_id') == w['raeumziel_id']
                     and w['raeumziel_freigegeben'] and w['raeum_umgebung_frei'] and w['chassis_frei']):
@@ -823,6 +831,7 @@ class Zentrale(Node):
                 if w.get('tiefe_gueltig') and w.get('tiefe_objekte'):
                     gebunden['tiefe_objekte'] = w['tiefe_objekte']
                 w.update(raeum_pruefung(gebunden, self.p('fahrzeug_grenzen'), time.monotonic(), self.boden.c))
+                w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_frei
                 w['zielbindung'] = 'vorher bestaetigter Plan; keine neue Tiefenmessung'
                 w['raeum_planbindung'] = {'auftrag_id': r['auftrag_id'], 'ziel_id': r['ziel_id']}
             else:
