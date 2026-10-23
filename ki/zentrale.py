@@ -56,7 +56,7 @@ for _d in ('lib', 'line_follower', 'erkennung', 'ki'):
 import ampel          # noqa: E402
 import schilder       # noqa: E402
 import linie          # noqa: E402
-from zebra import finde_zebra  # noqa: E402
+from zebra import finde_zebra, ZebraBestaetigung  # noqa: E402
 import lidar          # noqa: E402
 import lidar_fusion   # noqa: E402
 import fahrtest       # noqa: E402
@@ -177,6 +177,7 @@ class Zentrale(Node):
         self.arm_beobachter = armlib.ArmBeobachter(self)
         self.kamera_cfg = {n: self.p(n) for n in ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x', 'threshold')}
         self.linien_sucher = linie.LinienSucher(self.kamera_cfg)   # Draufsicht fuer den Zebrastreifen
+        self.zebra_bestaetigung = ZebraBestaetigung()
         self.gier, self.gier_zeit, self.imu_zeit = 0.0, time.time(), 0.0
         self.linie_status = {}
         self.lidar_d, self.lidar_xy = None, None
@@ -652,6 +653,8 @@ class Zentrale(Node):
         if fahrstellung:
             vogel = self.linien_sucher.vogel(img)     # nur die Draufsicht, die Linie sucht der Linienfolger
             zebra = finde_zebra(vogel, self.linien_sucher.RASTER, self.linien_sucher.VORNE[1])
+        bild_aufnahme = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        zebra = self.zebra_bestaetigung.aktualisieren(zebra, bild_aufnahme, self.ros_jetzt())
 
         d = None
         if tmsg is not None:
