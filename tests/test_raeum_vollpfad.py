@@ -22,8 +22,8 @@ class Vollpfad(unittest.TestCase):
         z.arm = types.SimpleNamespace(fahre=mock.Mock(return_value=None))
         z.entscheider.arm_freigabe = True
         z.entscheider.planer = lambda obj, seite: dict(
-            schritte=[('heben', [90, 153, 0, 0, 90, 130], .2),
-                      ('zurueck in Fahrstellung', [90, 153, 0, 0, 90, 30], .2)],
+            schritte=[('heben', [90, 153, 0, 0, 90, 130], .4),
+                      ('zurueck in Fahrstellung', [90, 153, 0, 0, 90, 30], .4)],
             ablage=[.05, .4, .03])
         obj = dict(ziel_id='target', bestaetigt=True, vor=vor, seite=0., breite=.04,
                    hoehe=.05, quelle='tiefe', blick='fahr',
