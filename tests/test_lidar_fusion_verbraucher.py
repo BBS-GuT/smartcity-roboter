@@ -197,6 +197,58 @@ class ConsumerGeometry(unittest.TestCase):
                 result = n.notbremse(.1, 0, 0) if hasattr(n, 'notbremse') else n.lidar_pruefen()[0]
                 self.assertTrue(result if hasattr(n, 'notbremse') else result is None)
 
+    def test_duplicate_source_or_frame_never_releases(self):
+        # #64: one fresh LiDAR listed twice, or two sensors sharing one frame
+        # (swapped topics undetectable), is a contradictory transform reference.
+        for make in (self.follower, self.central):
+            for kind in ('topic', 'frame'):
+                n = make()
+                if kind == 'topic':
+                    n._p.update(scan_topics=['/scan1', '/scan1'], scan_frames=['laser_b', 'laser_b'],
+                                scan_einbau_xy=[.1, -.05, .1, -.05])
+                    # A full scan: this single LiDAR alone would cover everything.
+                    msg = q.scan(3.0, n=1440, angle_min=-math.pi, angle_increment=2 * math.pi / 1440)
+                    msg.header.frame_id = 'laser_b'
+                    (n._scan if hasattr(n, '_scan') else n.on_scan)(msg, '/scan1', 1)
+                else:
+                    n._p.update(scan_frames=['laser', 'laser'])
+                    for i, topic in enumerate(['/scan0', '/scan1']):
+                        msg = message(i)
+                        msg.header.frame_id = 'laser'
+                        (n._scan if hasattr(n, '_scan') else n.on_scan)(msg, topic, i)
+                with self.subTest(consumer=type(n).__name__, kind=kind):
+                    if hasattr(n, 'notbremse'):
+                        self.assertIn('doppelt', n.notbremse(.1, 0, 0) or '')
+                    else:
+                        self.assertEqual(n.lidar_pruefen(), (None, None, None))
+                        self.assertIsNone(n.lidar_hinten())
+
+    def test_swapped_topics_with_distinct_frames_hold(self):
+        for make in (self.follower, self.central):
+            n = make()
+            for i, topic in enumerate(['/scan0', '/scan1']):
+                (n._scan if hasattr(n, '_scan') else n.on_scan)(message(1 - i), topic, i)
+            with self.subTest(consumer=type(n).__name__):
+                if hasattr(n, 'notbremse'):
+                    self.assertIn('Frame passt nicht', n.notbremse(.1, 0, 0) or '')
+                else:
+                    self.assertEqual(n.lidar_pruefen(), (None, None, None))
+
+    def test_both_sources_in_base_link_still_release(self):
+        # Positive control: drivers already publishing base_link may share it.
+        for make in (self.follower, self.central):
+            n = make()
+            n._p.update(scan_frames=['base_link', 'base_link'], scan_einbau_xy=[0.0] * 4)
+            for i, topic in enumerate(['/scan0', '/scan1']):
+                msg = message(i)
+                msg.header.frame_id = 'base_link'
+                (n._scan if hasattr(n, '_scan') else n.on_scan)(msg, topic, i)
+            with self.subTest(consumer=type(n).__name__):
+                if hasattr(n, 'notbremse'):
+                    self.assertIsNone(n.notbremse(.1, 0, 0))
+                else:
+                    self.assertEqual(n.lidar_pruefen()[0], float('inf'))
+
     def test_new_config_cannot_reuse_old_coordinate_fields(self):
         n = self.follower()
         feed(n)

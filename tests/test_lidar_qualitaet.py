@@ -245,6 +245,10 @@ class Pflichtkanaele(Halt):
         self.assertIsNotNone(lidar.pflichtkanaele(ok, [], jetzt)[1])          # keine Pflichtquelle festgelegt
         # ein Kanal ausserhalb von scan_topics ist nicht Pflicht (und zaehlt nicht)
         self.assertEqual(lidar.pflichtkanaele(ok, ['/scan0'], jetzt), ([(99.9, 'a')], None))
+        # doppelt eingetragen (#64): ein frischer Kanal zaehlt nicht fuer zwei LiDARs
+        frisch, grund = lidar.pflichtkanaele(ok, ['/scan1', '/scan1'], jetzt)
+        self.assertEqual(frisch, [])
+        self.assertIn('doppelt', grund)
 
     def test_linienfolger(self):
         n = linienfolger()

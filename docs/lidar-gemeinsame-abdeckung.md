@@ -49,6 +49,13 @@ Gerätekonfiguration. Das Produkt enthält **keine** angenommene Gerätepose.
 | `scan_einbau_quelle` | Je Quelle `gemessen`; `werksmodell` allein gibt keine Fahrt frei |
 | `fahrzeug_grenzen` | Vier **positive** Abstände von der Fahrzeugmitte: `[vorne, hinten, links, rechts]` in Metern |
 
+Jedes Topic und jeder Sensor-Frame darf nur **einmal** vorkommen (#64). Ein doppelt
+eingetragenes Topic würde einen fehlenden zweiten LiDAR verdecken. Ein gemeinsamer
+Frame zweier Sensoren (etwa der Treiberstandard `laser` für beide) macht vertauschte
+Topics an der Frameprüfung unsichtbar, sodass Punkte mit der Pose des anderen Sensors
+umgerechnet würden. Beide Fälle halten. Nur `base_link` darf mehrfach stehen, weil
+diese Scans ohne Verschiebung schon im Roboterbezug liegen.
+
 Die Fahrzeuggrenzen müssen die ganze aktuelle Fahrstellung einschließlich Rädern,
 Sensoren, Arm und Kamera einschließen. Ein bereits in `base_link` gelieferter Scan
 braucht einen Nullversatz und `scan_front_deg=0`. Ein Sensorursprung außerhalb der
