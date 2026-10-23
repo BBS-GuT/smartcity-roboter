@@ -965,13 +965,25 @@ function sensorDiagnoseZeilen(s) {
   }
   return zeilen;
 }
-function zeigeDashboard() {
-  const ki = S.ki, lf = S.lf;
-  // Gedanke
+function betriebAnzeige(s) {
+  const ki = s.ki, lf = s.lf;
   let art = 'stopp', titel = 'STOPP', grund = 'KI-Zentrale läuft nicht (System → KI-Zentrale starten)';
   if (ki) { art = ki.aktion; titel = { fahren: 'FREI', langsam: 'LANGSAM', stopp: 'STOPP', manoever: 'MANÖVER' }[ki.aktion] || ki.aktion; grund = ki.grund; }
-  if (ki && !S.fahren) { titel = 'BEREIT'; grund = 'KI: ' + ki.grund + '  ·  Zum Fahren START drücken'; }
-  if (lf && ki && ki.aktion !== 'stopp' && /STOPP/.test(lf.status)) { art = 'stopp'; grund = lf.status; }
+  if (lf && lf.betrieb_angefordert !== undefined) {
+    // Betriebsfreigabe bleibt auch beim Klotzhalt aktiv. Odometrie ist keine Berechtigung.
+    if (lf.freigabeweg_ausgefallen) return {art: 'stopp', titel: 'FREIGABEWEG AUSGEFALLEN', grund: lf.status || 'Freigabeweg ausgefallen'};
+    if (!lf.betrieb_angefordert) return {art: 'stopp', titel: 'GESTOPPT', grund: lf.status || 'Bedien-STOPP aktiv'};
+    if (!lf.betrieb_freigegeben) return {art: 'stopp', titel: 'START WARTET', grund: lf.status || (lf.bereit ? 'Warte auf bestätigte Betriebsfreigabe' : 'Warte auf Bereitschaft')};
+    if (ki && ki.aktion === 'stopp') return {art: 'stopp', titel: 'BETRIEB AKTIV · HALT', grund: ki.grund};
+  } else if (!s.fahren) {
+    return {art: 'stopp', titel: 'BETRIEBSSTATUS UNBEKANNT', grund: lf ? lf.status || 'Keine bestätigte Betriebsfreigabe' : 'Keine Statusmeldung des Linienfolgers'};
+  }
+  if (lf && /STOPP/.test(lf.status || '')) { art = 'stopp'; titel = 'BETRIEB AKTIV · HALT'; grund = lf.status; }
+  return {art, titel, grund};
+}
+function zeigeDashboard() {
+  const ki = S.ki, lf = S.lf;
+  const {art, titel, grund} = betriebAnzeige(S);
   $('gedanke').className = 'gedanke ' + art;
   $('g-icon').innerHTML = ICON[art] || ICON.stopp;
   $('g-aktion').textContent = titel; $('g-grund').textContent = grund;

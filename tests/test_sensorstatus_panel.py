@@ -51,6 +51,23 @@ const rows = sensorDiagnoseZeilen({lf:{status:'STOPP Zeitfehler'},ki:{grund:'Klo
 assert(rows.some(r => r[1] === 'STOPP Zeitfehler'));
 assert(rows.some(r => r[1] === 'Klotz'));
 assert(rows.some(r => r[1].includes('Aufnahme alt')));
+const ki = {aktion:'fahren',grund:'frei'};
+const lf = {betrieb_angefordert:true,betrieb_freigegeben:false,bereit:false,status:'Warte auf /scan1'};
+let a = betriebAnzeige({fahren:false,ki,lf});
+assert.equal(a.titel, 'START WARTET'); assert.equal(a.grund, lf.status);
+a = betriebAnzeige({fahren:false,ki,lf:{...lf,bereit:true}});
+assert.equal(a.titel, 'START WARTET');
+a = betriebAnzeige({fahren:false,ki,lf:{...lf,betrieb_angefordert:false,status:'STOPP Bedienung'}});
+assert.equal(a.titel, 'GESTOPPT'); assert.equal(a.grund, 'STOPP Bedienung');
+a = betriebAnzeige({fahren:false,ki,lf:{...lf,freigabeweg_ausgefallen:true,status:'Lease abgelaufen'}});
+assert.equal(a.titel, 'FREIGABEWEG AUSGEFALLEN'); assert.equal(a.grund, 'Lease abgelaufen');
+const aktiv = {...lf,betrieb_freigegeben:true,bereit:true,status:'Linie bereit',bewegung:{gueltig:true,linear:0,quer:0,angular:0}};
+a = betriebAnzeige({fahren:true,ki:{aktion:'stopp',grund:'Klotz'},lf:aktiv});
+assert.equal(a.titel, 'BETRIEB AKTIV · HALT'); assert.equal(a.grund, 'Klotz');
+a = betriebAnzeige({fahren:true,ki,lf:aktiv});
+assert.equal(a.titel, 'FREI');
+a = betriebAnzeige({fahren:false,ki,lf:null});
+assert.equal(a.titel, 'BETRIEBSSTATUS UNBEKANNT');
 """
         subprocess.run(['node', '-e', script], check=True, capture_output=True, text=True)
 
