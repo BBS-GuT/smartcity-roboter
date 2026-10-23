@@ -272,6 +272,10 @@ class LineFollower(Node):
         if alt and jetzt - alt > 0.6:     # Diagnose: wie lange war die KI still? (dann stand er)
             self.get_logger().warn(f"KI-Zentrale war {jetzt - alt:.1f} s still (KI-Bild {self.ki[1].get('ki_ms')} ms, "
                                    f"Takt max {self.ki[1].get('takt_max_ms')} ms)")
+        if (self.ki[1].get('ablauf') != 'wegraeumen' and
+                all(self.ki[1].get(k) == getattr(self.betrieb, k)
+                    for k in ('session_id', 'generation', 'start_id'))):
+            self.raeumziel_bindung = None
         if self.ki[1].get('kamera_ok') is False:
             self.kamera_weg_bis = self.ki[0]      # bis hierhin schaute die Kamera woanders hin
 
@@ -474,7 +478,7 @@ class LineFollower(Node):
         if grund:
             return 0.0, 0.0, 0.0, grund + ' -> STOPP'
         if self.p('begleiteter_fahrbetrieb'):
-            raeumen = fahrtest.raeumfreigabe_gueltig(self.ki[1] or {}, self.betrieb.status())
+            raeumen = self.raeumfreigabe_gueltig(self.ki[1] or {}, self.betrieb.status())
             if not raeumen and (lin < 0 or abs(quer) > 1e-9 or (lin == 0 and dreh != 0)):
                 return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: keine Frontausnahme fuer Rueck-/Seitwaertsfahrt oder Suchdrehung -> STOPP'
             if not self.p('ki_pflicht') or not self.p('obstacle_check'):
@@ -486,6 +490,48 @@ class LineFollower(Node):
                 return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: KI-Manoever gesperrt -> STOPP'
         self.manoever_zugelassen = self.manoever_berechnet
         return lin, quer, dreh, status
+
+    def raeumfreigabe_gueltig(self, ki, betrieb):
+        """Standard-KI autorisiert durch ihre aktuelle gebundene Automatenphase.
+
+        Der begleitete Pfad liefert zusaetzlich das Ergebnis von befehl_sichern.
+        Ein explizites Veto wird in keinem Betriebsmodus umgedeutet.
+        """
+        if not isinstance(ki, dict):
+            return False
+        r = ki.get('raeumfreigabe')
+        if not isinstance(r, dict) or not r.get('auftrag_id') or not r.get('ziel_id'):
+            return False
+        if self.p('begleiteter_fahrbetrieb'):
+            return fahrtest.raeumfreigabe_gueltig(ki, betrieb)
+        if 'zugelassen' in r and r['zugelassen'] is not True:
+            return False
+        phase = ki.get('ablauf_phase')
+        token = r.get('phase')
+        if (ki.get('aktion') != 'manoever' or ki.get('ablauf') != 'wegraeumen'
+                or phase not in ('naeher', 'rueckweg', 'zurueck', 'abstand')
+                or not isinstance(token, str) or not token.startswith(phase + ':')
+                or not token[len(phase) + 1:].isdigit()
+                or not all(ki.get(k) == r.get(k) for k in ('session_id', 'generation', 'start_id'))):
+            return False
+        objekt = ki.get('objekt') or {}
+        if isinstance(objekt, dict) and objekt.get('ziel_id') and objekt['ziel_id'] != r.get('ziel_id'):
+            return False
+        # Innerhalb derselben Betriebsepoche darf ein Auftrag nie sein Ziel wechseln.
+        key = tuple(r.get(k) for k in ('session_id', 'generation', 'start_id', 'auftrag_id'))
+        bindung = getattr(self, 'raeumziel_bindung', None)
+        nummer = int(token[len(phase) + 1:])
+        if nummer <= 0:
+            return False
+        if bindung and bindung[0][:3] == key[:3]:
+            if bindung[0] != key or bindung[1] != r.get('ziel_id'):
+                return False
+            if nummer < bindung[2] or (nummer == bindung[2] and token != bindung[3]):
+                return False
+        erlaubt = fahrtest.raeumfreigabe_gueltig(dict(ki, raeumfreigabe=dict(r, zugelassen=True)), betrieb)
+        if erlaubt:
+            self.raeumziel_bindung = (key, r['ziel_id'], nummer, token)
+        return erlaubt
 
     def _wunsch(self):
         """Fahrbefehl vor der letzten LiDAR-Pruefung: (vorwaerts, seitwaerts, drehen, status)."""
@@ -511,7 +557,7 @@ class LineFollower(Node):
         # Linienbilder das Heranfahren (RM02 22.10.).
         ki_aufnahme = ki.get('aufnahme') if ki else None
         if (manoever and (self.p('begleiteter_fahrbetrieb') or ki.get('raeumfreigabe'))
-                and not fahrtest.raeumfreigabe_gueltig(ki, self.betrieb.status())):
+                and not self.raeumfreigabe_gueltig(ki, self.betrieb.status())):
             return 0.0, 0.0, 0.0, 'RAEUMAUFTRAG NICHT FREIGEGEBEN -> STOPP'
         if (manoever and self.p('ki_pflicht') and isinstance(ki_aufnahme, (int, float))
                 and 0.0 <= jetzt - ki_aufnahme <= 0.5):
@@ -573,7 +619,7 @@ class LineFollower(Node):
                 lin = quer = dreh = 0.0
                 status = 'KI-BETRIEBSKENNUNG/FRISCHE UNGUELTIG -> STOPP'
             if (ki and ki.get('manoever') and (self.p('begleiteter_fahrbetrieb') or ki.get('raeumfreigabe'))
-                    and not fahrtest.raeumfreigabe_gueltig(ki, self.betrieb.status())):
+                    and not self.raeumfreigabe_gueltig(ki, self.betrieb.status())):
                 lin = quer = dreh = 0.0
                 status = 'RAEUMAUFTRAG NICHT FREIGEGEBEN -> STOPP'
             if not freigegeben:
@@ -591,7 +637,7 @@ class LineFollower(Node):
             aktionsstatus = None
             if isinstance(raeumung, dict) and raeumung.get('auftrag_id'):
                 erlaubt = bool(freigegeben and ki_aktuell and self.manoever_zugelassen and
-                    fahrtest.raeumfreigabe_gueltig(ki, betriebsstatus))
+                    self.raeumfreigabe_gueltig(ki, betriebsstatus))
                 aktionsstatus = {k: raeumung.get(k) for k in
                     ('auftrag_id', 'phase', 'session_id', 'generation', 'start_id')}
                 aktionsstatus.update(status='zugelassen' if erlaubt else 'verworfen',

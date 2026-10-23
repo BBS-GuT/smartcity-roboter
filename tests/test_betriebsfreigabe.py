@@ -240,6 +240,41 @@ class Publisher(unittest.TestCase):
         self.assertEqual(feedback['auftrag_id'], 'block-1')
         self.assertEqual(feedback['phase'], 'rueckfahrt')
 
+    def test_standard_clearing_current_automaton_reaches_publisher_and_guards_remain(self):
+        n = q.linienfolger()  # Complete synthetic scans, real standard hull guard.
+        n._p.update(drive=True, begleiteter_fahrbetrieb=False)
+        n.ki[1].update(session_id='panel', generation=1, start_id='1')
+        self.maneuver(n)
+        r = n.ki[1]['raeumfreigabe']
+        r.pop('zugelassen')
+        r['phase'] = 'rueckweg:1'
+        n.ki[1].update(ablauf='wegraeumen', ablauf_phase='rueckweg')
+        n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, -.05)
+        self.assertTrue(json.loads(n.pub_status.letzte.data)['drive'])
+        self.assertEqual(json.loads(n.pub_status.letzte.data)['aktionsstatus']['status'], 'zugelassen')
+        for field, value in (('phase', 'naeher:1'), ('auftrag_id', 'foreign'),
+                             ('ziel_id', 'foreign'), ('generation', 0), ('zugelassen', False)):
+            saved = dict(r)
+            r[field] = value
+            n.steuern()
+            self.assertEqual(n.pub.letzte.linear.x, 0., field)
+            r.clear(); r.update(saved)
+        for topic, index in (('/scan0', 0), ('/scan1', 1)):
+            n.on_scan(q.scan(.10), topic, index)
+        n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, 0.)
+        self.assertIn('NOTBREMSE', n.status_text)
+        for topic, index in (('/scan0', 0), ('/scan1', 1)):
+            n.on_scan(q.scan(), topic, index)
+        n.scans.pop('/scan1')
+        n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, 0.)
+        self.assertIn('LIDAR', n.status_text)
+        self.send(n, request(2, False))
+        n.steuern()
+        self.assertEqual(n.pub.letzte.linear.x, 0.)
+
     def test_standard_nonclearing_maneuver_keeps_existing_path(self):
         n = self.node()
         n._p['begleiteter_fahrbetrieb'] = False
