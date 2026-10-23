@@ -13,9 +13,20 @@ permissions:
 jobs:
   codex-freigaberegeln:
     name: Codex / Freigaberegeln
-    runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    runs-on: [self-hosted, Linux, X64, smartcity]
+    # Gleiche D1-Zielplattform unabhaengig vom Betriebssystem des Runner-Hosts.
+    # Container sind keine Sicherheitsgrenze gegen kompromittierte Runner-Hosts.
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
     steps:
+      - name: Ubuntu-22.04-Testumgebung vorbereiten
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git python3 python3-venv python-is-python3
+          python -c 'import sys; assert sys.version_info[:2] == (3, 10), sys.version'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -24,15 +35,23 @@ jobs:
 
   python-syntax:
     name: D1 / Python-Syntax (3.10)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    runs-on: [self-hosted, Linux, X64, smartcity]
+    # Gleiche D1-Zielplattform unabhaengig vom Betriebssystem des Runner-Hosts.
+    # Container sind keine Sicherheitsgrenze gegen kompromittierte Runner-Hosts.
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
     steps:
+      - name: Ubuntu-22.04-Testumgebung vorbereiten
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git python3 python3-venv python-is-python3
+          python -c 'import sys; assert sys.version_info[:2] == (3, 10), sys.version'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.10'
       - name: Alle versionierten Pythondateien ohne ROS-Imports kompilieren
         run: |
           python - <<'PY'
@@ -51,9 +70,20 @@ jobs:
 
   shell-syntax:
     name: D1 / Shell-Syntax (bash)
-    runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    runs-on: [self-hosted, Linux, X64, smartcity]
+    # Gleiche D1-Zielplattform unabhaengig vom Betriebssystem des Runner-Hosts.
+    # Container sind keine Sicherheitsgrenze gegen kompromittierte Runner-Hosts.
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
     steps:
+      - name: Ubuntu-22.04-Testumgebung vorbereiten
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git python3 python3-venv python-is-python3
+          python -c 'import sys; assert sys.version_info[:2] == (3, 10), sys.version'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
@@ -72,17 +102,25 @@ jobs:
 
   softwaretests:
     name: D1 / Softwaretests (Ubuntu 22.04, Python 3.10)
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, Linux, X64, smartcity]
+    # Gleiche D1-Zielplattform unabhaengig vom Betriebssystem des Runner-Hosts.
+    # Container sind keine Sicherheitsgrenze gegen kompromittierte Runner-Hosts.
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 40
     env:
       D1_LOG_DIR: ${{ github.workspace }}/d1-testlogs
     steps:
+      - name: Ubuntu-22.04-Testumgebung vorbereiten
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git python3 python3-venv python-is-python3
+          python -c 'import sys; assert sys.version_info[:2] == (3, 10), sys.version'
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: '3.10'
       - name: Isolierte festgelegte Testpakete installieren
         shell: bash
         run: |
