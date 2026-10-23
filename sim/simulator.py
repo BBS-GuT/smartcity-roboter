@@ -36,9 +36,11 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HIER)
 sys.path.insert(0, os.path.join(HIER, '..', 'lib'))
 from welt import Welt  # noqa: E402
+from lidar_geometrie import kamera_intrinsik  # noqa: E402
 from antrieb import Antrieb  # noqa: E402
 import arm as armlib   # noqa: E402
 import greifen         # noqa: E402
+
 
 
 class Simulator(Node):
@@ -313,7 +315,8 @@ class Simulator(Node):
         msg.header.stamp.sec, msg.header.stamp.nanosec = int(zeit), int((zeit % 1) * 1e9)  # Aufnahmezeit
         msg.header.frame_id = 'camera_color'
         self.pub_bild.publish(msg)
-        self.pub_info_c.publish(CameraInfo(header=msg.header, width=bild.shape[1], height=bild.shape[0]))
+        self.pub_info_c.publish(CameraInfo(header=msg.header, width=bild.shape[1], height=bild.shape[0],
+            k=kamera_intrinsik(bild.shape[1], bild.shape[0])))
 
     def tiefe(self):
         zeit, pose, arm = self._frueher()
@@ -325,7 +328,8 @@ class Simulator(Node):
         # a smaller pixel grid does not introduce a second coordinate frame.
         msg.header.frame_id = 'camera_color'
         self.pub_tiefe.publish(msg)
-        self.pub_info_d.publish(CameraInfo(header=msg.header, width=d.shape[1], height=d.shape[0]))
+        self.pub_info_d.publish(CameraInfo(header=msg.header, width=d.shape[1], height=d.shape[0],
+            k=kamera_intrinsik(d.shape[1], d.shape[0])))
 
     def _pose_zu(self, t):
         """Wahre Pose zur Zeit t (aus dem Verlauf, sonst die aktuelle)."""
