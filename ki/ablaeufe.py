@@ -80,10 +80,8 @@ class Zebrastreifen(Ablauf):
     name = 'zebra'
     braucht_arm = False     # bewegt den Arm nie (#70)
 
-    def __init__(self, jetzt, c, posen, abstand=0.3):
+    def __init__(self, jetzt, c, abstand=0.3):
         super().__init__(jetzt, c)
-        self.mit_arm = bool(posen.get('blick_links') and posen.get('blick_rechts') and posen.get('fahrstellung'))
-        self.braucht_arm = self.mit_arm
         self.abstand = abstand      # Zebrastreifen so weit voraus (m), gemessen beim Anhalten
         self.weg = None             # Linie voraus beim Anhalten (Bereich wird ENTLANG der Strasse geprueft)
         self.jemand = False

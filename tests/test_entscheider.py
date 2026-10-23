@@ -216,17 +216,13 @@ arme, b = arm_befehle(l, 30, zebra={'abstand': 0.3}, lidar_breit=0.35)
 ok = arme == [] and b['aktion'] == 'stopp'
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} ohne Arm-Freigabe: kein Arm, etwas auf dem Zebrastreifen -> wartet ({b['grund']})")
-<<<<<<< HEAD
 pruefe('ohne Arm, frei -> weiter', l.schritt(80, zebra={'abstand': 0.3}, **FREI), 'fahren')
-=======
-pruefe('ohne Arm, frei -> weiter', l.schritt(80, zebra={'abstand': 0.3}), 'fahren')
 l = Lauf(posen=POSEN)
-l.schritt(1, zebra={'abstand': 0.3})
-arme, b = arm_befehle(l, 30, zebra={'abstand': 0.3})
+l.schritt(1, zebra={'abstand': 0.3}, **FREI)
+arme, b = arm_befehle(l, 30, zebra={'abstand': 0.3}, **FREI)
 ok = arme == []
 fehler += not ok
 print(f"{'OK  ' if ok else 'FEHLER'} Posen ohne ausdrueckliche Freigabe -> kein Arm: {arme}")
->>>>>>> 61c7031 (B1d)
 # LiDAR-Punkte: nur der Bereich am Zebrastreifen zaehlt (Haus/Wand daneben nicht)
 import numpy as np  # noqa: E402
 wand = np.array([[0.3 + 0.02 * k, -0.40] for k in range(20)])       # 40 cm rechts: Wand/Haus
