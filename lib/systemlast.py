@@ -5,6 +5,7 @@
 # 0,6-2,3 s lang nicht an (gemessen). Eine gemeinsame Ursache liegt nahe; CPU, IO, Swap und Temperatur sind aber nur
 # Hypothesen. Diese Messung liefert Daten, um Lastspitzen zeitlich mit den Luecken abzugleichen (Ursachenmessung: #39).
 import os
+import posixpath
 import time
 
 
@@ -40,8 +41,8 @@ class Systemlast:
             roh = self._lies(self.proc, pid, 'cmdline') or ''
             teile = [t for t in roh.split('\0') if t]
             # bei python3 das Skript zeigen (zentrale.py statt python3)
-            wichtig = next((os.path.basename(t) for t in teile[1:] if t.endswith('.py')), None)
-            self.namen[pid] = wichtig or (os.path.basename(teile[0]) if teile else
+            wichtig = next((posixpath.basename(t) for t in teile[1:] if t.endswith('.py')), None)
+            self.namen[pid] = wichtig or (posixpath.basename(teile[0]) if teile else
                                           (self._lies(self.proc, pid, 'comm') or '?').strip())
         return self.namen[pid]
 
