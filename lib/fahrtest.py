@@ -78,8 +78,20 @@ def befehl_sichern(befehl, w, jetzt, monoton, kamera_ok):
                         and str(r.get('phase', '')).startswith('ausfuehren:')
                         and all(r.get(k) is not None and r[k] == bindung.get(k)
                                 for k in ('auftrag_id', 'ziel_id')))
+        pruef_rueckkehr = (str(r.get('phase', '')).startswith('pruef_zurueck:')
+                          and bool(r.get('auftrag_id'))
+                          and r['auftrag_id'] == w.get('raeum_auftrag_id')
+                          and befehl.get('aktion') == 'stopp'
+                          and befehl.get('manoever') is None
+                          and befehl.get('arm') == {'pose': 'fahrstellung'}
+                          and w.get('blick') == 'pruef'
+                          and w.get('strecke_gemessen') is True
+                          and w.get('raeum_stillstand') is True)
+        # Only the verified inspection pose may return to the stored driving
+        # pose here. Retain every independent source/time/target/hull check.
         datenfehler = None if plan_gebunden else tiefe_halt(
-            dict(w, tiefe_hindernis=False), jetzt, monoton, kamera_ok)
+            dict(w, tiefe_hindernis=False, **({'blick': 'fahr'} if pruef_rueckkehr else {})),
+            jetzt, monoton, kamera_ok or pruef_rueckkehr)
         if not raeumfreigabe_gueltig(kandidat, betrieb):
             reason = 'Raeumauftrag passt nicht zur aktuellen Betriebsfreigabe'
         elif datenfehler:
