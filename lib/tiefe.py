@@ -146,7 +146,7 @@ class Bodenmodell:
             component[rows[indices], cols[indices]] = True
             objects.append(self._objekt(component, x, y, korrigiert, quer_karte))
         self.objekte = sorted(objects, key=lambda o: o['vor'])
-        return True, self.objekte[0] if self.objekte else None
+        return bool(self.objekte), self.objekte[0] if self.objekte else None
 
     def _objekt(self, treffer, x, y, korrigiert, quer_karte):
         xs, ys, zs = x[treffer], y[treffer], korrigiert[treffer]

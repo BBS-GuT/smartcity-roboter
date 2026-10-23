@@ -2,6 +2,7 @@
 import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -57,6 +58,19 @@ class Reference(unittest.TestCase):
 
 
 class Corridor(unittest.TestCase):
+    def test_discarded_small_components_do_not_report_an_obstacle(self):
+        m = model()
+        m.c['weg_breite'] = .5
+        # Thirty high measurements, each in a separate 1 cm ground component.
+        # The global point threshold passes, while no individual object does.
+        x = np.repeat([.20, .23, .26], 10).reshape(1, 30)
+        y = np.tile(np.arange(10) * .03 - .135, 3).reshape(1, 30)
+        z = np.full((1, 30), .06)
+        m.korrektur = np.zeros((1, 30))
+        with mock.patch.object(m, 'punkte', return_value=(x, y, z)):
+            self.assertEqual(m.pruefe(np.ones((1, 30)), False), (False, None))
+        self.assertEqual(m.objekte, [])
+
     def test_curved_missing_region_is_detected_without_mutating_model(self):
         m = model()
         rx, ry, rz = strahlen(m.k, (120, 160))
