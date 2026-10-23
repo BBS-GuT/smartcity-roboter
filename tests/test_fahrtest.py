@@ -1,4 +1,4 @@
-"""Supervised short test: measured holes stay unknown; genuine holds remain."""
+"""Supervised operation: measured holes stay unknown; genuine holds remain."""
 import json
 import math
 import sys
@@ -17,7 +17,7 @@ f = q.lf.fahrtest
 def node(make):
     n = make()
     c.configure(n)
-    n._p.update(begleiteter_fahrtest=True, scan_einbau_xy=[-.1, .05, .2, -.05])
+    n._p.update(begleiteter_fahrbetrieb=True, scan_einbau_xy=[-.1, .05, .2, -.05])
     c.feed(n)
     return n
 
@@ -30,9 +30,9 @@ class SensorGuards(unittest.TestCase):
     def test_only_explicit_mode_accepts_a_measured_coverage_hole(self):
         for make in (q.lf.LineFollower, q.zentrale.Zentrale):
             n = node(make)
-            n._p['begleiteter_fahrtest'] = False
+            n._p['begleiteter_fahrbetrieb'] = False
             self.assertTrue(query(n) if hasattr(n, 'notbremse') else query(n) is None)
-            n._p['begleiteter_fahrtest'] = True
+            n._p['begleiteter_fahrbetrieb'] = True
             self.assertEqual(query(n), None if hasattr(n, 'notbremse') else float('inf'))
             stamps = {t: e[3 if hasattr(n, 'notbremse') else 4] for t, e in n.scans.items()}
             view, _ = n.scan_geometrie.sicht(stamps)
@@ -74,7 +74,7 @@ class SensorGuards(unittest.TestCase):
                             tiefe_empfang=mono, tiefe_gueltig=True, tiefe_hindernis=False)
         with mock.patch.object(n, 'kamera_lage', return_value=(True, 0)):
             data = q.befehl(n)
-        self.assertTrue(data['begleiteter_fahrtest'])
+        self.assertTrue(data['begleiteter_fahrbetrieb'])
         self.assertEqual(data['aktion'], 'fahren')
         self.assertIsNone(data['lidar'])
         self.assertEqual(data['lidar_abdeckung'], 'unbekannt')
@@ -90,7 +90,7 @@ class DepthAndArm(unittest.TestCase):
     def checked(self, w=None, cmd=None):
         return f.befehl_sichern(cmd or self.command, w or self.w, 100.1, 20.1, True)
 
-    def test_fresh_depth_and_clear_scene_allow_only_the_test_decision(self):
+    def test_fresh_depth_and_clear_scene_allow_the_driving_decision(self):
         self.assertEqual(self.checked()['aktion'], 'fahren')
 
     def test_depth_obstacle_or_failed_measurement_stop(self):
@@ -112,25 +112,19 @@ class FinalPublisher(unittest.TestCase):
     def ready(self):
         n = node(q.lf.LineFollower)
         n._p.update(drive=True, show=False, publish_image=False)
-        n.ki = (q.time.time(), {'aktion': 'fahren', 'begleiteter_fahrtest': True})
+        n.ki = (q.time.time(), {'aktion': 'fahren', 'begleiteter_fahrbetrieb': True})
         return n
 
-    def test_actual_publisher_is_speed_limited_and_latches_after_six_seconds(self):
+    def test_actual_publisher_has_no_artificial_speed_or_six_second_limit(self):
         n = self.ready()
         with mock.patch.object(n, '_wunsch', return_value=(.15, 0., .5, 'Linie')):
-            n.steuern()
-            t = n.pub.letzte
-            radius = math.hypot(.2, .15)
-            self.assertGreater(t.linear.x, 0)
-            self.assertLessEqual(abs(t.linear.x) + abs(t.angular.z)*radius, .0500001)
-            with q.spaeter(7):
-                c.feed(n)  # even genuinely NEW valid scans cannot extend the six-second attempt
-                n.steuern()
-            t = n.pub.letzte
-            self.assertEqual((t.linear.x, t.linear.y, t.angular.z), (0., 0., 0.))
-            n.steuern()
-            self.assertEqual(n.pub.letzte.linear.x, 0.)
-            self.assertIn('beendet', json.loads(n.pub_status.letzte.data)['status'])
+            for elapsed in (0, 7, 60):
+                with q.spaeter(elapsed):
+                    c.feed(n)
+                    n.ki = (q.time.time(), {'aktion': 'fahren', 'begleiteter_fahrbetrieb': True})
+                    n.steuern()
+                    t = n.pub.letzte
+                    self.assertEqual((t.linear.x, t.linear.y, t.angular.z), (.15, 0., .5))
 
     def test_missing_source_reaches_zero_even_with_valid_motion_request(self):
         n = self.ready()
@@ -144,25 +138,22 @@ class FinalPublisher(unittest.TestCase):
             n = self.ready()
             n._p.update(change)
             if not change:
-                n.ki[1]['begleiteter_fahrtest'] = False
+                n.ki[1]['begleiteter_fahrbetrieb'] = False
             with mock.patch.object(n, '_wunsch', return_value=(.15, 0., 0., 'Linie')):
                 n.steuern()
             self.assertEqual(n.pub.letzte.linear.x, 0.)
 
-    def test_hold_after_motion_prevents_automatic_restart(self):
-        attempt = f.Kurzfahrt()
-        attempt.begrenze(.1, 0, 0, 'Linie', [.2, .2, .15, .15], 10., True)
-        attempt.begrenze(0, 0, 0, 'Hindernis', [.2, .2, .15, .15], 10.2, True)
-        self.assertEqual(attempt.begrenze(.1, 0, 0, 'frei', [.2, .2, .15, .15], 10.3, True)[:3], (0, 0, 0))
-
-    def test_monitoring_without_drive_does_not_consume_the_attempt(self):
-        attempt = f.Kurzfahrt()
-        attempt.begrenze(.1, 0, 0, 'TEST', [.2, .2, .15, .15], 10., False)
-        self.assertIsNone(attempt.beginn)
-        self.assertGreater(attempt.begrenze(.1, 0, 0, 'START', [.2, .2, .15, .15], 100., True)[0], 0)
+    def test_genuine_hold_is_not_replaced_by_a_timer_or_missing_source_override(self):
+        n = self.ready()
+        with mock.patch.object(n, '_wunsch', return_value=(.15, 0., 0., 'Linie')):
+            n.steuern()
+            self.assertGreater(n.pub.letzte.linear.x, 0.)
+            n.scans.pop('/scan1')
+            n.steuern()
+            self.assertEqual(n.pub.letzte.linear.x, 0.)
 
     def test_live_mode_changes_are_rejected_in_both_consumers(self):
-        p = types.SimpleNamespace(name='begleiteter_fahrtest', value=True)
+        p = types.SimpleNamespace(name='begleiteter_fahrbetrieb', value=True)
         self.assertFalse(f.parameter_aenderung([p]).successful)
         n = self.ready()
         self.assertFalse(n._parameter_geaendert([p]).successful)

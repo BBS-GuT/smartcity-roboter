@@ -71,8 +71,7 @@ class LineFollower(Node):
         dp = self.declare_parameter
         # ---- Allgemein ----
         dp('drive', False)          # False = nur anschauen, nicht fahren
-        dp('begleiteter_fahrtest', False)  # ausdruecklicher, zeitlich begrenzter Versuch mit Messluecken
-        self.kurzfahrt = fahrtest.Kurzfahrt()
+        dp('begleiteter_fahrbetrieb', False)  # ausdruecklicher begleiteter Betrieb mit bekannten Messluecken
         dp('show', True)            # Fenster anzeigen (braucht DISPLAY)
         dp('publish_image', True)   # Bild mit Linie fuers Panel senden
         dp('image_topic', '/camera/color/image_raw')
@@ -323,7 +322,7 @@ class LineFollower(Node):
             return 'LIDAR UNBEKANNT: ' + geometrie_grund
         if sicht is not None:
             grund = sicht.schutz(bereiche, self.p('notbremse_dist'), turning=bool(dreh),
-                                 abdeckung_pflicht=not self.p('begleiteter_fahrtest'))
+                                 abdeckung_pflicht=not self.p('begleiteter_fahrbetrieb'))
             # Recheck the exact computed snapshot, not a newer callback's data.
             _, zeitgrund = lidar.pflichtkanaele(scanstand, topics, time.monotonic())
             jetzt = self.ros_jetzt()
@@ -430,14 +429,14 @@ class LineFollower(Node):
         grund = self.notbremse(lin, quer, dreh)
         if grund:
             return 0.0, 0.0, 0.0, grund + ' -> STOPP'
-        if self.p('begleiteter_fahrtest'):
+        if self.p('begleiteter_fahrbetrieb'):
             if not self.p('ki_pflicht') or not self.p('obstacle_check'):
-                return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRTEST: Pflichtpruefungen muessen aktiv sein -> STOPP'
+                return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: Pflichtpruefungen muessen aktiv sein -> STOPP'
             _, ki = self.ki
-            if not ki or ki.get('begleiteter_fahrtest') is not True:
-                return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRTEST: KI bestaetigt Testmodus nicht -> STOPP'
+            if not ki or ki.get('begleiteter_fahrbetrieb') is not True:
+                return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: KI bestaetigt Betriebsart nicht -> STOPP'
             if ki.get('manoever'):
-                return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRTEST: KI-Manoever gesperrt -> STOPP'
+                return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: KI-Manoever gesperrt -> STOPP'
         return lin, quer, dreh, status
 
     def _wunsch(self):
@@ -510,9 +509,6 @@ class LineFollower(Node):
             lin_alt, quer_alt, dreh_alt = self.bewegung(dt)
             self.gedaechtnis.bewegen(lin_alt, dreh_alt, dt, quer_alt, jetzt)
         lin, quer, dreh, status = self.entscheide()
-        if self.p('begleiteter_fahrtest'):
-            lin, quer, dreh, status = self.kurzfahrt.begrenze(
-                lin, quer, dreh, status, self.p('fahrzeug_grenzen'), time.monotonic(), self.p('drive'))
         self.status_text = status
         if self.p('drive'):
             t = Twist()
@@ -527,7 +523,7 @@ class LineFollower(Node):
             lokal = self.gedaechtnis.lokal()
             weg = self.gedaechtnis.weg()
         self.pub_status.publish(String(data=json.dumps({
-            'status': status, 'drive': self.p('drive'), 'begleiteter_fahrtest': self.p('begleiteter_fahrtest'),
+            'status': status, 'drive': self.p('drive'), 'begleiteter_fahrbetrieb': self.p('begleiteter_fahrbetrieb'),
             'linear': round(lin, 3), 'quer': round(quer, 3),
             'angular': round(dreh, 3), 'fps': round(self.fps, 1), 'speed': self.p('speed'),
             'linie': self.linie_gesehen or lokal is not None, 'linie_kamera': self.linie_gesehen,

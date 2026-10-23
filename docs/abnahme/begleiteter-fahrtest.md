@@ -1,47 +1,13 @@
-# Begleiteter kurzer Fahrtest
+# Begleiteter Fahrbetrieb mit vorhandener Sensorabdeckung
 
-`begleiteter_fahrtest` ist standardmäßig **false**. Der ausdrücklich ausgewählte
-Testmodus erlaubt eine kurze Vorwärts-Linienfahrt trotz ungeklärter räumlicher
-Messabdeckung. Er ist keine Freigabe für normalen autonomen Betrieb. Unbeobachtete
-Flächen bleiben im Messmodell unbekannt und werden nicht als frei aufgefüllt.
+`begleiteter_fahrbetrieb` ist standardmäßig **false**. Die ausdrückliche Auswahl erlaubt fortlaufende Fahrt mit der vorhandenen Sensorik trotz bekannter räumlicher Messlücken. Es gibt weder eine zusätzliche Sechs-Sekunden-Grenze noch eine zusätzliche Geschwindigkeitsbegrenzung oder Verriegelung nach einem normalen Hindernishalt. Geschwindigkeit, Linienführung, Verkehrsentscheidungen und STOPP folgen der vorhandenen Steuerung. Die Auswahl startet keine Fahrt.
 
-Vor Auswahl müssen die Kamera in ihrer Fahrstellung kalibriert, der konkrete
-Prüfbereich körperlich kontrolliert und die Bedienperson am STOPP bereit sein.
-Die Auswahl erfolgt bei gestoppten Anwendungen in derselben lokalen Konfiguration
-für KI und Linienfolger. Änderungen dieses Parameters während laufender Prozesse
-werden abgewiesen. Es gibt keinen automatischen START.
+Die Auswahl erfolgt bei gestoppten Anwendungen in derselben lokalen Konfiguration für KI und Linienfolger. Ein Wechsel während laufender Prozesse wird abgewiesen. Kamera und Fahrzeuggeometrie müssen zum tatsächlichen Aufbau passen. Die Bedienperson prüft die Strecke und greift bei verlorener Spur oder drohender Berührung mit STOPP ein. Unbeobachtete Flächen bleiben unbekannt; die Auswahl bescheinigt keine vollständige Schutzabdeckung und keine autonome Abnahme.
 
-Der Modus lockert ausschließlich die Pflicht zur lückenlosen aktuellen
-Flächenmessung im vorderen Fahrkorridor und finalen Bewegungsbereich. Alle
-konfigurierten LiDARs bleiben Pflichtquellen. Datenqualität, Aufnahme-/Empfangsalter,
-bekannte Geometrie und gemessene Hindernisse bleiben wirksam. Die rückwärtigen und
-Überweg-Flächenabfragen bleiben unverändert streng.
+Gelockert wird ausschließlich die Pflicht zur lückenlosen aktuellen Flächenmessung im vorderen Fahrkorridor und finalen Bewegungsbereich. Alle konfigurierten LiDARs bleiben Pflichtquellen. Datenqualität, Aufnahme- und Empfangsalter, bekannte Geometrie und gemessene Hindernisse bleiben wirksam. Rückwärtige und Überweg-Flächenabfragen bleiben unverändert.
 
-Zusätzlich verlangt die KI eine frische, gültige Tiefenmessung in der bestätigten
-Fahrstellung mit zum Farbbild passender Aufnahmezeit und passendem Frame. Der
-Tiefentest benutzt die kalibrierte Geometrie ohne adaptive Bodenkorrektur, damit
-ein länger vorhandenes Hindernis nicht als Boden eingelernt wird. Erkannte
-Tiefenhindernisse halten im Test immer; Arm- und KI-Manöver werden nicht ausgeführt.
-Der Linienfolger verlangt die ausdrückliche Testmodus-Kennzeichnung der KI und
-aktive KI-/Hindernispflichtprüfungen.
+Die KI verlangt außerdem eine frische, gültige Tiefenmessung in der bestätigten Fahrstellung mit zum Farbbild passender Aufnahmezeit und passendem Frame. Das kalibrierte Bodenmodell lernt keine neuen Gegenstände als Boden ein. Erkannte Tiefenhindernisse führen zum Halt. Automatische Armbewegungen und KI-Manöver bleiben in dieser Betriebsart gesperrt. Der Linienfolger verlangt deren ausdrückliche Kennzeichnung durch die KI sowie aktive KI- und Hindernispflichtprüfungen.
 
-Der finale Publisher begrenzt die Geschwindigkeit der konfigurierten Fahrzeughülle
-(Translation plus konservative Eckgeschwindigkeit durch Drehung) auf 0,05 m/s.
-Nach spätestens sechs Sekunden ab dem ersten Bewegungsbefehl werden nur noch
-Nullbefehle gesendet. Auch ein Halt nach Beginn beendet den Versuch dauerhaft;
-Sensorwiederkehr oder Entfernen eines Gegenstands startet ihn nicht automatisch
-neu. Ein neuer Versuch braucht Bedien-STOPP und einen neuen START/Prozess.
-Rückwärtsfahrt, Seitwärtsfahrt und Drehen auf der Stelle sind im Modus gesperrt.
+KI und Linienfolger kennzeichnen die Betriebsart in ihrer Telemetrie. Bei einer Abdeckungslücke bleiben `lidar=null` und `lidar_abdeckung=unbekannt` erhalten; fehlende Flächen werden nicht als frei ausgegeben.
 
-Die Begrenzung betrifft ausgegebene Befehle. Tatsächliche Fahrt, Bremsweg und Halt
-müssen am Gerät beobachtet werden. Der Modus garantiert keine Erkennung in den
-unbeobachteten Bereichen. Die Bedienperson muss bei drohender Berührung sofort
-STOPP auslösen. Aus einem bestandenen kurzen Versuch folgt weder eine vollständige
-Schutzabdeckung noch eine Abnahme für unbeaufsichtigte Runden.
-
-KI und Linienfolger kennzeichnen den Testmodus in der Telemetrie. Bei einer
-Abdeckungslücke bleibt der öffentliche LiDAR-Freiraumwert `null` und
-`lidar_abdeckung` lautet `unbekannt`; es wird keine scheinbare freie Distanz gemeldet.
-
-Softwaregegenproben stehen in `tests/test_fahrtest.py`. Sie verwenden ausschließlich
-ROS-/Publisherattrappen und sind kein ausgeführter Fahrversuch.
+Die Softwaregegenproben in `tests/test_fahrtest.py` prüfen die Auswahl, reale Hindernis- und Fehlerhalte sowie den finalen Publisher ohne künstliches Zeitlimit. Sie ersetzen keine beobachtete Fahrt oder Haltprüfung am RM-01.
