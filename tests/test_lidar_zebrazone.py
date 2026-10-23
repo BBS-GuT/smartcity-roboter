@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """L8 (#156): Nicht gemessene Teile der Zebrastreifenzone sind unbekannt, nicht frei.
 
-Die Zentrale gibt die Richtungen ohne gueltige Messung als w['lidar_luecken'] weiter; der Ablauf Zebrastreifen prueft
-sie gegen seine Ueberwegzone (seitlich bis zebra_seite, in der Tiefe bis abstand + zebra_tiefe).
+Die Zentrale gibt die gemessene Fusionssicht in base_link weiter; der Ablauf
+prueft damit seine Ueberwegzone. Reine Zonenfaelle pruefen daneben den bisherigen
+Reichweitenbaustein (0 = ohne Messung, hinter einem Treffer verdeckt).
 Nur ROS-Attrappen, kein Geraet. Aufruf: python3 tests/test_lidar_zebrazone.py
 """
 import math
@@ -19,7 +20,7 @@ from ablaeufe import Zebrastreifen  # noqa: E402
 
 lidar = q.lidar
 N = 360                     # Strahl k zeigt nach k - 180 Grad (vorne = 180, links = 270)
-GEMESSEN = np.zeros(0)
+GEMESSEN = np.full(1440, 3.0)                                       # rundherum 3 m frei gemessen
 WAND = np.array([[1.5, y] for y in np.linspace(-0.5, 0.5, 11)])   # Wand weit hinter dem Ueberweg
 
 
@@ -42,9 +43,10 @@ class Lauf:
         for _ in range(n):
             self.t += 0.1
             self.nr += 1
-            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'objekte': [], 'ampel': None, 'stoppschild': False,
+            daten = {'bild_nr': self.nr, 'bild_zeit': self.t, 'aufnahme': self.t, 'objekte': [], 'ampel': None,
+                     'stoppschild': False,
                      'lidar': float('inf'), 'lidar_breit': 1.0, 'lidar_hinten': 1.0,
-                     'lidar_xy': WAND, 'lidar_luecken': GEMESSEN, 'zebra': {'abstand': self.abstand}}
+                     'lidar_xy': WAND, 'lidar_reichweite': GEMESSEN, 'zebra': {'abstand': self.abstand}}
             daten.update(w)
             b = self.e.update(self.t, daten)
         return b
@@ -64,29 +66,71 @@ class Zebrazone(unittest.TestCase):
     def test_seitliches_band_ungemessen_haelt(self):
         # Richtung 45 Grad: geht am geraden Fahrschlauch (halbe Breite 0,15 m) vorbei, aber durch die Zone
         # (bis 0,28 m seitlich) -> der Fahrschlauch ist gemessen, die Zone nicht
-        winkel = lidar.ungueltige_winkel(scan_mit_luecke(45))
-        self.assertIsNone(lidar.fahrschlauch_luecke(winkel))
+        m = scan_mit_luecke(45)
+        self.assertIsNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))
+        winkel = lidar.freie_reichweite(m)
         for name, w in (('leer', {}), ('freie Kamera, leere Objekte', {'objekte': []})):
             with self.subTest(name):
-                folge = zebra(200, lidar_luecken=winkel, **w)          # Zeitablauf uebersteuert nicht
+                folge = zebra(200, lidar_reichweite=winkel, **w)          # Zeitablauf uebersteuert nicht
                 self.assertTrue(all(b['aktion'] == 'stopp' for b in folge))
                 self.assertIn('Ueberweg links nicht gemessen', folge[-1]['grund'])
-        folge = zebra(200, lidar_luecken=lidar.ungueltige_winkel(scan_mit_luecke(-45)))
+        folge = zebra(200, lidar_reichweite=lidar.freie_reichweite(scan_mit_luecke(-45)))
         self.assertIn('Ueberweg rechts nicht gemessen', folge[-1]['grund'])
+
+    def test_einzelner_fehlender_strahl_hochaufloesend(self):
+        # Codex-Befund zu PR #159: ein einzelner ungueltiger Strahl um 47 Grad aus einem hochaufloesenden Scan
+        # (0,25 Grad) schneidet die Zone bei x = 0,20-0,26 m; ein Raster mit Winkelluecken uebersah ihn
+        n = 1440
+        # 54 Grad (Codex-Befund zu PR #161): schneidet die vordere linke Ecke nur ueber ca. 6 mm
+        for grad in (46.5, 47.0, 47.25, 48.0, 52.0, 54.0, 54.25, -47.0, -54.0):
+            with self.subTest(grad=grad):
+                r = [3.0] * n
+                r[int(round((grad + 180) / 360 * n))] = 0.0
+                m = q.scan(r, n=n)
+                self.assertIsNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))   # Fahrschlauch gemessen
+                folge = zebra(80, lidar_reichweite=lidar.freie_reichweite(m))
+                self.assertTrue(all(b['aktion'] == 'stopp' for b in folge), grad)
+                self.assertIn('nicht gemessen', folge[-1]['grund'])
+        # deutlich ausserhalb der Zone (Ecke bei ca. 54,5 Grad, Pruefrand 1 cm): frei
+        r = [3.0] * n
+        r[int(round((60 + 180) / 360 * n))] = 0.0
+        self.assertEqual(zebra(80, lidar_reichweite=lidar.freie_reichweite(q.scan(r, n=n)))[-1]['aktion'], 'fahren')
+
+    def test_verdeckt_hinter_gueltigem_treffer(self):
+        # Codex-Befund zu PR #161: ein gueltiger Treffer bei ca. (0,15 | 0,18) m liegt ausserhalb von Fahrschlauch
+        # und Zone, verdeckt aber denselben Strahl durch die linke Ueberwegzone -> dort nicht gemessen
+        r = [3.0] * N
+        for k in range(-1, 2):
+            r[180 + 50 + k] = math.hypot(0.15, 0.18)                  # Richtung ca. 50 Grad
+        m = q.scan(r)
+        self.assertIsNone(lidar.fahrschlauch_luecke(lidar.ungueltige_winkel(m)))   # kein Strahl ohne Messung
+        z = q.ki_zentrale(m)
+        # The complete hull corridor also sees the unknown shadow near its
+        # side now; already holding here must not release the crossing.
+        self.assertIsNone(z.lidar_pruefen()[0])
+        folge = zebra(200, lidar_xy=np.vstack([WAND, lidar.punkte_xy(m)]), lidar_reichweite=lidar.freie_reichweite(m))
+        self.assertTrue(all(b['aktion'] == 'stopp' for b in folge))
+        self.assertIn('Ueberweg links nicht gemessen', folge[-1]['grund'])
+        # derselbe Treffer weit hinter der Zone (Wand in 1 m) verdeckt nichts -> frei
+        r = [3.0] * N
+        for k in range(-1, 2):
+            r[180 + 50 + k] = 1.0
+        m = q.scan(r)
+        self.assertEqual(zebra(lidar_reichweite=lidar.freie_reichweite(m))[-1]['aktion'], 'fahren')
 
     def test_luecke_hinter_dem_fahrschlauchende_haelt(self):
         # Zebrastreifen in 0,7 m: Zone bis 0,95 m, hinter dem Fahrschlauchende (0,8 m). Richtung geradeaus
         # ohne Messwert. (Im Gesamtsystem meldet die Zentrale das schon ueber den Fahrschlauch, #79; der Ablauf
         # verlaesst sich darauf nicht.)
         # Der Entscheider startet den Ablauf erst unter zebra_halt; hier der Ablauf direkt (gleiche Wahrnehmung).
-        for luecken, frei in ((np.array([0.0]), False), (GEMESSEN, True)):
+        for luecken, frei in ((np.where(np.arange(1440) == 720, 0.0, 3.0), False), (GEMESSEN, True)):
             with self.subTest(frei=frei):
                 z, t = Zebrastreifen(0.0, STANDARD, abstand=0.7), 0.0
                 folge = []
                 for nr in range(1, 61):
                     t += 0.1
-                    folge.append(z.schritt(t, {'bild_nr': nr, 'bild_zeit': t, 'objekte': [], 'lidar_breit': 1.0,
-                                               'lidar_xy': WAND, 'lidar_luecken': luecken}))
+                    folge.append(z.schritt(t, {'bild_nr': nr, 'bild_zeit': t, 'aufnahme': t, 'objekte': [], 'lidar_breit': 1.0,
+                                               'lidar_xy': WAND, 'lidar_reichweite': luecken}))
                 if frei:
                     self.assertIsNone(folge[-1])                       # Ablauf fertig: Ueberweg frei
                 else:
@@ -95,8 +139,10 @@ class Zebrazone(unittest.TestCase):
 
     def test_luecken_ausserhalb_der_zone(self):
         # links neben dem Roboter, nach hinten, schraeg hinten: kein zusaetzlicher Halt
-        winkel = np.concatenate([lidar.ungueltige_winkel(scan_mit_luecke(g)) for g in (90, -90, 180, 135)])
-        self.assertEqual(zebra(lidar_luecken=winkel)[-1]['aktion'], 'fahren')
+        r = [3.0] * N
+        for g in (90, -90, 180, 135):
+            r[(180 + g) % N] = 0.0
+        self.assertEqual(zebra(lidar_reichweite=lidar.freie_reichweite(q.scan(r)))[-1]['aktion'], 'fahren')
 
     def test_fussgaenger_in_der_zone_wartet_mit_seite(self):
         folge = zebra(lidar_xy=np.vstack([WAND, [[0.36, -0.20], [0.37, -0.21]]]))
@@ -104,18 +150,35 @@ class Zebrazone(unittest.TestCase):
         self.assertTrue(any('rechts (LiDAR)' in b['grund'] for b in folge))
 
     def test_ohne_luecken_angabe_nicht_frei(self):
-        # Vertrag: ohne lidar_xy UND lidar_luecken ist die Zone nicht nachweisbar gemessen
-        for name, w in (('nur lidar_breit', {'lidar_xy': None, 'lidar_luecken': None}),
-                        ('Punkte ohne Luecken-Angabe', {'lidar_luecken': None})):
+        # Vertrag: ohne lidar_xy UND lidar_reichweite ist die Zone nicht nachweisbar gemessen
+        for name, w in (('nur lidar_breit', {'lidar_xy': None, 'lidar_reichweite': None}),
+                        ('Punkte ohne Reichweiten', {'lidar_reichweite': None})):
             with self.subTest(name):
                 folge = zebra(200, **w)
                 self.assertTrue(all(b['aktion'] == 'stopp' for b in folge))
 
+    def test_luecke_waehrend_die_kamera_stockt(self):
+        # wie Codex-Befund zu PR #158 fuer die Belegung: genug freie Bilder, dann stockt die Kamera und die Zone
+        # wird ungemessen -> keine Freigabe (Abdeckung zaehlt in jedem Zyklus, nicht nur bei neuen Bildern)
+        lauf = Lauf()
+        lauf.schritt(1)
+        lauf.schritt(17)                                              # Halt + genug freie, gemessene Bilder
+        nr, t_bild = lauf.nr, lauf.t
+        winkel = lidar.freie_reichweite(scan_mit_luecke(45))
+        folge = []
+        for _ in range(12):
+            lauf.t += 0.1
+            folge.append(lauf.e.update(lauf.t, {
+                'bild_nr': nr, 'bild_zeit': t_bild, 'aufnahme': t_bild, 'objekte': [], 'ampel': None,
+                'stoppschild': False, 'lidar': float('inf'), 'lidar_breit': 1.0, 'lidar_hinten': 1.0,
+                'lidar_xy': WAND, 'lidar_reichweite': winkel, 'zebra': {'abstand': 0.3}}))
+        self.assertTrue(all(b['aktion'] == 'stopp' for b in folge))
+
     def test_wiederkehr_der_messung_gibt_frei(self):
         lauf = Lauf()
         lauf.schritt(1)
-        winkel = lidar.ungueltige_winkel(scan_mit_luecke(45))
-        self.assertEqual(lauf.schritt(60, lidar_luecken=winkel)['aktion'], 'stopp')
+        winkel = lidar.freie_reichweite(scan_mit_luecke(45))
+        self.assertEqual(lauf.schritt(60, lidar_reichweite=winkel)['aktion'], 'stopp')
         # (nach dem Warten neue, gemessene Beobachtung) -> frei
         self.assertEqual(lauf.schritt(60)['aktion'], 'fahren')
 
@@ -132,17 +195,25 @@ class Zentrale(unittest.TestCase):
         z._entscheiden()
         return gesehen[-1]
 
-    def test_luecken_kommen_im_wahrnehmungsvertrag_an(self):
-        z = q.ki_zentrale(scan_mit_luecke(45))
+    def test_fusionssicht_kommt_im_wahrnehmungsvertrag_an(self):
+        z = q.ki_zentrale(q.scan(3.0))
         w = self.mitschnitt(z)
         self.assertEqual(w['lidar'], float('inf'))                      # Fahrschlauch gemessen und frei
-        self.assertTrue(np.any(np.abs(np.asarray(w['lidar_luecken']) - math.radians(45)) < math.radians(2)))
+        self.assertIsNone(w['lidar_reichweite'])                       # no mixed sensor-origin contract
+        self.assertIs(w['lidar_fusionssicht'], z.lidar_sicht)
+        self.assertTrue(w['lidar_fusionssicht'].zone_frei((.2, .6, -.28, .28)))
 
-    def test_ohne_lidar_keine_luecken(self):
+    def test_unbekannter_korridor_liefert_keine_freie_zebrazone(self):
+        w = self.mitschnitt(q.ki_zentrale(scan_mit_luecke(45)))
+        self.assertIsNone(w['lidar'])
+        self.assertIsNone(w['lidar_fusionssicht'])
+        self.assertIsNone(w['lidar_xy'])
+
+    def test_ohne_lidar_keine_reichweiten(self):
         z = q.ki_zentrale(q.scan(0.0))                                  # ganz ungueltig -> lidar None
         w = self.mitschnitt(z)
         self.assertIsNone(w['lidar'])
-        self.assertIsNone(w['lidar_luecken'])
+        self.assertIsNone(w['lidar_reichweite'])
 
 
 if __name__ == '__main__':

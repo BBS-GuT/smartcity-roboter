@@ -170,9 +170,9 @@ In `config/lokal/roboter.yaml` unter `line_follower:` → `ros__parameters:` ein
 | `abbiegen` | true | an Kreuzungen zufällig einen Ast wählen (siehe unten). `false` = wie bisher |
 | `ast_min` | 0.05 | ein Ast muss mindestens so lang zu sehen sein (m), sonst zählt er nicht als Ausfahrt. Kurz, weil die Kamera nur ca. 20 cm Boden sieht |
 
-## Kreuzungen: zufällig abbiegen
+## Kreuzungsgeometrie und Auswahl
 
-Ziel (Zieldefinition 4.2): An Verzweigungen wählt er selbst einen Ausgang, damit nicht immer dieselbe Runde gefahren wird.
+Ziel (Zieldefinition 4.2): An Verzweigungen wählt er selbst einen erlaubten Ausgang, damit nicht immer dieselbe Runde gefahren wird. `LinienSucher.aeste` liefert ausschließlich sichtbare geometrische Äste. Das bestätigt weder Knoten/Zufahrt noch verkehrsrechtlich erlaubte Ausfahrten (GB-05/09). Die bisherige Zufallswahl allein erfüllt diese Anforderungen nicht; unbekannte Erlaubnis darf keine Einfahrt begründen.
 
 So geht es (`line_follower/linie.py`, `LinienSucher.aeste`):
 
@@ -180,7 +180,7 @@ So geht es (`line_follower/linie.py`, `LinienSucher.aeste`):
 2. Teilt sich die Fläche in mindestens zwei Äste, die jeweils mindestens `ast_min` lang zu sehen sind **und aus dem Kamerabild hinauslaufen**, ist das eine Kreuzung. Ein enger Bogen (U) teilt sich so nie. Äste, die zum Roboter zurückzeigen, zählen nicht (von dort kommt er). Ein Querbalken, der im Bild endet (Haltelinie, Markierung), ist keine Ausfahrt. Grenze: Reicht ein Querbalken bis an den seitlichen Bildrand (z. B. Haltelinie ab ca. 20 cm je Seite), hält er ihn für eine Ausfahrt; mit Unschärfe im Kamerabild teils schon ab ca. 18 cm (auch vor RM02 22.10. so). Der Bildrand ist nur am fernen Ende 2 Pixel breit. Maße der realen Haltelinien sind noch offen (E1); nach dem Ausmessen am Brett prüfen. Sieht er im selben Bild einen Zebrastreifen, wählt er nicht (dessen Begrenzungen sind keine Abzweigung, Zieldefinition 4.3).
 3. Beim ersten Sehen wählt er **zufällig** einen Ast. Die Wahl merkt er sich als Richtung im Raum (mit der eigenen Drehung aus dem Linien-Gedächtnis). So bleibt es derselbe Ast, auch wenn er sich beim Abbiegen im Bild dreht.
 4. Nur Stamm + gewählter Ast kommen ins Linien-Gedächtnis, der Linienfolger fährt also dorthin.
-5. Etwa 1–1,5 s ohne Kreuzung im Bild gilt sie als durchfahren. Die nächste wird neu gewählt.
+5. Nach mehr als 15 gültigen Bildern ohne Kreuzung und mindestens 20 cm Abstand zur letzten Sichtung wird neu gewählt, sofern die übergebene lokale Richtung zum gewählten Ast passt (45° Toleranz wie bei der Astzuordnung). Im Stand bleibt die Wahl erhalten. Ohne Positionsangabe entfällt die Streckenprüfung; fehlende/ungültige Richtung bestätigt kein Einlenken.
 
 Im Log steht z. B. `Kreuzung: Aeste [-90, 90] Grad -> zufaellig gewaehlt: links (+90 Grad)`. Rechenzeit: ca. 1 ms je Kamerabild.
 
@@ -190,6 +190,22 @@ Im Log steht z. B. `Kreuzung: Aeste [-90, 90] Grad -> zufaellig gewaehlt: links 
 - Querbalken, die die Leitlinie berühren und **über den Bildrand hinaus** reichen (und kein Zebrastreifen sind), sähen weiterhin aus wie eine Kreuzung.
 - Erlaubte Ausfahrten (Einbahnstraßen) kennt er noch nicht, siehe oben.
 - Ob er eine 90°-Abzweigung sauber fährt, ist nur mit gezeichneten Bildern geprüft (`tests/test_kreuzung.py`).
+
+### Softwarebeleg zu #112 und offene Informationsgrenze
+
+`python tests/test_kreuzung.py` prüft zusätzlich Pluskreuzungen und seitliche T-Einmündungen samt Spiegelung mit den Standardkamerawerten sowie einer synthetischen Kamera auf 31 cm Höhe und mit 28° Neigung. Plus muss drei Ausgänge liefern, seitliches T genau Geradeaus und den jeweiligen Seitenast. Jeder Ausgang wird deterministisch ausgewählt; die zurückgegebenen Bodenpunkte müssen auf dem gewählten Ast bleiben. Das sind angenommene Bildgeometrien, keine gemessene Kalibrierung oder Geräteabnahme. Die Fälle bestehen bereits auf Basis `dc6acc25e490edc301a6464af8fe19e17339aa42`.
+
+Der Test `test_querbalken_am_bildrand_ist_bildgleich_mit_plus` zeichnet eine durchgehende Leitlinie mit einer 80 cm langen Querlinie und vergleicht sie mit einer Pluskreuzung mit 100 cm Querlinie (jeweils 2,5 cm Strichbreite, bei 36 cm Abstand). Beide Querlinien reichen über beide seitlichen Kamerabildränder; die erzeugten Kamerabilder sind **bytegleich**. Die bestehende Erkennung meldet in beiden Fällen drei geometrische Äste. Dieser Test sichert die Informationsgrenze und behauptet ausdrücklich keine erfolgreiche Haltelinienunterdrückung.
+
+Eine Regel, die dieses Querbalkenbild allein anhand der Pixel verwirft, müsste auch das identische Plusbild verwerfen. Ein längerer sichtbarer Balken ist deshalb kein allgemeines Unterscheidungsmerkmal. #112 bleibt für die geforderte allgemeine Querbalkenkorrektur offen. Benötigt werden unterscheidbare, bestätigte Markierungsmerkmale oder ein bestätigter Knoten-/Zufahrts- und Markierungsbezug; deren Gültigkeit und Ausfallverhalten müssen vor einer Freigabe geklärt sein. Reale Bilder, Maße, Licht, Kamerafahrstellung und die Bedeutung der Markierung sind am Aufbau zu sichern. Geometrische Äste allein dürfen keine Verkehrserlaubnis erzeugen.
+
+Die bestehenden Negativkontrollen (Gerade, enger U-Bogen, im Bild endende Haltelinie, Zebrastreifenbegrenzung) bleiben erhalten. Die Simulatorrunde enthält keine Kreuzungen und ersetzt diese Kontrollen nicht. #111 bleibt die offene Geräteprüfung auf **RM02**; ein späterer RM01-Test ist kein Ersatz.
+
+### Gewählter Ast im nahen Kamerablindbereich (#106)
+
+Eine synthetische Annäherungsfolge mit Seitenast bei 36 cm reproduziert einen eigenen Fehler: Nach 12 cm Vorfahrt liegt der Abzweig bei 24 cm und verschwindet unter dem Kamerabild. Die ungewählte Gerade bleibt sichtbar und wurde zuvor als neue Linie bis 58,2 cm im ursprünglichen Koordinatensystem ins Gedächtnis übernommen. Dadurch kann der Seitenast trotz gespeicherter Wahl verdrängt werden. Die Kontrolle verwendet den echten `Gedaechtnis.hinzufuegen`-Pfad und beide Spiegelungen; auf dem Ausgangscode schlägt sie fehl.
+
+Solange die übergebene lokale Richtung noch nicht zur Wahl passt, werden einzelne Linien ohne erkannte Verzweigung verworfen. Die Richtungsprüfung unterscheidet links und rechts über den vollen Kreis; eine ungerichtete Linienachse reicht nicht als Beleg. Das ergibt keine neuen Bodenpunkte; das vorhandene Gedächtnis und dessen Alterung bleiben wirksam. Auch eine allein sichtbare Querlinie bestätigt keinen gerichteten Ast. Nach lokal passendem Einlenken funktioniert die normale gerade Linie wieder. Dies kann bei fehlender Astsicht vorübergehend nur das vorhandene Gedächtnis nutzbar lassen; die reale Fahrt ist gesondert zu prüfen. Weder viele Bilder noch bloßer Wegfortschritt dürfen eine noch nicht eingeschlagene Seitenwahl löschen. Unbekannte Richtung bestätigt kein Einlenken. Die übergebene Pose stammt im ROS-Aufruf aus dem Liniengedächtnis und kann bei fehlender/alter Odometrie oder IMU auf Fahrbefehlen beruhen. Die Richtungsbedingung ist daher kein unabhängig bestätigter Ausfahrtnachweis nach GB-06. Die Änderung erteilt keine Fahrfreigabe, verlängert keine Speicherfrist und ersetzt keine geprüfte Ausfahrtserkennung oder reale 90°-Fahrt. Keine Reglerparameter wurden geändert und PR #168 wurde nicht übernommen.
 
 ## Was er an die KI meldet
 

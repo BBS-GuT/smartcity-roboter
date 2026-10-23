@@ -43,20 +43,23 @@ command -v ros2 >/dev/null || { echo "ROS 2 nicht gefunden -> scripts/simulation
 export SMARTCITY_ARM_YAML=/tmp/smartcity_arm_sim.yaml
 cp "$REPO_DIR/sim/arm_sim.yaml" "$SMARTCITY_ARM_YAML"     # immer frisch: Arm-Geometrie der Simulation
 export SMARTCITY_GREIFEN=${SMARTCITY_GREIFEN:-/tmp/smartcity_greifen_sim.json}   # in der Simulation Gelerntes (nicht config/lokal/)
+[ "$1" = "schwer" ] && export SIM_SCHWER=1
+# Known model geometry is explicit and cannot inherit a robot's local calibration.
+SMARTCITY_SIM_PARAMETER=$(python3 "$REPO_DIR/sim/lidar_geometrie.py") || exit 1
+export SMARTCITY_SIM_PARAMETER
+trap 'rm -f -- "$SMARTCITY_SIM_PARAMETER"' EXIT
 if [ "$1" = "pruefen" ]; then
-    exec python3 "$REPO_DIR/sim/pruefen.py"
+    python3 "$REPO_DIR/sim/pruefen.py"
+    exit $?
 fi
-SIM_ARGS=()
-if [ "$1" = "schwer" ]; then
-    SIM_ARGS=(--ros-args -p halle:=true -p imu_skala:=1.03 -p lidar_umlauf:=0.12 -p lidar_verzoegerung:=0.1
-              -p "lidar1_einbau:=[-0.12,0.0,4.0]")
-fi
+mapfile -t SIM_ARGS < <(python3 "$REPO_DIR/sim/lidar_geometrie.py" --simulator-argumente)
+[ ${#SIM_ARGS[@]} -gt 0 ] && SIM_ARGS=(--ros-args "${SIM_ARGS[@]}")
 python3 "$REPO_DIR/sim/simulator.py" "${SIM_ARGS[@]}" &
 SIM=$!
 sleep 3   # Simulator zuerst, sonst sucht das Panel nach der echten Kamera
 python3 "$REPO_DIR/panel/panel.py" --port 8080 --autostart --karte sim &
 PANEL=$!
-trap 'kill -TERM $PANEL $SIM 2>/dev/null; wait $PANEL 2>/dev/null' EXIT
+trap 'kill -TERM $PANEL $SIM 2>/dev/null; wait $PANEL 2>/dev/null; rm -f -- "$SMARTCITY_SIM_PARAMETER"' EXIT
 for _ in $(seq 40); do curl -s -o /dev/null http://localhost:8080/api/status && break; sleep 0.5; done
 echo "Panel: http://localhost:8080  (START druecken, Kamera -> Simulation zeigt die Welt von oben)"
 command -v xdg-open >/dev/null && xdg-open http://localhost:8080 >/dev/null 2>&1 &

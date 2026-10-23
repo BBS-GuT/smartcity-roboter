@@ -10,6 +10,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'attrappen'))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'line_follower'))
 import line_follower as lf
+from lidar_testdaten import geometrie
 
 
 _scan_nr = [0]
@@ -18,7 +19,8 @@ _scan_nr = [0]
 def scan(abstand):
     _scan_nr[0] += 1                    # jeder Scan neu: Aufnahme 50 ms vor jetzt, je Scan etwas spaeter
     t = lf.time.time() - 0.05 + _scan_nr[0] * 1e-6
-    kopf = types.SimpleNamespace(stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
+    kopf = types.SimpleNamespace(frame_id='base_link',
+                                 stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
     return types.SimpleNamespace(ranges=[abstand] * 360, angle_min=-math.pi, angle_increment=2 * math.pi / 360,
                                  angle_max=math.pi - 2 * math.pi / 360,
                                  range_min=0.05, range_max=12.0, header=kopf)
@@ -35,6 +37,7 @@ class Sensorfreigabe(unittest.TestCase):
 
     def neu(self):
         n = lf.LineFollower()
+        geometrie(n)
         n._p.update(show=False, publish_image=False)
         self.lidar(n)
         n.ki = (1000.0, {'aktion': 'fahren', 'faktor': 1.0})

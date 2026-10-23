@@ -109,16 +109,20 @@ class Kalibrierung:
         self.einbau = tuple(g.get('einbau') or (0.0, 0.0, 0.0))
         self.einbau_gelernt = bool(g.get('einbau'))
         self.spiegeln = bool(g.get('spiegeln', False))
+        self.lidar_quelle = g.get('lidar_quelle')
+        self.lernquelle = None    # aktuelle Quelle fuer neu gelernte LiDAR-Werte
         self.dreh_proben = []      # (lidar_drehung, imu_roh_integral, dauer)
         self.weg_proben = []       # (to_x, to_y, lidar_drehung, tm_x, tm_y)
         self.ergebnis = {}         # letzte Schaetzung (auch wenn noch nicht angewendet) fuer die Diagnose
         self.meldungen = []        # (zeit, text) was gelernt/geaendert wurde
 
     def speichern(self):
+        quelle = (self.lernquelle if self.lernquelle and (self.einbau_gelernt or self.spiegeln)
+                  else self.lidar_quelle)
         return {'imu_vorzeichen': self.imu_vorzeichen, 'imu_skala': round(self.imu_skala, 4),
                 'gyro_bias': round(self.gyro_bias, 5), 'odom_skala': round(self.odom_skala, 4),
                 'einbau': [round(v, 4) for v in self.einbau] if self.einbau_gelernt else None,
-                'spiegeln': self.spiegeln}
+                'spiegeln': self.spiegeln, 'lidar_quelle': quelle}
 
     def drehrate(self, gz):
         return self.imu_vorzeichen * self.imu_skala * (gz - self.gyro_bias)
@@ -325,9 +329,26 @@ class Kartierer:
         # Haupt-LiDAR (Abgleich mit der Karte), die anderen werden daran ausgerichtet. Die Reihenfolge in
         # scan_topics bleibt (scan_front_deg/scan_spiegeln gelten je Position in der Liste).
         self.haupt = self.c['haupt_lidar'] if self.c.get('haupt_lidar') in self.namen else self.namen[0]
-        # Gespeicherte Selbstkalibrierung nur, wenn sie auch angewendet werden soll. Sonst Rohwerte wie eingestellt
-        # (eine einmal falsch gelernte Korrektur verdreht sonst jede weitere Karte)
-        self.kal = Kalibrierung(karte.kalibrierung if self.c['selbst_kalibrieren'] else None)
+        # Speicherstand und Anwendung trennen: ausgeschaltet weiter Rohwerte verwenden,
+        # aber die gespeicherten Korrekturen bei normalem Speichern nicht verlieren.
+        self.gespeicherte_kalibrierung = Kalibrierung(karte.kalibrierung)
+        geladen = self.gespeicherte_kalibrierung
+        self.kalibrierung_hinweis = None
+        self.kalibrierung_fremd = geladen.lidar_quelle != self.haupt and (
+            geladen.einbau_gelernt or geladen.spiegeln)
+        aktiv = geladen.speichern()
+        if self.kalibrierung_fremd:
+            herkunft = geladen.lidar_quelle or 'unbekannte Herkunft (Legacy)'
+            self.kalibrierung_hinweis = (
+                f'LiDAR-Kalibrierung: {herkunft} passt nicht zu Hauptquelle {self.haupt}; '
+                'gespeicherten Einbau und Spiegelung nicht angewendet.')
+            # Nur diese beiden Werte beschreiben den LiDAR. IMU-/Radkorrekturen
+            # behalten ihre eigene Bedeutung und werden nicht pauschal verworfen.
+            aktiv.update(einbau=None, spiegeln=False, lidar_quelle=None)
+        self.kal = Kalibrierung(aktiv) if self.c['selbst_kalibrieren'] else Kalibrierung()
+        # Ausschliesslich der aktive Lernstand gehoert zur tatsaechlichen Quelle.
+        # Der geladene Originalstand bleibt separat, auch bei ausgeschaltetem Lauf.
+        self.kal.lernquelle = self.haupt
         self.lok = K.Lokalisierung(karte)
         self.uhren = {}
         self.scans = {}               # name -> Liste der letzten Scans (zeit, punkte, empfang)
@@ -339,7 +360,10 @@ class Kartierer:
         self.twist_gesehen = self.pose_gesehen = 0.0   # wann zuletzt Geschwindigkeit / Positionsaenderung
         self.imu_t = self.imu_empfang = None
         self.imu_offen = 0.0          # Drehung (korrigiert) seit der letzten Odometrie
+        self.odom_vorausdrehung = 0.0 # bereits verbuchte IMU-Drehung seit der letzten Odometrie
         self.imu_luecke = False       # seit der letzten Odometrie fehlten Lagesensor-Daten (Drehung unvollstaendig)
+        self.imu_ersatz_bis = None    # bis hier hat laufende Odometrie die fehlende IMU ersetzt
+        self.imu_rest = 0.0           # Odom-Anteil nach der zuletzt verwendeten IMU-Messzeit
         self.imu_roh = 0.0            # Integral der rohen Drehrate (fuer die Kalibrierung)
         self.imu_winkel = 0.0         # Integral der korrigierten Drehrate
         self.odom_winkel = 0.0        # Drehung laut Raedern
@@ -365,6 +389,19 @@ class Kartierer:
         self.zaehler[n] = self.zaehler.get(n, 0) + 1
 
     # ---------------- Bewegung ----------------
+    def kalibrierung_speichern(self):
+        """Aktive Korrekturen speichern; bei deaktivierter Anwendung den geladenen Stand erhalten."""
+        kal = self.kal if self.c['selbst_kalibrieren'] else self.gespeicherte_kalibrierung
+        daten = kal.speichern()
+        if self.c['selbst_kalibrieren'] and self.kalibrierung_fremd and not (
+                kal.einbau_gelernt or kal.spiegeln):
+            # Noch keine neue LiDAR-Korrektur gelernt: Originale samt Herkunft
+            # bewahren, ohne sie unter der neuen Quelle zu etikettieren.
+            original = self.gespeicherte_kalibrierung.speichern()
+            for feld in ('einbau', 'spiegeln', 'lidar_quelle'):
+                daten[feld] = original[feld]
+        return daten
+
     def imu(self, empfang, d):
         """d: stamp, g (Drehrate x, y, z rad/s), a (Beschleunigung, optional)."""
         self._zaehlen('imu')
@@ -411,13 +448,20 @@ class Kartierer:
                 else:
                     w = self.kal.drehrate(gz)
                 self.imu_roh += gz * dt
-                self.imu_offen += w * dt
+                # Zurueckkehrende IMU nicht nochmals fuer bereits von den Raedern
+                # ersetzte Zeit verwenden (auch bei kurzen Luecken unter 0,25 s).
+                offen_dt = max(0.0, t - max(self.imu_t, self.imu_ersatz_bis or self.imu_t))
+                self.imu_offen += w * offen_dt
                 self.imu_winkel += w * dt
                 self.dreh = w
+        elif self.imu_ersatz_bis is not None:
+            # Auch eine erst spaeter startende IMU hat noch kein Integral.
+            self.imu_luecke = True
         self.imu_t, self.imu_empfang = t, empfang
         if self.odom_empfang is None or empfang - self.odom_empfang > 0.5:
             # keine Odometrie: wenigstens die Drehung mitrechnen (Strecke macht der Scan-Abgleich)
             self._schritt(0.0, 0.0, self.imu_offen, t)
+            self.odom_vorausdrehung += self.imu_offen
             self.imu_offen = 0.0
 
     def _odom_schritt(self, t, empfang, d):
@@ -428,8 +472,10 @@ class Kartierer:
         alt, self.odom_alt = self.odom_alt, (t, pose)
         if self.odom_t is None:
             self.odom_t, self.odom_empfang = t, empfang
+            self.odom_vorausdrehung = 0.0
             return
-        dt = t - self.odom_t
+        odom_t_alt = self.odom_t
+        dt = t - odom_t_alt
         if dt <= 0:
             return
         self.odom_t, self.odom_empfang = t, empfang
@@ -441,6 +487,12 @@ class Kartierer:
             # Positions-Unterschied der Odometrie: geht auch ueber verlorene Nachrichten nichts verloren
             # (Geschwindigkeit x Zeit verliert bei Luecken die Strecke - 20.10.: bis 2,3 s Luecken)
             dx, dy, dw_odom = delta
+            # Das Pose-Delta beginnt im Bezug der vorherigen Odometrie.
+            # Die IMU kann diesen Bezug waehrend des Ausfalls schon gedreht haben.
+            # Nur diese Translation zurueckdrehen; Twist-Fallback bleibt im
+            # bisherigen Bezug und dw enthaelt weiterhin nur offene Drehung.
+            c, sn = math.cos(self.odom_vorausdrehung), math.sin(self.odom_vorausdrehung)
+            dx, dy = c * dx + sn * dy, -sn * dx + c * dy
             if not (empfang - self.twist_gesehen > 1.0 or not stempel_ok) and dt > 0:
                 pass                       # Geschwindigkeiten sind da und gelten weiter fuer self.v / steht
             else:
@@ -451,17 +503,29 @@ class Kartierer:
         self.v = math.hypot(vx, vy)
         self.steht = self.v < 0.01 and abs(wz) < 0.005     # langsamer als 1 cm/s und dreht nicht
         self.odom_winkel += dw_odom
-        if self.imu_empfang is not None and empfang - self.imu_empfang < 0.3 and not self.imu_luecke:
+        if (self.imu_t is not None and self.imu_t > odom_t_alt
+                and empfang - self.imu_empfang < 0.3 and not self.imu_luecke):
             dw = self.imu_offen       # Drehung lieber vom Lagesensor (Mecanum-Raeder rutschen beim Drehen)
             self.imu_offen = 0.0
+            # Messungen sind versetzt: faellt die IMU jetzt aus, fehlt neben
+            # dem naechsten Odom-Intervall noch dieses kleine Reststueck.
+            self.imu_rest = dw_odom * max(0.0, t - self.imu_t) / dt
         elif self.imu_luecke:
             dw = dw_odom              # Lagesensor hatte eine Luecke: Drehung dieses Stuecks von den Raedern
             self.imu_offen, self.imu_luecke = 0.0, False
+            if self.imu_ersatz_bis is not None:
+                self.imu_ersatz_bis = t
+            self.imu_rest = 0.0
         else:
-            dw = 0.0 if self.steht else dw_odom
+            # Der Rest stammt noch aus dem vorherigen bewegten Intervall;
+            # ein inzwischen gemeldeter Stillstand darf ihn nicht loeschen.
+            dw = self.imu_rest + (0.0 if self.steht else dw_odom)
+            self.imu_rest, self.imu_offen = 0.0, 0.0
+            self.imu_ersatz_bis = t
             self.dreh = wz
         s = 1.0 / self.kal.odom_skala if self.c['selbst_kalibrieren'] else 1.0
         self._schritt(dx * s, dy * s, dw, t)
+        self.odom_vorausdrehung = 0.0
 
     def _schritt(self, dx, dy, dw, t):
         """Roboter hat sich so bewegt (Roboter-System) -> LiDAR-System umrechnen und mitrechnen."""
@@ -507,7 +571,8 @@ class Kartierer:
         t = self._zeit(name, d.get('stamp'), empfang)
         a = d['amin'] + np.arange(n) * d['ainc']
         spiegeln = self.c['scan_spiegeln'][i] if i < len(self.c['scan_spiegeln']) else False
-        if spiegeln != self.kal.spiegeln:     # Einstellung und Selbstkorrektur heben sich auf, wenn beide da sind
+        gelernt_spiegeln = self.kal.spiegeln if name == self.haupt else False
+        if spiegeln != gelernt_spiegeln:     # Selbstkorrektur gilt nur fuer ihre Hauptquelle
             a = -a
         fronts = self.c['scan_front_deg']
         a = a - math.radians(fronts[i] if i < len(fronts) else 0.0)
@@ -660,7 +725,7 @@ class Kartierer:
             text = self.kal.lernen(jetzt, anwenden=self.c['selbst_kalibrieren'])
             if text:
                 self.meldung = text
-                self.karte.kalibrierung = self.kal.speichern()
+                self.karte.kalibrierung = self.kalibrierung_speichern()
 
     def global_suchen(self):
         """Position in der vorhandenen Karte suchen (dauert, eigener Thread im Kartografen)."""
@@ -699,6 +764,8 @@ class Kartierer:
 
     def warnungen(self):
         w = self.kal.warnungen()
+        if self.kalibrierung_hinweis and not (self.kal.einbau_gelernt or self.kal.spiegeln):
+            w.append(self.kalibrierung_hinweis)
         anteil = self.sicher_anteil(30.0)
         if anteil is not None and len(self.diagnose) > 100 and anteil < 0.5:
             w.append(f'Scan-Abgleich passt oft nicht ({anteil:.0%} sicher in 30 s): wenig Waende/Gegenstaende '

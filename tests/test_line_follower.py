@@ -12,6 +12,7 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HIER, 'attrappen'))
 sys.path.insert(0, os.path.join(HIER, '..', 'line_follower'))
 import line_follower as lf  # noqa: E402
+from lidar_testdaten import geometrie  # noqa: E402
 
 fehler = 0
 
@@ -31,7 +32,8 @@ def stempel():
     """Aufnahmezeit 50 ms vor jetzt, je Scan etwas spaeter (jeder Scan ist ein neuer, kein doppelter)."""
     _scan_nr[0] += 1
     t = time.time() - 0.05 + _scan_nr[0] * 1e-6
-    return types.SimpleNamespace(stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
+    return types.SimpleNamespace(frame_id='base_link',
+                                 stamp=types.SimpleNamespace(sec=int(t), nanosec=int((t % 1) * 1e9)))
 
 
 def scan(abstand, index_vorne=180):
@@ -50,6 +52,7 @@ def gerade_linie(n):
 
 def neu():
     n = lf.LineFollower()
+    geometrie(n)
     jetzt = time.time()
     gerade_linie(n)
     n.bild_zeit = jetzt
@@ -135,8 +138,8 @@ def halt_mit(name, ergebnis, text):
 n = neu()
 hinten_10cm(n)
 manoever(n, lin=-0.05)
-halt_mit('direction=+1, hinten 10 cm, KI-Manoever rueckwaerts -> Null + Grund hinten', n.entscheide(),
-         'NOTBREMSE 10 cm hinten')
+halt_mit('direction=+1, hinten 10 cm, KI-Manoever rueckwaerts -> Null + Grund', n.entscheide(),
+         'NOTBREMSE: Hindernis im Bewegungsbereich (Roboterbezug)')
 n._p['drive'] = True
 n.steuern()
 cmd = n.pub.letzte
@@ -146,12 +149,12 @@ print(f"{'OK  ' if ok else 'FEHLER'} ... und die Publisherattrappe bekommt den N
 n = neu()
 n._p['direction'] = -1.0
 hinten_10cm(n)
-halt_mit('direction=-1, hinten 10 cm -> stoppt weiterhin', n.entscheide(), 'hinten')
+halt_mit('direction=-1, hinten 10 cm -> stoppt weiterhin', n.entscheide(), 'NOTBREMSE')
 n = neu()
 hinten_10cm(n)
 check('direction=+1, hinten 10 cm, Linie vorwaerts -> faehrt (vorne frei)', n.entscheide(), True)
 n._p['direction'] = -1.0                  # Richtungswechsel OHNE neuen Scan
-halt_mit('Richtungswechsel ohne neuen Scan -> richtiger Bereich (hinten)', n.entscheide(), 'hinten')
+halt_mit('Richtungswechsel ohne neuen Scan -> richtiger Bereich (hinten)', n.entscheide(), 'NOTBREMSE')
 n = neu()
 hinten_10cm(n)
 manoever(n, lin=0.05)
@@ -160,7 +163,7 @@ for wunsch in ({'dreh': 0.8}, {'quer': 0.05}, {'quer': -0.05, 'dreh': -0.5}):
     n = neu()
     hinten_10cm(n)
     manoever(n, **wunsch)
-    halt_mit(f'hinten 10 cm, KI-Manoever {wunsch} auf der Stelle -> Halt', n.entscheide(), 'hinten')
+    halt_mit(f'hinten 10 cm, KI-Manoever {wunsch} auf der Stelle -> Halt', n.entscheide(), 'NOTBREMSE')
 # Seitwaerts (Codex-Befund zu PR #143): Hindernis 10 cm LINKS (Strahl 270), vorne/hinten frei
 
 
@@ -178,7 +181,7 @@ for name, wunsch, haelt in [('quer nach links', {'quer': 0.05}, True),
     links_10cm(n)
     manoever(n, **wunsch)
     if haelt:
-        halt_mit(f'links 10 cm, KI-Manoever {name} -> Halt', n.entscheide(), 'NOTBREMSE 10 cm links')
+        halt_mit(f'links 10 cm, KI-Manoever {name} -> Halt', n.entscheide(), 'NOTBREMSE')
     else:
         lin, quer, dreh, status = n.entscheide()
         ok = (lin, quer, dreh) == (wunsch.get('lin', 0.0), wunsch.get('quer', 0.0), 0.0)
@@ -195,7 +198,7 @@ print(f"{'OK  ' if ok else 'FEHLER'} Haltwunsch (Manoever 0) bleibt Null: {ergeb
 n = neu()
 n.on_scan(scan(0.10), '/scan1', 1)
 manoever(n, lin=-0.05)
-halt_mit('vorne 10 cm (direction=+1), KI-Manoever rueckwaerts -> haelt wie bisher', n.entscheide(), 'vorne')
+halt_mit('vorne 10 cm (direction=+1), KI-Manoever rueckwaerts -> haelt wie bisher', n.entscheide(), 'NOTBREMSE')
 
 n = neu()
 n.set_parameters([lf.Parameter('kamera_neigung', value=30.0)])
