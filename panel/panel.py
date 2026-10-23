@@ -183,6 +183,7 @@ class PanelNode(Node):
         self.lichter = lichterlib.Lichter({k: v for k, v in werte.items() if k in lichterlib.STANDARD})
 
         self.betrieb_lock = threading.RLock()
+        self.prozess_start_lock = threading.Lock()
         self.betrieb = {'session_id': uuid.uuid4().hex, 'generation': 0, 'start_id': uuid.uuid4().hex, 'angefordert': False}
         self.betrieb_pub = self.create_publisher(String, '/line_follower/betrieb', 10)
         self.create_timer(.1, self.betrieb_senden)
@@ -637,26 +638,34 @@ def mache_handler(node, prozesse, beenden=None):
             node.stillstand()
             return 'Gestoppt; Wahrnehmung laeuft weiter'
         if name in ('start', 'test'):
+            if name == 'start':
+                node.abblend_setzen(True)
+            # Auftrag VOR langsamen Prozess-/Paketabfragen festhalten. STOPP benutzt
+            # nur betrieb_lock und kann den Auftrag jederzeit unwiderruflich entwerten.
             with node.betrieb_lock:
+                vorher = dict(node.betrieb)
+                auftrag = node.betrieb_setzen(name == 'start')
+            with node.prozess_start_lock:
                 if not prozesse.laeuft('fahren'):
                     if 'line_follower' in node.get_node_names():
+                        node.betrieb_setzen(False)
                         return 'Fremder Linienfolger laeuft; zuerst dessen Betreiber stoppen lassen.'
                     prozesse.start('fahren', lf_befehl(True), 'WAHRNEHMUNG')
                 if node.get('ki', max_alter=2.0) is None:
                     ki_starten()
+            with node.betrieb_lock:
+                if node.betrieb != auftrag:
+                    return 'Anforderung durch neueren Bedienauftrag verworfen.'
                 if name == 'test':
-                    node.betrieb_setzen(False)
                     return 'Testmodus: Wahrnehmung aktiv, Ausgabe gesperrt.'
-                node.abblend_setzen(True)
-                vorher = dict(node.betrieb)
-                auftrag = node.betrieb_setzen(True)
                 if auftrag != vorher:
                     node.ki_kommando_pub.publish(String(data='start'))
                 lf = node.get('lf', max_alter=.6) or {}
-                if (lf.get('start_id') == auftrag['start_id'] and
-                        lf.get('generation') == auftrag['generation'] and lf.get('betrieb_freigegeben')):
-                    return 'Betrieb freigegeben; Bewegung wird separat gemessen.'
-                return 'START angefordert; wartet auf aktuelle Bereitschaft: ' + lf.get('status', 'Linienfolger startet')
+                freigegeben = (lf.get('start_id') == auftrag['start_id'] and
+                        lf.get('generation') == auftrag['generation'] and lf.get('betrieb_freigegeben'))
+            if freigegeben:
+                return 'Betrieb freigegeben; Bewegung wird separat gemessen.'
+            return 'START angefordert; wartet auf aktuelle Bereitschaft: ' + lf.get('status', 'Linienfolger startet')
         if name == 'abblend':
             node.abblend_setzen(bool(daten.get('an')))
             fahrt = bool((node.get('lf', max_alter=.6) or {}).get('drive'))

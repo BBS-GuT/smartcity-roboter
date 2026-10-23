@@ -87,6 +87,32 @@ class PanelLifecycle(unittest.TestCase):
         self.assertFalse(result['fahren'])
         self.assertTrue(result['wahrnehmung'])
 
+    def test_stop_is_not_blocked_by_slow_start_and_late_completion_cannot_activate(self):
+        entered, release = threading.Event(), threading.Event()
+        answer = []
+        def slow_package_check(_):
+            entered.set()
+            release.wait(3.)
+            return False
+        def start_request():
+            answer.append(self.post('start'))
+        with mock.patch.object(panel, 'paket_da', side_effect=slow_package_check), \
+             mock.patch.object(self.node, 'stillstand'):
+            worker = threading.Thread(target=start_request)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(1.))
+                stop_answer = self.post('stopp')
+                self.assertIn('Gestoppt', stop_answer)
+                self.assertFalse(self.node.betrieb['angefordert'])
+                self.assertFalse(release.is_set())
+            finally:
+                release.set()
+                worker.join(3.)
+        self.assertFalse(worker.is_alive())
+        self.assertIn('verworfen', answer[0])
+        self.assertFalse(self.node.betrieb['angefordert'])
+
 
 if __name__ == '__main__':
     unittest.main()
