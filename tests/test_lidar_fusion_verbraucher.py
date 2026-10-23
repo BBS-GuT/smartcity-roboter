@@ -2,6 +2,7 @@
 """Synthetic complementary scans through actual KI/final-stop consumers; no hardware."""
 import math
 import sys
+import threading
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -35,6 +36,118 @@ def feed(node, missing=None, distance=3.0):
 
 
 class ConsumerGeometry(unittest.TestCase):
+    def test_slow_candidate_does_not_block_published_snapshot_query(self):
+        self.scan_snapshot_race(writer_first=True)
+
+    def test_query_cannot_mix_its_status_with_a_newer_field(self):
+        self.scan_snapshot_race(writer_first=False)
+
+    def scan_snapshot_race(self, writer_first):
+        # Slow candidate preparation cannot block a reader. A reader which
+        # already copied the old status must keep its matching old fields even
+        # if a new callback commits before the view is assembled.
+        for make in (self.follower, self.central):
+            node = make()
+            feed(node)
+            updated, resume, reader_started = (threading.Event() for _ in range(3))
+            errors, result = [], []
+            method = 'vorbereiten' if writer_first else 'sicht'
+            original = getattr(node.scan_geometrie, method)
+
+            def partial_update(*args):
+                reason = original(*args) if writer_first else None
+                updated.set()
+                if not resume.wait(2):
+                    raise RuntimeError('Writer was not resumed')
+                return reason if writer_first else original(*args)
+
+            def write():
+                try:
+                    msg = message(1)
+                    (node._scan if hasattr(node, '_scan') else node.on_scan)(msg, '/scan1', 1)
+                except Exception as exc:
+                    errors.append(exc)
+
+            def read():
+                reader_started.set()
+                try:
+                    result.append(node.notbremse(.1, 0, 0) if hasattr(node, 'notbremse')
+                                  else node.lidar_pruefen()[0])
+                except Exception as exc:
+                    errors.append(exc)
+
+            with mock.patch.object(node.scan_geometrie, method, partial_update):
+                writer, reader = threading.Thread(target=write), threading.Thread(target=read)
+                first, second = (writer, reader) if writer_first else (reader, writer)
+                try:
+                    first.start()
+                    self.assertTrue(updated.wait(2))
+                    second.start()
+                    self.assertTrue(reader_started.wait(2))
+                    second.join(.5)
+                    self.assertFalse(second.is_alive(), 'Scan computation blocked the other callback')
+                finally:
+                    resume.set()
+                    first.join(2)
+                    if second.ident is not None:
+                        second.join(2)
+            with self.subTest(consumer=type(node).__name__):
+                self.assertFalse(writer.is_alive())
+                self.assertFalse(reader.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(result, [None if hasattr(node, 'notbremse') else float('inf')])
+
+    def test_slow_candidate_cannot_prevent_stale_stop_publication(self):
+        node = self.follower()
+        node._p.update(drive=True, show=False, publish_image=False)
+        node.letzter_cmd = (.1, 0.0, 0.0)
+        feed(node)
+        prepared, resume = threading.Event(), threading.Event()
+        errors = []
+        original = node.scan_geometrie.vorbereiten
+
+        def slow(*args):
+            result = original(*args)
+            prepared.set()
+            if not resume.wait(2):
+                raise RuntimeError('Candidate was not resumed')
+            return result
+
+        def write():
+            try:
+                node.on_scan(message(1), '/scan1', 1)
+            except Exception as exc:
+                errors.append(exc)
+
+        def control():
+            try:
+                node.steuern()
+            except Exception as exc:
+                errors.append(exc)
+
+        writer, reader = threading.Thread(target=write), threading.Thread(target=control)
+        with mock.patch.object(node.scan_geometrie, 'vorbereiten', slow):
+            try:
+                writer.start()
+                self.assertTrue(prepared.wait(2))
+                with q.spaeter(2):
+                    reader.start()
+                    reader.join(.5)
+                    self.assertFalse(reader.is_alive(), 'Stale-data STOP waited for scan computation')
+                    self.assertEqual(errors, [])
+                    cmd = node.pub.letzte
+                    self.assertIsNotNone(cmd)
+                    self.assertEqual((cmd.linear.x, cmd.linear.y, cmd.angular.z), (0.0, 0.0, 0.0))
+                    self.assertIn('LIDAR', node.pub_status.letzte.data)
+            finally:
+                resume.set()
+                writer.join(2)
+                if reader.ident is not None:
+                    reader.join(2)
+        self.assertFalse(writer.is_alive())
+        self.assertFalse(reader.is_alive())
+        self.assertEqual(errors, [])
+
     def test_missing_geometry_never_releases_either_consumer(self):
         # Raw constructors deliberately keep the actual product defaults.
         # Even ideal full scans do not prove an unknown sensor origin/hull.
