@@ -112,6 +112,7 @@ class LineFollower(Node):
         self.kamera_linie = (None, None)  # Linie nur nach Kamerabild: seitlich (m), Richtung (rad)
         self.bild_zeit = 0.0
         self.bild_zaehler, self.fps, self.fps_zeit = 0, 0.0, time.time()
+        self.scan_lock = threading.Lock()  # Geometrie und Kanalstatus bilden genau einen Scanstand
         self.scans = {}
         self.scan_stempel = {}           # Kanal -> neueste akzeptierte Aufnahmezeit (muss vorwaerts laufen)
         self.ki = (0.0, None)            # (zeit, befehl)
@@ -173,6 +174,10 @@ class LineFollower(Node):
 
     # ---------------- Eingaenge ----------------
     def on_scan(self, msg, topic, i):
+        with self.scan_lock:
+            self._scan_auswerten(msg, topic, i)
+
+    def _scan_auswerten(self, msg, topic, i):
         fronts = self.p('scan_front_deg')
         # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
         aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
@@ -291,13 +296,15 @@ class LineFollower(Node):
             return None
         topics = self.p('scan_topics')
         # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
-        frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
+        with self.scan_lock:
+            frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
+            stamps = {t: e[3] for t, e in zip(topics, frisch)}
+            sicht, geometrie_grund = self.scan_geometrie.sicht(stamps) if not grund else (None, None)
         if grund:
             if not self.scans:
                 grund = 'noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
             return 'KEIN LIDAR: ' + grund
         jetzt = self.ros_jetzt()     # Aufnahmealter bei der Entscheidung (Scan kann seit dem Empfang gealtert sein)
-        stamps = {t: e[3] for t, e in zip(topics, frisch)}
         scanstand = dict(zip(topics, frisch))
         frisch = [(t, d, g or lidar.aufnahme_alter(a, jetzt)) for t, (_, d, g, a) in zip(topics, frisch)]
         ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
@@ -305,7 +312,6 @@ class LineFollower(Node):
             return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'
         # Bereich der eingestellten Fahrtrichtung zaehlt wie bisher immer, dazu der des tatsaechlichen Befehls
         bereiche = {'hinten' if self.p('direction') < 0 else 'vorne', *self.bereiche(lin, quer, dreh)}
-        sicht, geometrie_grund = self.scan_geometrie.sicht(stamps)
         if geometrie_grund:
             return 'LIDAR UNBEKANNT: ' + geometrie_grund
         if sicht is not None:

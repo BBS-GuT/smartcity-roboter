@@ -2,6 +2,7 @@
 """Synthetic complementary scans through actual KI/final-stop consumers; no hardware."""
 import math
 import sys
+import threading
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -35,6 +36,67 @@ def feed(node, missing=None, distance=3.0):
 
 
 class ConsumerGeometry(unittest.TestCase):
+    def test_scan_update_during_query_uses_one_complete_snapshot(self):
+        self.scan_snapshot_race(writer_first=True)
+
+    def test_query_cannot_mix_its_status_with_a_newer_field(self):
+        self.scan_snapshot_race(writer_first=False)
+
+    def scan_snapshot_race(self, writer_first):
+        # A new geometrical field used to become visible before the matching
+        # reception/quality entry. Force exactly this actual callback boundary.
+        for make in (self.follower, self.central):
+            node = make()
+            feed(node)
+            updated, resume, reader_started, reader_done = (threading.Event() for _ in range(4))
+            errors, result = [], []
+            method = 'aufnehmen' if writer_first else 'sicht'
+            original = getattr(node.scan_geometrie, method)
+
+            def partial_update(*args):
+                reason = original(*args) if writer_first else None
+                updated.set()
+                if not resume.wait(2):
+                    raise RuntimeError('Writer was not resumed')
+                return reason if writer_first else original(*args)
+
+            def write():
+                try:
+                    msg = message(1)
+                    (node._scan if hasattr(node, '_scan') else node.on_scan)(msg, '/scan1', 1)
+                except Exception as exc:
+                    errors.append(exc)
+
+            def read():
+                reader_started.set()
+                try:
+                    result.append(node.notbremse(.1, 0, 0) if hasattr(node, 'notbremse')
+                                  else node.lidar_pruefen()[0])
+                except Exception as exc:
+                    errors.append(exc)
+                finally:
+                    reader_done.set()
+
+            with mock.patch.object(node.scan_geometrie, method, partial_update):
+                writer, reader = threading.Thread(target=write), threading.Thread(target=read)
+                first, second = (writer, reader) if writer_first else (reader, writer)
+                try:
+                    first.start()
+                    self.assertTrue(updated.wait(2))
+                    second.start()
+                    self.assertTrue(reader_started.wait(2))
+                    second.join(.1)
+                finally:
+                    resume.set()
+                    first.join(2)
+                    if second.ident is not None:
+                        second.join(2)
+            with self.subTest(consumer=type(node).__name__):
+                self.assertFalse(writer.is_alive())
+                self.assertFalse(reader.is_alive())
+                self.assertEqual(errors, [])
+                self.assertEqual(result, [None if hasattr(node, 'notbremse') else float('inf')])
+
     def test_missing_geometry_never_releases_either_consumer(self):
         # Raw constructors deliberately keep the actual product defaults.
         # Even ideal full scans do not prove an unknown sensor origin/hull.
