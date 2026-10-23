@@ -24,9 +24,19 @@ jobs:
     name: Wiki / Abgleich aus wiki/
     # Nur main ist Quelle: ein manueller Start von einem anderen Branch/Tag wird uebersprungen
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-22.04
-    timeout-minutes: 5
+    # Nur auf vertrauenswuerdigen, von PR-Jobs isolierten Runner-Hosts aktivieren.
+    # Ein Job-Container allein bietet diese Host-Isolation nicht.
+    runs-on: [self-hosted, Linux, X64, smartcity]
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 10
     steps:
+      - name: Ubuntu-22.04-Werkzeuge vorbereiten
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git rsync
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: main                 # auch bei erneut gestartetem altem Lauf den aktuellen main-Stand nehmen
@@ -39,7 +49,8 @@ jobs:
           set -euo pipefail
           quelle="$(git rev-parse HEAD)"     # tatsaechlich ausgecheckter Stand, nicht der Ereignis-SHA
           echo "Quelle: main @ ${quelle}"
-          ziel="$RUNNER_TEMP/wiki"
+          ziel="$(mktemp -d "$RUNNER_TEMP/wiki.XXXXXXXX")"
+          trap 'rm -rf -- "$ziel"' EXIT
           if ! git clone --depth 1 "https://x-access-token:${TOKEN}@github.com/${REPO}.wiki.git" "$ziel"; then
             echo "::error::Wiki-Repository nicht erreichbar. Wiki aktivieren und im Browser die erste Seite anlegen, dann erneut starten."
             exit 1

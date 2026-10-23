@@ -27,10 +27,20 @@ jobs:
       (github.event_name != 'issue_comment' ||
        (github.event.issue.pull_request &&
         github.event.comment.user.login == 'chatgpt-codex-connector[bot]'))
-    runs-on: ubuntu-22.04
+    # Nur auf vertrauenswuerdigen, von PR-Jobs isolierten Runner-Hosts aktivieren.
+    # Ein Job-Container allein bietet diese Host-Isolation nicht.
+    runs-on: [self-hosted, Linux, X64, smartcity]
+    container: ubuntu:22.04
+    defaults:
+      run:
+        shell: bash
     environment: codex-mergefreigabe
     timeout-minutes: 10
     steps:
+      - name: Ubuntu-22.04-Werkzeuge vorbereiten
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates git python3
       # Bei allen verwendeten Events zeigt github.sha auf den Defaultbranch.
       # Niemals PR-Code oder PR-Artefakte mit diesem Schreib-Token ausfuehren.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
