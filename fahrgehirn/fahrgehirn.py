@@ -118,6 +118,7 @@ class FahrGehirnKnoten(lf.LineFollower):
                                  {'weg_breite': self.p('fahrschlauch_breite') / 2,
                                   'weg_laenge': self.regel.halt_abstand + 0.15})
         self.steht_hindernis = False
+        self.lidar_grund = ''            # warum der LiDAR gerade als unbekannt gilt (fuer Log/Anzeige)
         self.pub = _Fahrbefehle(self.pub, self)
         self.pub_zustand = self.create_publisher(String, '/fahrgehirn/zustand', 10)
         self.pub_antwort = self.create_publisher(String, '/fahrgehirn/antwort', 10)
@@ -226,6 +227,7 @@ class FahrGehirnKnoten(lf.LineFollower):
         topics = self.p('scan_topics')
         _, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
         if grund:
+            self.lidar_grund = grund
             return None
         jetzt = self.ros_jetzt()
         pfad = self.kreuzungs_weg()
@@ -236,7 +238,9 @@ class FahrGehirnKnoten(lf.LineFollower):
         naechster = float('inf')
         for t in topics:
             e = self.schlauch_scans.get(t)
-            if e is None or self.scans[t][2] or lidar.aufnahme_alter(self.scans[t][3], jetzt):
+            alter = lidar.aufnahme_alter(self.scans[t][3], jetzt)
+            if e is None or self.scans[t][2] or alter:
+                self.lidar_grund = f'{t}: {self.scans[t][2] or alter or "kein verwertbarer Scan"}'
                 return None
             if pfad is None:
                 o = lidar.fahrschlauch(e[1], weg or None, **schlauch)
@@ -248,8 +252,10 @@ class FahrGehirnKnoten(lf.LineFollower):
                 luecke = lidar.luecke_im_bereich(
                     e[2], lambda xy: im_pfad_schlauch(xy, pfad, halb, laenge, nah_halb_deg=schlauch['nah_halb_deg']),
                     laenge + halb)
-            if luecke is not None:
-                return None                       # Teil des Fahrwegs nicht gemessen -> unbekannt
+            if luecke is not None:                # Teil des Fahrwegs nicht gemessen -> unbekannt
+                self.lidar_grund = (f'{t} misst den Fahrweg ab {luecke * 100:.0f} cm nicht '
+                                    '(Strahlen ohne Messwert: verdeckt, zu nah oder ins Leere)')
+                return None
             naechster = min(naechster, abstand)
         return naechster
 
@@ -267,6 +273,8 @@ class FahrGehirnKnoten(lf.LineFollower):
         Notbremse)  4. Tempo an Kreuzungen."""
         jetzt = time.time()
         grund = self.regel.pruefe(jetzt, self.lidar_abstand(), self.tiefe_ergebnis())
+        if grund and grund.startswith('LIDAR UNBEKANNT'):
+            grund = grund.replace('LIDAR UNBEKANNT', f'LIDAR UNBEKANNT ({self.lidar_grund})', 1)
         neu_halt = grund and not self.steht_hindernis
         self.steht_hindernis = bool(grund)
         if grund:
