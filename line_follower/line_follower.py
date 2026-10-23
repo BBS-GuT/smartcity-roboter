@@ -57,6 +57,7 @@ sys.path.insert(0, os.path.join(REPO, 'line_follower'))
 import lidar  # noqa: E402
 import lidar_fusion  # noqa: E402
 import fahrtest  # noqa: E402
+from betriebsfreigabe import Betriebsfreigabe
 import linie  # noqa: E402
 
 # LiDAR-Bereiche der Notbremse: Mitte (Grad, links positiv), je +-obstacle_half_deg
@@ -117,6 +118,8 @@ class LineFollower(Node):
         self.scan_lock = threading.Lock()  # Geometrie und Kanalstatus bilden genau einen Scanstand
         self.scans = {}
         self.scan_stempel = {}           # Kanal -> neueste akzeptierte Aufnahmezeit (muss vorwaerts laufen)
+        self.betrieb = Betriebsfreigabe()
+        self.betrieb_lock = threading.RLock()
         self.ki = (0.0, None)            # (zeit, befehl)
         self.last_image_pub = 0.0
         self.status_text = 'startet ...'
@@ -146,6 +149,7 @@ class LineFollower(Node):
         for i, t in enumerate(self.p('scan_topics')):
             self.create_subscription(LaserScan, t, lambda m, t=t, i=i: self.on_scan(m, t, i),
                                      qos_profile_sensor_data, callback_group=scan_gruppe)
+        self.create_subscription(String, '/line_follower/betrieb', self.on_betrieb, 10, callback_group=rest_gruppe)
         self.create_subscription(String, '/ki/befehl', self.on_ki, 10, callback_group=rest_gruppe)
         self.create_subscription(Float32, '/line_follower/tempo', self.on_tempo, 10, callback_group=rest_gruppe)
         self.create_subscription(Odometry, '/odom_raw', self.on_odom, qos_profile_sensor_data, callback_group=scan_gruppe)
@@ -269,6 +273,42 @@ class LineFollower(Node):
                                    f"Takt max {self.ki[1].get('takt_max_ms')} ms)")
         if self.ki[1].get('kamera_ok') is False:
             self.kamera_weg_bis = self.ki[0]      # bis hierhin schaute die Kamera woanders hin
+
+    def on_betrieb(self, msg):
+        try:
+            auftrag = json.loads(msg.data)
+        except (ValueError, TypeError):
+            return
+        if not isinstance(auftrag, dict):
+            return
+        with self.betrieb_lock:
+            if self.betrieb.empfang(auftrag) and not self.betrieb.angefordert:
+                self.pub.publish(Twist())
+                self.letzter_cmd = (0.0, 0.0, 0.0)
+
+    def start_bereit(self):
+        jetzt = time.time()
+        with self.scan_lock:
+            scanstand = self.scans.copy()
+            felder = self.scan_geometrie.received.copy()
+        frisch, grund = lidar.pflichtkanaele(scanstand, self.p('scan_topics'), time.monotonic())
+        if grund:
+            return False
+        stamps = {t: e[3] for t, e in zip(self.p('scan_topics'), frisch)}
+        if any(e[2] or lidar.aufnahme_alter(e[3], self.ros_jetzt(),
+                max_zukunft=fahrtest.scan_uhrspielraum(self)) for e in frisch):
+            return False
+        _, grund = self.scan_geometrie.sicht(stamps, felder)
+        if grund:
+            return False
+        with self.lock:
+            if (jetzt - self.bild_zeit > .5 or not self.stempel_ok
+                    or self.bild_alter + max(0., jetzt - self.bild_zeit) > self.p('bild_alter_max')):
+                return False
+        zeit, ki = self.ki
+        return bool(ki and jetzt - zeit <= .6 and
+                    all(ki.get(k) == getattr(self.betrieb, k) for k in ('session_id', 'generation', 'start_id')) and
+                    (not self.p('begleiteter_fahrbetrieb') or ki.get('begleiteter_fahrbetrieb') is True))
 
     def on_tempo(self, msg):
         # Geschwindigkeit vom Panel (Regler). Begrenzt auf 0..0,5 m/s.
@@ -512,21 +552,28 @@ class LineFollower(Node):
             lin_alt, quer_alt, dreh_alt = self.bewegung(dt)
             self.gedaechtnis.bewegen(lin_alt, dreh_alt, dt, quer_alt, jetzt)
         lin, quer, dreh, status = self.entscheide()
-        self.status_text = status
-        if self.p('drive'):
+        with self.betrieb_lock:
+            bereit = self.start_bereit()
+            freigegeben = self.betrieb.pruefen(bereit) and self.p('drive')
+            if not freigegeben:
+                lin = quer = dreh = 0.0
+                status = ('FREIGABEWEG AUSGEFALLEN -> STOPP' if self.betrieb.abgelaufen else
+                          'START WARTET: ' + status if self.betrieb.angefordert else 'BEDIEN-STOPP')
             t = Twist()
             t.linear.x, t.linear.y, t.angular.z = lin, quer, dreh
             self.pub.publish(t)
             self.letzter_cmd = (lin, quer, dreh)
-            if 'Lagesensor' in self.bewegung_quelle:     # Verzoegerung Lenkbefehl -> gemessene Drehung lernen
-                self.verzoegerung.hinzu(dreh, self.imu[1])
-        else:
-            self.letzter_cmd = (0.0, 0.0, 0.0)  # Testmodus: Roboter bewegt sich nicht
+            betriebsstatus = self.betrieb.status()
+        self.status_text = status
+        if freigegeben and 'Lagesensor' in self.bewegung_quelle:
+            self.verzoegerung.hinzu(dreh, self.imu[1])
         with self.lock:
             lokal = self.gedaechtnis.lokal()
             weg = self.gedaechtnis.weg()
         self.pub_status.publish(String(data=json.dumps({
-            'status': status, 'drive': self.p('drive'), 'begleiteter_fahrbetrieb': self.p('begleiteter_fahrbetrieb'),
+            **betriebsstatus, 'bereit': bereit,
+            'bewegung': {'gueltig': jetzt - self.odom[0] < .5, 'linear': self.odom[1], 'quer': self.odom[2], 'angular': self.odom[3]},
+            'status': status, 'drive': freigegeben, 'begleiteter_fahrbetrieb': self.p('begleiteter_fahrbetrieb'),
             'linear': round(lin, 3), 'quer': round(quer, 3),
             'angular': round(dreh, 3), 'fps': round(self.fps, 1), 'speed': self.p('speed'),
             'linie': self.linie_gesehen or lokal is not None, 'linie_kamera': self.linie_gesehen,

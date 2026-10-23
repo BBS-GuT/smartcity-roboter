@@ -182,6 +182,10 @@ class PanelNode(Node):
         werte = einstellungen.lade('lichter')
         self.lichter = lichterlib.Lichter({k: v for k, v in werte.items() if k in lichterlib.STANDARD})
 
+        self.betrieb_lock = threading.RLock()
+        self.betrieb = {'session_id': uuid.uuid4().hex, 'generation': 0, 'start_id': uuid.uuid4().hex, 'angefordert': False}
+        self.betrieb_pub = self.create_publisher(String, '/line_follower/betrieb', 10)
+        self.create_timer(.1, self.betrieb_senden)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.ki_kommando_pub = self.create_publisher(String, '/ki/kommando', 10)
         self.karte_kommando_pub = self.create_publisher(String, '/karte/kommando', 10)
@@ -341,6 +345,21 @@ class PanelNode(Node):
         with self.lock:
             zeit = self.daten.get(name, (None, None))[0]
         return None if zeit is None else round(time.time() - zeit, 1)
+
+    def betrieb_senden(self):
+        with self.betrieb_lock:
+            self.betrieb_pub.publish(String(data=json.dumps(self.betrieb)))
+
+    def betrieb_setzen(self, an):
+        with self.betrieb_lock:
+            lf = self.get('lf', max_alter=.6) or {}
+            if an and self.betrieb['angefordert'] and not lf.get('freigabeweg_ausgefallen'):
+                return dict(self.betrieb)
+            self.betrieb = {'session_id': self.betrieb['session_id'],
+                            'generation': self.betrieb['generation'] + 1,
+                            'start_id': uuid.uuid4().hex, 'angefordert': bool(an)}
+            self.betrieb_senden()
+            return dict(self.betrieb)
 
     def stillstand(self):
         for _ in range(5):
@@ -608,31 +627,30 @@ def mache_handler(node, prozesse, beenden=None):
 
     def aktion(name, daten, lokal):
         if name == 'stopp':
-            node.stillstand()                 # sofort Stillstand senden ...
-            prozesse.stopp('fahren')          # ... dann Programm beenden
+            node.betrieb_setzen(False)
             node.stillstand()
-            return 'Gestoppt'
+            return 'Gestoppt; Wahrnehmung laeuft weiter'
         if name in ('start', 'test'):
-            if prozesse.laeuft('fahren'):
-                return 'Laeuft schon. Erst STOPP druecken.'
-            if node.get('ki', max_alter=2.0) is None:
-                ki_starten()
-                hinweis = ' KI-Zentrale wird gestartet (ca. 5 s), bis dahin bleibt er stehen.'
-            else:
-                hinweis = ''
-            if 'line_follower' in node.get_node_names():
-                return ('Es laeuft schon ein Linienfolger, der NICHT vom Panel gestartet wurde (alte Version oder '
-                        'aus einem Terminal). Erst beenden: Terminal -> scripts/stopp.sh, dann nochmal.')
-            if name == 'start':
-                node.abblend_setzen(True)       # Licht an, BEVOR er losfaehrt
-            prozesse.start('fahren', lf_befehl(name == 'start'), 'FAEHRT' if name == 'start' else 'TESTMODUS')
-            time.sleep(2.5)       # sofort wieder beendet? Dann den Grund aus dem Protokoll zeigen
-            if not prozesse.laeuft('fahren'):
-                return 'Linienfolger hat sich sofort beendet:\n' + log_ende('fahren')
-            if name == 'start':
-                # ausdruecklicher START: KI quittiert damit Manoever-Fehler und fehlgeschlagenes Wegraeumen
-                node.ki_kommando_pub.publish(String(data='start'))
-            return ('Faehrt los.' if name == 'start' else 'Testmodus: zeigt alles, faehrt nicht.') + hinweis
+            with node.betrieb_lock:
+                if not prozesse.laeuft('fahren'):
+                    if 'line_follower' in node.get_node_names():
+                        return 'Fremder Linienfolger laeuft; zuerst dessen Betreiber stoppen lassen.'
+                    prozesse.start('fahren', lf_befehl(True), 'WAHRNEHMUNG')
+                if node.get('ki', max_alter=2.0) is None:
+                    ki_starten()
+                if name == 'test':
+                    node.betrieb_setzen(False)
+                    return 'Testmodus: Wahrnehmung aktiv, Ausgabe gesperrt.'
+                node.abblend_setzen(True)
+                vorher = dict(node.betrieb)
+                auftrag = node.betrieb_setzen(True)
+                if auftrag != vorher:
+                    node.ki_kommando_pub.publish(String(data='start'))
+                lf = node.get('lf', max_alter=.6) or {}
+                if (lf.get('start_id') == auftrag['start_id'] and
+                        lf.get('generation') == auftrag['generation'] and lf.get('betrieb_freigegeben')):
+                    return 'Betrieb freigegeben; Bewegung wird separat gemessen.'
+                return 'START angefordert; wartet auf aktuelle Bereitschaft: ' + lf.get('status', 'Linienfolger startet')
         if name == 'abblend':
             node.abblend_setzen(bool(daten.get('an')))
             fahrt = prozesse.laeuft('fahren') and prozesse.info.get('fahren') == 'FAEHRT'
