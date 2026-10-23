@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 import uuid
+import copy
 
 import numpy as np
 
@@ -462,11 +463,13 @@ class Wegraeumen(Ablauf):
         if self.ziel_id is None and obj.get('bestaetigt') and obj.get('ziel_id'):
             self.ziel_id = obj['ziel_id']
         if quittung and self.ausstehend is not None:
-            pending, seit = self.ausstehend
+            pending, seit, folgezustand = self.ausstehend
             key = pending['raeumfreigabe']
             antwort = w.get('aktionsstatus') or {}
-            passend = all(antwort.get(k) == key.get(k) for k in ('auftrag_id', 'phase'))
+            passend = all(antwort.get(k) == key.get(k) for k in
+                          ('auftrag_id', 'phase', 'session_id', 'generation', 'start_id'))
             if passend and antwort.get('status') == 'ausgefuehrt':
+                self.__dict__.update(folgezustand)
                 self.ausstehend = None
                 self.seit = jetzt  # Wartezeit erst nach angenommener Ausfuehrung.
             elif jetzt - seit > 10.0:
@@ -474,6 +477,7 @@ class Wegraeumen(Ablauf):
             else:
                 # Auch nach einem Veto keine naechste Phase und kein Greiferfolg.
                 return pending
+        vorher = {k: copy.copy(v) for k, v in self.__dict__.items()} if quittung else None
         b = self._schritt(jetzt, w)
         if b is not None and (b.get('arm') or b.get('manoever')):
             self.aktions_nr += 1
@@ -482,7 +486,12 @@ class Wegraeumen(Ablauf):
                                       **{k: (w.get('betrieb') or {}).get(k)
                                          for k in ('session_id', 'generation', 'start_id')})
             if quittung and b.get('arm'):
-                self.ausstehend = (b, jetzt)
+                nachher = dict(self.__dict__)
+                nr = self.aktions_nr
+                self.__dict__.clear()
+                self.__dict__.update(vorher)
+                self.aktions_nr = nr
+                self.ausstehend = (b, jetzt, nachher)
         return b
 
     def _schritt(self, jetzt, w):

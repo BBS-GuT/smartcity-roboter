@@ -1,13 +1,15 @@
 """Auftragsfreigabe und echte Rueckmeldung, ohne ROS oder Geraet."""
 import sys
 import unittest
+import numpy as np
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'ki'), str(ROOT / 'lib')]
-from ablaeufe import Wegraeumen
+from ablaeufe import Wegraeumen, Zebrastreifen
 from entscheider import Entscheider, STANDARD
 from fahrtest import befehl_sichern, raeumfreigabe_gueltig
+from lidar_fusion import Sicht
 
 
 class Raeumfreigabe(unittest.TestCase):
@@ -50,8 +52,26 @@ class Raeumfreigabe(unittest.TestCase):
             w = dict(self.w, aktionsstatus=dict(denied['aktionsstatus'], status=status))
             same = self.a.schritt(104., w)
             self.assertEqual(same['raeumfreigabe'], b['raeumfreigabe'])
-            self.assertEqual(self.a.nr, 0)
+            self.assertEqual(self.a.nr, -1)
             self.assertIsNone(self.a.ergebnis)
+
+    def test_arm_phase_transition_is_only_committed_after_execution_ack(self):
+        self.a.phase = 'planen'
+        self.a.plan = {'schritte': self.a.schritte}
+        before = (self.a.phase, self.a.nr, self.a.seit, self.a.warte, self.a.arm_bewegt)
+        b = self.command()
+        self.assertEqual((self.a.phase, self.a.nr, self.a.seit, self.a.warte, self.a.arm_bewegt), before)
+        denied = self.checked(b, chassis_frei=False)
+        self.a.schritt(105., dict(self.w, aktionsstatus=denied['aktionsstatus']))
+        self.assertEqual((self.a.phase, self.a.nr, self.a.seit, self.a.warte, self.a.arm_bewegt), before)
+        ack = dict(b['raeumfreigabe'], status='ausgefuehrt')
+        self.a.schritt(106., dict(self.w, aktionsstatus=ack))
+        self.assertEqual((self.a.phase, self.a.nr, self.a.arm_bewegt), ('ausfuehren', 0, True))
+
+    def test_final_permission_requires_target_id(self):
+        b = self.checked(self.command())
+        b['raeumfreigabe'].pop('ziel_id')
+        self.assertFalse(raeumfreigabe_gueltig(b, self.betrieb))
 
     def test_target_flags_cannot_override_invalid_depth_or_rgb_pair(self):
         b = self.command()
@@ -78,7 +98,7 @@ class Raeumfreigabe(unittest.TestCase):
         self.assertEqual(self.a.nr, 0)
         next_command = self.a.schritt(104.1, self.w)
         self.assertNotEqual(next_command['raeumfreigabe']['phase'], b['raeumfreigabe']['phase'])
-        self.assertEqual(self.a.nr, 1)
+        self.assertEqual(self.a.nr, 0)  # Zweites Segment erst angefordert.
 
     def test_missing_execution_ack_is_failure_not_success(self):
         self.command()
@@ -98,6 +118,22 @@ class Raeumfreigabe(unittest.TestCase):
             e.betriebsepoche = ('boot', 1, 'start')
             e.update(100., dict(betrieb=state, lidar=None))
             self.assertIsNot(e.ablauf, self.a)
+
+    def test_rear_hole_alone_is_allowed_but_actual_hit_still_stops(self):
+        view = Sicht((), (.2, .2, .15, .15), np.zeros((0, 2)))
+        self.assertIsNone(view.hinten(.15))
+        self.assertGreater(view.hinten(.15, abdeckung_pflicht=False), .2)
+        self.assertIsNone(view.schutz(['hinten'], .12, abdeckung_pflicht=False))
+        hit = Sicht((), view.hull, np.array([[-.23, 0.]]))
+        self.assertAlmostEqual(hit.hinten(.15, abdeckung_pflicht=False), .23)
+        self.assertIn('NOTBREMSE', hit.schutz(['hinten'], .12, abdeckung_pflicht=False))
+
+    def test_crossing_hole_exception_never_replaces_missing_source(self):
+        a = Zebrastreifen(100., dict(STANDARD), .3)
+        self.assertIsNone(a._zone_ungemessen(dict(lidar_luecken_ignorieren=True,
+                                                 lidar_xy=np.zeros((0, 2)))))
+        self.assertIsNotNone(a._zone_ungemessen(dict(lidar_luecken_ignorieren=True,
+                                                    lidar_xy=None)))
 
 
 if __name__ == '__main__':

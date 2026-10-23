@@ -1,6 +1,5 @@
 """Explicit supervised operation with partial coverage; never a free-space certificate."""
 import math
-import numpy as np
 
 
 def tiefe_messung_gueltig(tiefe_m, modell, linie_voraus=None):
@@ -26,6 +25,7 @@ def raeumfreigabe_gueltig(befehl, betrieb):
     if not isinstance(r, dict):
         return False
     return (r.get('zugelassen') is True and bool(r.get('auftrag_id')) and bool(r.get('phase'))
+            and bool(r.get('ziel_id'))
             and betrieb.get('betrieb_freigegeben') is True
             and all(r.get(k) is not None and r[k] == betrieb.get(k)
                     for k in ('session_id', 'generation', 'start_id')))
