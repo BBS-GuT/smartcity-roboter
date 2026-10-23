@@ -42,7 +42,12 @@ class Vollpfad(unittest.TestCase):
                     i = round((math.pi-msg.angle_min)/msg.angle_increment)
                     msg.ranges[i] = .18  # Sensor x=-.1 -> Treffer hinter Huelle bei x=-.28.
                     (n._scan if hasattr(n, '_scan') else n.on_scan)(msg, '/scan0', 0)
-            lf.betrieb.empfang(dict(ids, angefordert=True))
+            request = dict(ids, angefordert=True)
+            if hasattr(lf.betrieb, 'process_id'):
+                request['target_process_id'] = lf.betrieb.process_id
+                if not lf.betrieb.handshake_bestaetigt:
+                    self.assertTrue(lf.betrieb.empfang(dict(request, generation=0, angefordert=False)))
+            self.assertTrue(lf.betrieb.empfang(request))
             lf.betrieb.pruefen(True)
             lf.steuern()
             z.linie_status = dict(json.loads(lf.pub_status.letzte.data), _zeit=now)

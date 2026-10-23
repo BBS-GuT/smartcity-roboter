@@ -167,6 +167,10 @@ class FinalPublisher(unittest.TestCase):
     def heartbeat(self, n):
         ids = dict(session_id='test', generation=1, start_id='test')
         if hasattr(n, 'betrieb'):
+            if hasattr(n.betrieb, 'process_id'):
+                ids['target_process_id'] = n.betrieb.process_id
+                if not n.betrieb.handshake_bestaetigt:
+                    self.assertTrue(n.betrieb.empfang(dict(ids, generation=0, angefordert=False)))
             n.betrieb.empfang(dict(ids, angefordert=True))
             n.start_bereit = lambda: True  # Hier wird nur der finale Publisher isoliert.
         n.ki = (q.time.time(), dict(ids, aktion='fahren', begleiteter_fahrbetrieb=True,
