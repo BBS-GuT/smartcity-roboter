@@ -644,7 +644,7 @@ class Zentrale(Node):
                                 'tiefe_gueltig': bool(d is not None and tmsg.encoding in ('16UC1', '32FC1')
                                                       and getattr(tmsg.header, 'frame_id', '')
                                                       and tmsg.header.frame_id == msg.header.frame_id
-                                                      and (np.isfinite(d) & (d > .03)).any()),
+                                                      and fahrtest.tiefe_messung_gueltig(d, self.kalibriertes_bodenmodell)),
                                 'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
                                 'tiefe_nr': self.tiefe_nr,   # zaehlt nur neue, ausgewertete Tiefenbilder
                                 'pruef_tiefe': pruef_tiefe,  # Pruefblick: (Anteil gueltige Tiefe, naechster Wert m)

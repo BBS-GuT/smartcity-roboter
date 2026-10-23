@@ -1,5 +1,34 @@
 """Explicit supervised operation with partial coverage; never a free-space certificate."""
 import math
+import numpy as np
+
+
+def tiefe_messung_gueltig(tiefe_m, modell):
+    """Require real depth across the visible corridor, including its near band.
+
+    Project the expected floor footprint independently of measured depth, so
+    missing pixels cannot remove themselves from the denominator. This is data
+    health within the camera view, never a claim about the physical blind area.
+    """
+    if tiefe_m is None or tiefe_m.ndim != 2:
+        return False
+    modell.punkte(tiefe_m)
+    rx, ry, rz = modell.strahlen
+    with np.errstate(divide='ignore', invalid='ignore'):
+        floor_depth = -modell.k['kamera_hoehe'] / rz
+        x = modell.k['kamera_x'] + floor_depth * rx
+        y = floor_depth * ry
+    corridor = (floor_depth > .03) & (x > .05) & (x < modell.c['weg_laenge']) & (np.abs(y) < modell.c['weg_breite'])
+    valid = np.isfinite(modell._t) & (modell._t > .03)
+    if corridor.sum() < 25 or valid[corridor].mean() < .7:
+        return False
+    # A large missing near/side region must not hide behind a valid far floor.
+    for lo, hi in ((.05, .25), (.25, .4), (.4, modell.c['weg_laenge'])):
+        for left in (False, True):
+            part = corridor & (x >= lo) & (x < hi) & ((y >= 0) if left else (y < 0))
+            if part.sum() >= 10 and valid[part].mean() < .7:
+                return False
+    return True
 
 
 def scan_uhrspielraum(node):

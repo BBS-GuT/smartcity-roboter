@@ -431,6 +431,8 @@ class LineFollower(Node):
         if grund:
             return 0.0, 0.0, 0.0, grund + ' -> STOPP'
         if self.p('begleiteter_fahrbetrieb'):
+            if lin < 0 or abs(quer) > 1e-9 or (lin == 0 and dreh != 0):
+                return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: keine Frontausnahme fuer Rueck-/Seitwaertsfahrt oder Suchdrehung -> STOPP'
             if not self.p('ki_pflicht') or not self.p('obstacle_check'):
                 return 0.0, 0.0, 0.0, 'BEGLEITETER FAHRBETRIEB: Pflichtpruefungen muessen aktiv sein -> STOPP'
             _, ki = self.ki

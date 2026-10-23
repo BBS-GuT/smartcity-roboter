@@ -4,6 +4,7 @@ import math
 import sys
 import types
 import unittest
+import numpy as np
 from pathlib import Path
 from unittest import mock
 
@@ -98,6 +99,44 @@ class SensorGuards(unittest.TestCase):
 
 
 class DepthAndArm(unittest.TestCase):
+    def test_simulated_aligned_rgb_and_depth_use_the_same_optical_frame(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'sim'))
+        import sensor_msgs.msg
+        with mock.patch.object(sensor_msgs.msg, 'CameraInfo', types.SimpleNamespace, create=True):
+            import simulator
+        rgb, depth = [], []
+        def message(image, encoding):
+            return types.SimpleNamespace(header=types.SimpleNamespace(
+                stamp=types.SimpleNamespace(sec=0, nanosec=0), frame_id=''), encoding=encoding)
+        n = types.SimpleNamespace(
+            _frueher=lambda: (1000., (0., 0., 0.), 90.),
+            welt=types.SimpleNamespace(kamera=lambda *a, **kw:
+                (np.zeros((480, 640, 3), dtype=np.uint8), np.full((240, 320), .4))),
+            bridge=types.SimpleNamespace(cv2_to_imgmsg=message), rng=np.random.default_rng(1),
+            pub_bild=types.SimpleNamespace(publish=rgb.append),
+            pub_tiefe=types.SimpleNamespace(publish=depth.append),
+            pub_info_c=types.SimpleNamespace(publish=lambda m: None),
+            pub_info_d=types.SimpleNamespace(publish=lambda m: None))
+        simulator.Simulator.kamera(n)
+        simulator.Simulator.tiefe(n)
+        self.assertEqual(rgb[0].header.frame_id, depth[0].header.frame_id)
+        self.assertEqual(depth[0].header.frame_id, 'camera_color')
+
+    def test_depth_needs_the_visible_corridor_not_one_valid_pixel(self):
+        from tiefe import Bodenmodell
+        model = Bodenmodell({'kamera_x': .12, 'kamera_hoehe': .2769,
+                             'kamera_neigung': 52.18, 'kamera_fov': 67.4425782457611})
+        image = np.full((480, 640), .4, dtype=np.float32)
+        self.assertTrue(f.tiefe_messung_gueltig(image, model))
+        sparse = np.zeros_like(image)
+        sparse[200, 300] = .4
+        self.assertFalse(f.tiefe_messung_gueltig(sparse, model))
+        partial = image.copy()
+        partial[320:, :] = 0.
+        self.assertFalse(f.tiefe_messung_gueltig(partial, model))
+        image[:] = np.nan
+        self.assertFalse(f.tiefe_messung_gueltig(image, model))
+
     def setUp(self):
         self.w = dict(lidar=float('inf'), blick='fahr', tiefe_gueltig=True,
                       tiefe_hindernis=False, tiefe_aufnahme=100., tiefe_empfang=20., aufnahme=100.)
@@ -148,6 +187,13 @@ class FinalPublisher(unittest.TestCase):
         with mock.patch.object(n, '_wunsch', return_value=(.15, 0., 0., 'Linie')):
             n.steuern()
         self.assertEqual(n.pub.letzte.linear.x, 0.)
+
+    def test_front_coverage_exception_cannot_authorize_reverse_sideways_or_search_rotation(self):
+        for command in ((-.1, 0., 0.), (0., .1, 0.), (0., 0., .5)):
+            n = self.ready()
+            with mock.patch.object(n, '_wunsch', return_value=(*command, 'keine Vorwaertslinie')):
+                n.steuern()
+            self.assertEqual((n.pub.letzte.linear.x, n.pub.letzte.linear.y, n.pub.letzte.angular.z), (0., 0., 0.))
 
     def test_mode_mismatch_and_disabled_required_checks_stop(self):
         for change in ({'ki_pflicht': False}, {'obstacle_check': False}, {}):
