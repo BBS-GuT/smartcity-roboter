@@ -129,6 +129,7 @@ class Verloren(unittest.TestCase):
         # Radzaehler ebenfalls nur mit der geschaetzten Strecke rechnet - ausserhalb dieses Ablaufs)
         self.assertFalse(any('sehen nichts mehr -> weiter' in t for t in texte), texte)
         self.assertTrue(any('zurueckgefahren ohne Radzaehler' in t for t in texte), texte)
+        self.assertNotIn('fahren', w.aktionen)
 
     def test_kein_rueckwaerts_heranfahren_ohne_platz_hinten(self):
         w = Welt(start=GREIF - 0.03)          # zu nah: er muesste zum Greifen zurueck

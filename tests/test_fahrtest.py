@@ -164,10 +164,17 @@ class DepthAndArm(unittest.TestCase):
 
 
 class FinalPublisher(unittest.TestCase):
+    def heartbeat(self, n):
+        ids = dict(session_id='test', generation=1, start_id='test')
+        if hasattr(n, 'betrieb'):
+            n.betrieb.empfang(dict(ids, angefordert=True))
+            n.start_bereit = lambda: True  # Hier wird nur der finale Publisher isoliert.
+        n.ki = (q.time.time(), dict(ids, aktion='fahren', begleiteter_fahrbetrieb=True))
+
     def ready(self):
         n = node(q.lf.LineFollower)
         n._p.update(drive=True, show=False, publish_image=False)
-        n.ki = (q.time.time(), {'aktion': 'fahren', 'begleiteter_fahrbetrieb': True})
+        self.heartbeat(n)
         return n
 
     def test_actual_publisher_has_no_artificial_speed_or_six_second_limit(self):
@@ -176,7 +183,7 @@ class FinalPublisher(unittest.TestCase):
             for elapsed in (0, 7, 60):
                 with q.spaeter(elapsed):
                     c.feed(n)
-                    n.ki = (q.time.time(), {'aktion': 'fahren', 'begleiteter_fahrbetrieb': True})
+                    self.heartbeat(n)
                     n.steuern()
                     t = n.pub.letzte
                     self.assertEqual((t.linear.x, t.linear.y, t.angular.z), (.15, 0., .5))

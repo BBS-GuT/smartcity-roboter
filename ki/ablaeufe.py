@@ -12,6 +12,7 @@ import math
 import os
 import sys
 import threading
+import uuid
 
 import numpy as np
 
@@ -143,6 +144,8 @@ class Zebrastreifen(Ablauf):
         Zonenende frei gemessen sein. Endet sie vorher, ist der Rest der Zone in dieser Richtung unbekannt
         (fehlender Strahl, Teilscan oder etwas davor verdeckt die Sicht) - oder dort steht etwas (das meldet
         _lidar_belegung als Belegung). Beides ist nicht frei."""
+        if w.get('lidar_luecken_ignorieren') and w.get('lidar_xy') is not None:
+            return None  # Gesunde Quelle bleibt Pflicht; Raumluecken sind kein Veto.
         sicht = w.get('lidar_fusionssicht')
         if sicht is not None:
             if w.get('lidar_xy') is None:
@@ -406,6 +409,10 @@ class Wegraeumen(Ablauf):
         self.vorgefahren = 0.0            # so weit ist er blind naeher herangefahren (m)
         self.kontroll_rand = 0.0          # zur Kontrolle so viel weiter zurueck als vorgefahren (m)
         self.grund = ''
+        self.auftrag_id = uuid.uuid4().hex
+        self.aktions_nr = 0
+        self.ausstehend = None
+        self.ziel_id = None
         self._anschauen(jetzt)
 
     def _anschauen(self, jetzt):
@@ -424,11 +431,11 @@ class Wegraeumen(Ablauf):
             self.s_phase, self.s_alt, self.letzte = self.phase, w.get('strecke'), jetzt
             return 0.0
         s = w.get('strecke')
-        if s is not None and self.s_alt is not None:
+        if w.get('strecke_gemessen') and s is not None and self.s_alt is not None:
             ds, self.s_alt = s - self.s_alt, s
         else:
-            ds = tempo * min(0.15, jetzt - self.letzte)
-            self.s_alt = s
+            ds = 0.0  # Ein Sollbefehl ist kein gemessener Fortschritt.
+            self.s_alt = s if w.get('strecke_gemessen') else None
         self.letzte = jetzt
         return ds
 
@@ -445,7 +452,45 @@ class Wegraeumen(Ablauf):
         return None
 
     def schritt(self, jetzt, w):
+        """Armsegmente bis zur passenden Ausfuehrungsantwort nicht fortschreiben.
+
+        aktionsstatus enthaelt auftrag_id, phase und status. 'zugelassen' ist
+        noch kein ausgefuehrtes Segment. Wiederholungen behalten dieselbe ID.
+        """
+        quittung = w.get('aktionsquittung_pflicht', False)
+        obj = w.get('objekt') or {}
+        if self.ziel_id is None and obj.get('bestaetigt') and obj.get('ziel_id'):
+            self.ziel_id = obj['ziel_id']
+        if quittung and self.ausstehend is not None:
+            pending, seit = self.ausstehend
+            key = pending['raeumfreigabe']
+            antwort = w.get('aktionsstatus') or {}
+            passend = all(antwort.get(k) == key.get(k) for k in ('auftrag_id', 'phase'))
+            if passend and antwort.get('status') == 'ausgefuehrt':
+                self.ausstehend = None
+                self.seit = jetzt  # Wartezeit erst nach angenommener Ausfuehrung.
+            elif jetzt - seit > 10.0:
+                return self._ende('fehler', 'Wegraeumen: keine Ausfuehrungsquittung fuer Armsegment', 'stopp')
+            else:
+                # Auch nach einem Veto keine naechste Phase und kein Greiferfolg.
+                return pending
+        b = self._schritt(jetzt, w)
+        if b is not None and (b.get('arm') or b.get('manoever')):
+            self.aktions_nr += 1
+            phase = f'{self.phase}:{self.aktions_nr}'
+            b['raeumfreigabe'] = dict(auftrag_id=self.auftrag_id, phase=phase, ziel_id=self.ziel_id,
+                                      **{k: (w.get('betrieb') or {}).get(k)
+                                         for k in ('session_id', 'generation', 'start_id')})
+            if quittung and b.get('arm'):
+                self.ausstehend = (b, jetzt)
+        return b
+
+    def _schritt(self, jetzt, w):
         c, d = self.c, self.dauer(jetzt)
+        if self.phase in ('naeher', 'rueckweg', 'zurueck', 'abstand') and not w.get('strecke_gemessen'):
+            self.odometrie_fehlt = True
+            return self._ende('fehler', 'Wegraeumen: Positionierung/zurueckgefahren ohne Radzaehler '
+                              'nicht nachgewiesen -> warte', 'stopp')
         if w.get('lidar_xy') is not None:
             self.letztes_w_xy = w['lidar_xy']
         neu = w.get('neues_bild')

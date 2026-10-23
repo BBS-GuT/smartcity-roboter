@@ -205,6 +205,16 @@ class Entscheider:
         Rueckgabe: {'aktion', 'faktor', 'grund', 'arm', 'manoever'}
         """
         self.jetzt = jetzt
+        betrieb = w.get('betrieb')
+        if betrieb is not None:
+            epoche = tuple(betrieb.get(k) for k in ('session_id', 'generation', 'start_id'))
+            aktiv = betrieb.get('betrieb_freigegeben') is True
+            if self.ablauf is not None and self.ablauf.name == 'wegraeumen' and (
+                    not aktiv or epoche != getattr(self, 'betriebsepoche', epoche)):
+                self._ereignis(jetzt, 'Raeumauftrag verworfen: STOPP oder neue Betriebsepoche', 'stopp')
+                self._ablauf_abbrechen()
+            self.betriebsepoche = epoche
+            self.fahrt_aktiv = aktiv
         if not self.arm_freigabe and self.ablauf is not None and self.ablauf.braucht_arm:
             # Schalter "KI darf den Arm bewegen" waehrend eines Ablaufs ausgeschaltet: wie STOPP behandeln,
             # Arm faehrt zurueck in die Fahrstellung, bevor wieder gefahren wird
@@ -569,6 +579,8 @@ class Entscheider:
             elif a.ergebnis == 'fehler':
                 self.aufheben_gesperrt = True
                 self.bestaetigt, self.bestaetigt_lebewesen = 'Wegraeumen hat nicht geklappt', False
+                if getattr(a, 'odometrie_fehlt', False):
+                    self.fehler_halt = 'Raeumkorrektur ohne gemessene Odometrie'
             else:                        # frei: Fehlalarm oder weggeraeumt UND geprueft
                 self.meldung_seit = None
 
@@ -584,7 +596,7 @@ class Entscheider:
             return None
         vor, s0, vorgefahren = self.hindernis_merk
         s1 = w.get('strecke')
-        if s0 is not None and s1 is not None:
+        if w.get('strecke_gemessen') and s0 is not None and s1 is not None:
             rest = vor - (s1 - s0)
         else:
             # ohne Radzaehler: ist er seit der Messung vorwaerts gefahren, ist unbekannt wie weit -> direkt davor

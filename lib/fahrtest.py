@@ -20,7 +20,11 @@ def raeumfreigabe_gueltig(befehl, betrieb):
     Empfangsalter des Befehls und echte Kollisionspruefung bleiben Aufgabe des
     finalen Publishers; dieses Praedikat ersetzt keine Sensorpruefung.
     """
+    if not isinstance(befehl, dict) or not isinstance(betrieb, dict):
+        return False
     r = befehl.get('raeumfreigabe') or {}
+    if not isinstance(r, dict):
+        return False
     return (r.get('zugelassen') is True and bool(r.get('auftrag_id')) and bool(r.get('phase'))
             and betrieb.get('betrieb_freigegeben') is True
             and all(r.get(k) is not None and r[k] == betrieb.get(k)
@@ -62,13 +66,24 @@ def tiefe_halt(w, jetzt, monoton, kamera_ok):
 def befehl_sichern(befehl, w, jetzt, monoton, kamera_ok):
     reason = tiefe_halt(w, jetzt, monoton, kamera_ok)
     r = befehl.get('raeumfreigabe') or {}
+    if not isinstance(r, dict):
+        r = {}
     special = bool(befehl.get('arm') or befehl.get('manoever'))
     if special:
         betrieb = w.get('betrieb') or {}
         kandidat = dict(befehl, raeumfreigabe=dict(r, zugelassen=True))
         ziel_id = w.get('raeumziel_id') or (w.get('objekt') or {}).get('ziel_id')
+        bindung = w.get('raeum_planbindung') or {}
+        plan_gebunden = (isinstance(bindung, dict) and w.get('blick') != 'fahr'
+                        and str(r.get('phase', '')).startswith('ausfuehren:')
+                        and all(r.get(k) is not None and r[k] == bindung.get(k)
+                                for k in ('auftrag_id', 'ziel_id')))
+        datenfehler = None if plan_gebunden else tiefe_halt(
+            dict(w, tiefe_hindernis=False), jetzt, monoton, kamera_ok)
         if not raeumfreigabe_gueltig(kandidat, betrieb):
             reason = 'Raeumauftrag passt nicht zur aktuellen Betriebsfreigabe'
+        elif datenfehler:
+            reason = datenfehler
         elif not r.get('ziel_id') or r['ziel_id'] != ziel_id or w.get('raeumziel_freigegeben') is not True:
             reason = 'Raeumziel fehlt/alt/anderer Auftrag'
         elif w.get('lidar') is None:
