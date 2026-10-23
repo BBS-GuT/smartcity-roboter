@@ -242,9 +242,11 @@ class Kartograf(Node):
                 lok = self.kr.lok
                 if lok.pose is not None or not lok.puffer:
                     return
-                odom_scan, punkte = lok.puffer[-1]
-                alle = [punkte] + [K.in_karte(K.relativ(odom_scan, o), p) for o, p in lok.puffer[-8:-1]]
-            pose, guete, eindeutig = self.karte.belegung.global_suchen(np.concatenate(alle))
+                gestartet, verarbeitungszeit = time.monotonic(), lok._scan_jetzt
+                odom_scan, punkte, scanzeit = lok.puffer[-1]
+                alle = [punkte] + [K.in_karte(K.relativ(odom_scan, o), p) for o, p, _ in lok.puffer[-8:-1]]
+                karte = self.karte
+            pose, guete, eindeutig = karte.belegung.global_suchen(np.concatenate(alle))
             with self.lock:
                 if lok is not self.kr.lok:
                     return          # inzwischen neue Karte angefangen
@@ -258,9 +260,10 @@ class Kartograf(Node):
                     return
                 self.fehlversuche = 0
                 lok.pose = K.verknuepfen(pose, K.relativ(odom_scan, lok.odom))
+                lok._globaler_anker(scanzeit, odom_scan, gestartet, verarbeitungszeit)
                 lok.status = f'Position in der Karte gefunden ({guete:.0%})'
                 self.karte.fahrten += 1
-                for o, p in lok.puffer:
+                for o, p, _ in lok.puffer:
                     self.karte.belegung.eintragen(K.verknuepfen(pose, K.relativ(odom_scan, o)), p)
                 lok.puffer = []
             self.get_logger().info(lok.status)
@@ -424,7 +427,7 @@ class Kartograf(Node):
     def _speichern_ohne_lock(self):
         """Aktuellen Stand (Karte, Pose, Kalibrierung) in den Kartenordner. Aufrufer haelt lock. Rueckgabe: PLY."""
         self.karte.letzte_pose = self.kr.lok.pose
-        self.karte.kalibrierung = self.kr.kal.speichern()
+        self.karte.kalibrierung = self.kr.kalibrierung_speichern()
         self.karte.speichern()
         return self.karte.ply()
 
@@ -477,7 +480,7 @@ class Kartograf(Node):
         kopf = {'quelle': 'roboter', 'karte': self.p('karte'), 'cfg': cfg,
                 'roboter': open(name).read().strip() if os.path.exists(name) else '',
                 'topics': {'odom': self.p('odom_topic'), 'imu': self.p('imu_topic'), 'bild': self.p('image_topic')},
-                'kalibrierung': self.kr.kal.speichern()}
+                'kalibrierung': self.kr.kalibrierung_speichern()}
         try:
             self.aufnahme = A.Aufnahme(datei, kopf, bild_hz=self.p('aufnahme_bild_hz'))
         except OSError as e:     # Platte voll, keine Schreibrechte: Kartograf laeuft weiter

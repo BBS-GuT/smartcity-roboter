@@ -52,7 +52,7 @@ class Kartenwechsel(unittest.TestCase):
         self.assertEqual(k.kr.kal.odom_skala, 1.0)
 
     def test_gespeicherte_kalibrierung_nur_wenn_eingeschaltet(self):
-        k = kartograf(self.ordner)
+        k = kartograf(self.ordner, selbst_kalibrieren=True)
         k.kr.kal.imu_vorzeichen, k.kr.kal.spiegeln, k.kr.kal.imu_skala = -1.0, True, 1.3
         k._speichern()
         self.assertFalse(kartograf(self.ordner).kr.kal.spiegeln)          # Standard: aus -> Rohwerte
@@ -72,6 +72,57 @@ class Kartenwechsel(unittest.TestCase):
         self.assertEqual(alt.fahrten, 99)
         self.assertEqual(k.karte.fahrten, 0)
         self.assertIs(k.kr.karte, k.karte)
+
+    def test_aus_speichern_ein_erhaelt_kalibrierung(self):
+        k = kartograf(self.ordner, selbst_kalibrieren=True)
+        kal = k.kr.kal
+        kal.einbau, kal.einbau_gelernt = (0.20, -0.03, 0.10), True
+        kal.imu_skala, kal.odom_skala = 1.15, 1.07
+        kal.imu_vorzeichen, kal.spiegeln, kal.gyro_bias = -1.0, True, 0.02
+        erwartet = kal.speichern()
+        k._speichern()
+        # Positive Kontrolle: eingeschaltetes Neuladen verwendet den gespeicherten Stand.
+        self.assertEqual(kartograf(self.ordner, selbst_kalibrieren=True).kr.kal.speichern(), erwartet)
+        aus = kartograf(self.ordner, selbst_kalibrieren=False)
+        self.assertEqual(aus.kr.kal.einbau, (0.0, 0.0, 0.0))
+        self.assertFalse(aus.kr.kal.einbau_gelernt)
+        self.assertFalse(aus.kr.kal.spiegeln)
+        self.assertEqual(aus.kr.kal.drehrate(0.4), 0.4)
+        self.assertEqual(aus.kr.kal.odom_skala, 1.0)
+        aus.kr.odom(10.0, {'stamp': 10.0, 'vx': 0.2})
+        aus.kr.odom(10.1, {'stamp': 10.1, 'vx': 0.2})
+        self.assertAlmostEqual(aus.kr.roboter[0], 0.02)
+        aus.kr.imu(12.0, {'stamp': 12.0, 'g': [0.0, 0.0, 0.4]})
+        aus.kr.imu(12.1, {'stamp': 12.1, 'g': [0.0, 0.0, 0.4]})
+        self.assertAlmostEqual(aus.kr.roboter[2], 0.04)
+        # Auch eine im ausgeschalteten Lauf gelernte Standkorrektur darf den Speicher nicht ersetzen.
+        aus.kr.kal.gyro_bias = 0.003
+        aus._speichern()  # identischer Pfad fuer normales Speichern und Autosave
+        ein = kartograf(self.ordner, selbst_kalibrieren=True)
+        self.assertEqual(ein.kr.kal.speichern(), erwartet)
+        self.assertAlmostEqual(ein.kr.kal.drehrate(0.4), -1.15 * (0.4 - 0.02))
+
+    def test_reset_bei_aus_sichert_kalibrierung_und_aktuellen_stand(self):
+        k = kartograf(self.ordner, selbst_kalibrieren=True)
+        k.kr.kal.einbau, k.kr.kal.einbau_gelernt = (0.20, -0.03, 0.10), True
+        k.kr.kal.imu_skala, k.kr.kal.odom_skala = 1.15, 1.07
+        erwartet = k.kr.kal.speichern()
+        k._speichern()
+        aus = kartograf(self.ordner)
+        aus.karte.fahrten = 99
+        erg = aus.neue_karte('kal-reset')
+        self.assertTrue(erg['ok'], erg)
+        alt = KG.K.Karte(os.path.join(self.ordner, erg['sicherung']))
+        self.assertTrue(alt.laden())
+        self.assertEqual(alt.fahrten, 99)
+        self.assertEqual(alt.kalibrierung, erwartet)
+        aus._speichern()
+        neu = kartograf(self.ordner, selbst_kalibrieren=True)
+        self.assertEqual(neu.karte.fahrten, 0)
+        self.assertFalse(neu.kr.kal.einbau_gelernt)
+        self.assertEqual(neu.kr.kal.einbau, (0.0, 0.0, 0.0))
+        self.assertEqual(neu.kr.kal.imu_skala, 1.0)
+        self.assertEqual(neu.kr.kal.odom_skala, 1.0)
 
     def test_zwei_schnelle_anfragen_eindeutig(self):
         k = kartograf(self.ordner)
