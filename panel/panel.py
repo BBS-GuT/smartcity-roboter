@@ -1093,7 +1093,9 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        # Beim Beenden des Panels: Roboter anhalten, Lichter aus und alle gestarteten Programme beenden
+        # Freigabe vor langsamer Prozessbereinigung entziehen; Heartbeats duerfen
+        # waehrend alle_stoppen() keine alte Betriebsfreigabe aufrechterhalten.
+        node.betrieb_setzen(False)
         node.stillstand()
         node.leiste_aus()
         prozesse.alle_stoppen()
