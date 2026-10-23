@@ -154,6 +154,44 @@ einem Nullbefehl noch aus einer erfolgreichen Publisherattrappe abgeleitet werde
 Ein Datenfehler kann nach gültiger Rückkehr entfallen; ob der installierte Stand
 dabei unzulässig erneut fährt, muss im Wiederanlauffall tatsächlich geprüft werden.
 
+### Statische Etappe mit `scripts/lidar_standpruefung.py`
+
+Das Werkzeug führt durch die statischen Fälle, liest nur `/line_follower/status`
+und `/ki/befehl` und schreibt den versionsbezogenen Bericht
+`docs/abnahme/<Gerät>-lidar-halt-<Datum>.md`. Frühere Berichte werden nie
+überschrieben; Rohdaten landen privat in `config/lokal/lidar_standpruefung/`.
+Es sendet keine Fahr-, Arm- oder Parameterbefehle.
+
+```bash
+# Linienfolger im TESTMODUS (Panel -> TEST) und KI laufen, "KI darf den Arm bewegen" AUS
+source scripts/env.sh
+python3 scripts/lidar_standpruefung.py --geraet RM01 --pruefer "Name" --beobachter "Name"
+```
+
+Läuft der Linienfolger mit `drive=true` oder darf die KI den Arm bewegen, bricht
+das Werkzeug ab. Je Fall bewertet es nach einer Einschwingzeit von 2 s, ob der
+LiDAR-Haltegrund **durchgehend** vorliegt (bzw. fehlt), ob der rechnerische Befehl
+dabei 0 ist und ob der Grund die erwartete Quelle oder Ursache nennt. Die Zeit bis
+zum ersten Halt zählt ab der Bestätigung durch die prüfende Person und enthält die
+Bedienzeit. Sie ist **keine** Motor-Haltzeit.
+
+| Abgedeckt | Fälle im Werkzeug |
+|---|---|
+| S01, S02, S03, S04, S07, S08, S09, S11 | S01, S02a/b, S03, S04a/b, S07, S08, S09a–d, S11a–c |
+
+Nicht abgedeckt, im Bericht also nicht enthalten, bleiben offen:
+
+- **S05/S06** (alter, zukünftiger oder rückläufiger Header): Sie brauchen einen
+  isolierten Test-Publisher ohne Motorweg; am Gerät gesondert planen.
+- **S08+** (positive komplementäre Abdeckung): braucht eine gezielte Abschattung
+  nur eines Sensors.
+- **S10** (Seitwärts/Drehung): Im Testmodus wird nur der Bereich der eingestellten
+  Fahrtrichtung geprüft.
+- **M01–M06**: stehen immer als „nicht durchgeführt“ im Bericht.
+
+Ein Fall, der sich am Gerät nicht herstellen lässt, wird mit `s Grund` als
+„blockiert“ eingetragen und nicht geschätzt.
+
 ## Ergebnisblatt je Fall und Wiederholung
 
 | Nachweisfeld | Auszufüllender Inhalt |
