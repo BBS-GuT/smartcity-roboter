@@ -850,6 +850,7 @@ class Zentrale(Node):
         w['strecke'] = self.strecke
         # Strecke wirklich von den Radzaehlern (frisch)? Ohne sie ist sie nur aus /cmd_vel geschaetzt (siehe _cmd)
         w['strecke_gemessen'] = jetzt - self.odom_zeit < ODOM_FRISCH
+        w['raeum_stillstand'] = bool(w['strecke_gemessen'] and self.odom_bewegung == (0., 0., 0.))
         w['odom_abschnitt'] = self.odom_abschnitt   # gleich = seitdem ohne Luecke gemessen
         st = self.linie_status
         frisch = 0 <= jetzt - st.get('_zeit', 0.0) < .6
@@ -879,6 +880,7 @@ class Zentrale(Node):
         befehl = self.entscheider.update(jetzt, w)
         r = befehl.get('raeumfreigabe') or {}
         ablauf = self.entscheider.ablauf
+        w['raeum_auftrag_id'] = getattr(ablauf, 'auftrag_id', None)
         # A complete precomputed arm chain uses its initial target binding while
         # the arm camera moves. This is explicitly not a new depth observation.
         if r.get('phase', '').startswith('ausfuehren:'):
