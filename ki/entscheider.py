@@ -26,6 +26,7 @@
 # Mehrschrittige Ablaeufe (Zebrastreifen, Wenden, Wegraeumen) stehen in ki/ablaeufe.py.
 
 import random
+import math
 
 from ablaeufe import Zebrastreifen, Wenden, Wegraeumen, Umschauen, Ausweichen, akteure_nah
 
@@ -157,6 +158,7 @@ class Entscheider:
         self.lebewesen_bild = float('-inf')   # ... Aufnahmezeit (bild_zeit) dieses Bildes
         # Arm
         self.arm_zurueck_noetig = False  # Arm steht evtl. nicht in Fahrstellung
+        self.arm_recovery_seit = None   # Neue Fahrstellungsanforderung muss nach diesem Abbruch/STOPP liegen.
         self.arm_zurueck_wegraeumen = False  # ... wegen eines Wegraeumens (dann erst zurueck, wenn niemand in Sicht ist)
         self.arm_warten_bis = 0.0
         self.letzte_aktion = None
@@ -209,6 +211,9 @@ class Entscheider:
         if betrieb is not None:
             epoche = tuple(betrieb.get(k) for k in ('session_id', 'generation', 'start_id'))
             aktiv = betrieb.get('betrieb_freigegeben') is True
+            if (self.arm_zurueck_noetig and not aktiv
+                    and epoche != getattr(self, 'betriebsepoche', None)):
+                self.arm_recovery_seit = jetzt
             if self.ablauf is not None and self.ablauf.name == 'wegraeumen' and (
                     not aktiv or epoche != getattr(self, 'betriebsepoche', epoche)):
                 self._ereignis(jetzt, 'Raeumauftrag verworfen: STOPP oder neue Betriebsepoche', 'stopp')
@@ -541,6 +546,7 @@ class Entscheider:
         a, self.ablauf = self.ablauf, None
         if a.arm_bewegt or (a.name == 'wegraeumen' and not nur_wenn_bewegt):
             self.arm_zurueck_noetig = True
+            self.arm_recovery_seit = self.jetzt
         if a.arm_bewegt and a.name == 'wegraeumen':
             self.arm_zurueck_wegraeumen = True     # Arm steht wirklich woanders: erst zurueck, wenn niemand in Sicht
         if a.name == 'wegraeumen' and a.merk is not None:
@@ -563,6 +569,7 @@ class Entscheider:
         self.ablauf = None
         if a.arm_bewegt:
             self.arm_zurueck_noetig = True
+            self.arm_recovery_seit = jetzt
             self.arm_zurueck_wegraeumen = self.arm_zurueck_wegraeumen or a.name == 'wegraeumen'
         if a.name == 'zebra':
             self.zebra_gesperrt = True
@@ -651,6 +658,33 @@ class Entscheider:
         a = self.ablauf                    # einmal lesen: die KI fragt aus einem anderen Thread
         return (not self.arm_zurueck_noetig and self.jetzt >= self.arm_warten_bis
                 and not (a is not None and a.arm_bewegt))
+
+    def bestaetige_fahrstellung(self, jetzt, anforderung_zeit, bewegung_bis,
+                               rgb_aufnahme, tiefe_aufnahme, *, erfolgreich_gesendet=False):
+        """Eine neue, bestaetigte manuelle Rueckkehr nach Armabbruch quittieren.
+
+        Der Aufrufer belegt gespeicherte Fahrpose, erfolgreichen Sendeweg,
+        passende Frames/Referenz und gueltige neue RGB-/Tiefenmessung. Ein
+        alter Sollwinkel, START oder eine abgewiesene Anforderung genuegt nie.
+        Hier wird keine Betriebsfreigabe und keine START-Quittung erzeugt.
+        """
+        werte = (jetzt, anforderung_zeit, bewegung_bis, rgb_aufnahme, tiefe_aufnahme,
+                 self.arm_recovery_seit)
+        if (not self.arm_zurueck_noetig or erfolgreich_gesendet is not True
+                or self.ablauf is not None
+                or not all(type(v) in (int, float) and math.isfinite(v) for v in werte)):
+            return False
+        if not (self.arm_recovery_seit < anforderung_zeit <= bewegung_bis <= jetzt
+                and bewegung_bis < rgb_aufnahme <= jetzt
+                and bewegung_bis < tiefe_aufnahme <= jetzt
+                and jetzt - min(rgb_aufnahme, tiefe_aufnahme) <= .5
+                and abs(rgb_aufnahme - tiefe_aufnahme) <= .15):
+            return False
+        self.arm_zurueck_noetig = self.arm_zurueck_wegraeumen = False
+        self.arm_warten_bis = 0.
+        self.arm_recovery_seit = None
+        self._ereignis(jetzt, 'Neue Fahrstellung nach Armabbruch mit neuen passenden Bildern bestaetigt', 'info')
+        return True
 
     @staticmethod
     def _b(aktion, grund, faktor=None, arm=None):

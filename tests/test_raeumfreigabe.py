@@ -84,6 +84,46 @@ class Raeumfreigabe(unittest.TestCase):
             self.assertTrue(e.arm_zurueck_noetig)
             self.assertFalse(e.arm_in_fahrstellung)
 
+    def recovery(self):
+        e = Entscheider(arm_erlaubt=True)
+        e.jetzt = 100.
+        e.ablauf = Wegraeumen(100., dict(STANDARD))
+        e.ablauf.arm_bewegt = True
+        e._ablauf_abbrechen()
+        e.fahrt_aktiv = False
+        return e
+
+    def test_new_confirmed_return_resets_only_pose_lock_not_start(self):
+        e = self.recovery()
+        self.assertTrue(e.bestaetige_fahrstellung(102., 100.1, 101.5, 101.9, 101.95,
+                                                 erfolgreich_gesendet=True))
+        self.assertFalse(e.arm_zurueck_noetig)
+        self.assertTrue(e.arm_in_fahrstellung)
+        self.assertFalse(e.fahrt_aktiv)
+        self.assertIsNone(e.start_quittung)
+
+    def test_old_failed_moving_stale_or_unpaired_return_never_resets(self):
+        valid = dict(jetzt=102., anforderung_zeit=100.1, bewegung_bis=101.5,
+                     rgb_aufnahme=101.9, tiefe_aufnahme=101.95, erfolgreich_gesendet=True)
+        for change in (dict(erfolgreich_gesendet=False), dict(anforderung_zeit=99.),
+                       dict(anforderung_zeit=100.), dict(bewegung_bis=103.),
+                       dict(rgb_aufnahme=101.4), dict(tiefe_aufnahme=101.6),
+                       dict(rgb_aufnahme=float('nan'))):
+            e = self.recovery()
+            self.assertFalse(e.bestaetige_fahrstellung(**dict(valid, **change)))
+            self.assertTrue(e.arm_zurueck_noetig)
+
+    def test_start_alone_and_pose_before_new_stop_never_reset(self):
+        e = self.recovery()
+        e.kommando(100.1, 'start')
+        self.assertTrue(e.arm_zurueck_noetig)
+        e.update(101., dict(betrieb=dict(self.betrieb, generation=2, betrieb_freigegeben=False),
+                            bild_zeit=101., lidar=float('inf'), aktionsquittung_pflicht=True))
+        self.assertEqual(e.arm_recovery_seit, 101.)
+        self.assertFalse(e.bestaetige_fahrstellung(102., 100.9, 101.5, 101.9, 101.95,
+                                                  erfolgreich_gesendet=True))
+        self.assertTrue(e.arm_zurueck_noetig)
+
     def test_target_flags_cannot_override_invalid_depth_or_rgb_pair(self):
         b = self.command()
         for change in (dict(tiefe_aufnahme=99.), dict(tiefe_empfang=19.),
