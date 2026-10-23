@@ -471,7 +471,7 @@ class Wegraeumen(Ablauf):
             if passend and antwort.get('status') == 'ausgefuehrt':
                 self.__dict__.update(folgezustand)
                 self.ausstehend = None
-                self.seit = jetzt  # Wartezeit erst nach angenommener Ausfuehrung.
+                self.seit = jetzt + max(0., folgezustand['seit'] - seit)
             elif jetzt - seit > 10.0:
                 return self._ende('fehler', 'Wegraeumen: keine Ausfuehrungsquittung fuer Armsegment', 'stopp')
             else:
@@ -485,6 +485,8 @@ class Wegraeumen(Ablauf):
             b['raeumfreigabe'] = dict(auftrag_id=self.auftrag_id, phase=phase, ziel_id=self.ziel_id,
                                       **{k: (w.get('betrieb') or {}).get(k)
                                          for k in ('session_id', 'generation', 'start_id')})
+            if b.get('arm') and self.phase == 'ausfuehren' and 0 <= self.nr < len(self.schritte):
+                b['raeumfreigabe'].update(segment_index=self.nr, segment_name=self.schritte[self.nr][0])
             if quittung and b.get('arm'):
                 nachher = dict(self.__dict__)
                 nr = self.aktions_nr

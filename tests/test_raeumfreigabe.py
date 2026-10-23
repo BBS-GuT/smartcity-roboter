@@ -73,6 +73,17 @@ class Raeumfreigabe(unittest.TestCase):
         b['raeumfreigabe'].pop('ziel_id')
         self.assertFalse(raeumfreigabe_gueltig(b, self.betrieb))
 
+    def test_unapproved_generic_return_never_claims_driving_pose(self):
+        e = Entscheider(arm_erlaubt=True)
+        e.arm_zurueck_noetig = True
+        for now in (100., 105.):
+            b = e.update(now, dict(betrieb=self.betrieb, aktionsquittung_pflicht=True,
+                                   bild_zeit=now, lidar=float('inf')))
+            self.assertEqual(b['aktion'], 'stopp')
+            self.assertIsNone(b['arm'])
+            self.assertTrue(e.arm_zurueck_noetig)
+            self.assertFalse(e.arm_in_fahrstellung)
+
     def test_target_flags_cannot_override_invalid_depth_or_rgb_pair(self):
         b = self.command()
         for change in (dict(tiefe_aufnahme=99.), dict(tiefe_empfang=19.),

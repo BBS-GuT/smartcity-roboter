@@ -292,10 +292,17 @@ class Entscheider:
             # dann ist nichts geprueft): Arm bleibt, wo er ist, und der Roboter steht
             befehl = self._b('stopp', f'Arm muss zurueck in Fahrstellung, aber {halten} -> warte')
         elif self.arm_zurueck_noetig and self.fahrt_aktiv and not notbremse:
-            self.arm_zurueck_noetig = False
-            self.arm_zurueck_wegraeumen = False
-            self.arm_warten_bis = jetzt + self.c['arm_zeit']
-            befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung', arm='fahrstellung')
+            if w.get('aktionsquittung_pflicht'):
+                # Ohne konkreten autorisierten Rueckkehrplan wuerde die finale
+                # Pruefung diesen generischen Befehl verwerfen. Keine Fahrpose
+                # oder Wartezeit aus einem verworfenen Sollbefehl ableiten.
+                befehl = self._b('stopp', 'Arm nach Abbruch nicht in bestaetigter Fahrstellung; '
+                                 'sichere Rueckkehr pruefen')
+            else:
+                self.arm_zurueck_noetig = False
+                self.arm_zurueck_wegraeumen = False
+                self.arm_warten_bis = jetzt + self.c['arm_zeit']
+                befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung', arm='fahrstellung')
         elif jetzt < self.arm_warten_bis and befehl['aktion'] != 'stopp':
             befehl = self._b('stopp', 'Arm faehrt zurueck in Fahrstellung')
         if not self.fahrt_aktiv and befehl.get('arm'):
