@@ -78,6 +78,18 @@ class ReineZeitregel(unittest.TestCase):
         self.assertIn('Zukunft', lidar.aufnahme_alter(1000.5, 1000.0))
         self.assertIsNotNone(lidar.aufnahme_alter(None, 1000.0))
 
+    def test_bounded_clock_allowance_preserves_age_duplicates_and_progress(self):
+        m = types.SimpleNamespace(header=q.kopf(1000.03))
+        stamp, reason = lidar.aufnahme_pruefen(m, 1000., max_zukunft=.1)
+        self.assertIsNone(reason)
+        self.assertAlmostEqual(stamp, 1000.03)
+        self.assertEqual(lidar.aufnahme_pruefen(m, 1000., stamp, max_zukunft=.1)[1], 'doppelt')
+        self.assertIn('zurueck', lidar.aufnahme_pruefen(m, 1000., 1000.04, max_zukunft=.1)[1])
+        self.assertIn('alt', lidar.aufnahme_pruefen(m, 1002., max_zukunft=.1)[1])
+        self.assertIn('Zukunft', lidar.aufnahme_alter(1000.11, 1000., max_zukunft=.1))
+        for invalid in (-.01, .2, float('nan'), float('inf'), None):
+            self.assertIsNotNone(lidar.aufnahme_alter(1000., 1000., max_zukunft=invalid))
+
 
 class Linienfolger(unittest.TestCase):
     def halt(self, n, text):
@@ -208,14 +220,19 @@ class KiZentrale(unittest.TestCase):
         self.assertEqual(z.lidar_pruefen()[0], float('inf'))
 
     def test_altern_und_wiederfreigabe(self):
-        z = q.ki_zentrale(mit_aufnahme(time.time() - 0.8))
-        self.assertEqual(z.lidar_pruefen()[0], float('inf'))
-        echt = time.time
-        with mock.patch.object(time, 'time', lambda: echt() + 0.3):
-            self.assertEqual(z.lidar_pruefen(), (None, None, None))
-            for t, i in q.KANAELE:
-                z._scan(q.scan(3.0), t, i)                            # neue gueltige Nachrichten
+        # The 0.2-second remaining budget tests acquisition age, not host CPU
+        # speed. Hold both clocks fixed while constructing/querying the node.
+        jetzt, mono = time.time(), time.monotonic()
+        with mock.patch.object(time, 'time', return_value=jetzt), \
+                mock.patch.object(time, 'monotonic', return_value=mono):
+            z = q.ki_zentrale(mit_aufnahme(jetzt - 0.8))
             self.assertEqual(z.lidar_pruefen()[0], float('inf'))
+            with mock.patch.object(time, 'time', return_value=jetzt + .3), \
+                    mock.patch.object(time, 'monotonic', return_value=mono + .3):
+                self.assertEqual(z.lidar_pruefen(), (None, None, None))
+                for t, i in q.KANAELE:
+                    z._scan(q.scan(3.0), t, i)                        # neue gueltige Nachrichten
+                self.assertEqual(z.lidar_pruefen()[0], float('inf'))
 
 
 if __name__ == '__main__':

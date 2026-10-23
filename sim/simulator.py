@@ -321,7 +321,9 @@ class Simulator(Node):
         d = d + self.rng.normal(0, 0.003, d.shape) * (d > 0)
         msg = self.bridge.cv2_to_imgmsg((d * 1000).astype(np.uint16), '16UC1')
         msg.header.stamp.sec, msg.header.stamp.nanosec = int(zeit), int((zeit % 1) * 1e9)
-        msg.header.frame_id = 'camera_depth'
+        # Depth is rendered in the same optical coordinates/FOV as RGB;
+        # a smaller pixel grid does not introduce a second coordinate frame.
+        msg.header.frame_id = 'camera_color'
         self.pub_tiefe.publish(msg)
         self.pub_info_d.publish(CameraInfo(header=msg.header, width=d.shape[1], height=d.shape[0]))
 

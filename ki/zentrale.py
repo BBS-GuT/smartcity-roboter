@@ -56,9 +56,10 @@ for _d in ('lib', 'line_follower', 'erkennung', 'ki'):
 import ampel          # noqa: E402
 import schilder       # noqa: E402
 import linie          # noqa: E402
-from zebra import finde_zebra  # noqa: E402
+from zebra import finde_zebra, ZebraBestaetigung  # noqa: E402
 import lidar          # noqa: E402
 import lidar_fusion   # noqa: E402
+import fahrtest       # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
@@ -106,6 +107,8 @@ class Zentrale(Node):
         dp('image_topic', '/camera/color/image_raw')
         dp('depth_topic', '/camera/depth/image_raw')
         dp('tiefe_nutzen', True)
+        dp('begleiteter_fahrbetrieb', False)
+        self.add_on_set_parameters_callback(fahrtest.parameter_aenderung)
         dp('led_ersatz', True)          # LED-Erkennung, wenn die KI keine Ampel findet
         dp('form_ersatz', True)         # Achteck-Erkennung, wenn die KI kein Stoppschild findet
         dp('ampel_min_hoehe', 0.03)     # KI-Ampel muss mind. so hoch sein (Anteil Bildhoehe) = nah genug
@@ -169,6 +172,7 @@ class Zentrale(Node):
         self.arm_beobachter = armlib.ArmBeobachter(self)
         self.kamera_cfg = {n: self.p(n) for n in ('kamera_hoehe', 'kamera_neigung', 'kamera_fov', 'kamera_x', 'threshold')}
         self.linien_sucher = linie.LinienSucher(self.kamera_cfg)   # Draufsicht fuer den Zebrastreifen
+        self.zebra_bestaetigung = ZebraBestaetigung()
         self.gier, self.gier_zeit, self.imu_zeit = 0.0, time.time(), 0.0
         self.linie_status = {}
         self.lidar_d, self.lidar_xy = None, None
@@ -192,6 +196,10 @@ class Zentrale(Node):
         self.ki_ms = 0.0
         # Tiefenkamera prueft denselben Fahrweg wie der LiDAR (halbe Fahrschlauch-Breite)
         self.boden = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+        self.kalibriertes_bodenmodell = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+        # The explicitly calibrated partial-coverage model must never learn a newly placed obstacle as floor.
+        self.kalibriertes_bodenmodell.gelernt = self.kalibriertes_bodenmodell.c['lern_bilder']
+        self.lidar_luecke = None
         # Pruefblick (Kamera steiler nach unten, fuer Hindernisse zu nah fuer die Fahrstellung): eigenes Kameramodell
         self.boden_pruef = None
         if self.posen.get('fahrstellung') and self.posen.get('pruefblick'):
@@ -320,7 +328,8 @@ class Zentrale(Node):
         fronts = self.p('scan_front_deg')
         front = fronts[i] if i < len(fronts) else 0.0
         # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
-        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic),
+                                                   max_zukunft=fahrtest.scan_uhrspielraum(self))
         if grund == 'doppelt':
             return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
         if grund is None:
@@ -432,6 +441,7 @@ class Zentrale(Node):
         Abstand im breiten Bereich vorne fuer den Zebrastreifen)."""
         topics = self.p('scan_topics')
         self.lidar_sicht = None
+        self.lidar_luecke = None
         with self.scan_lock:
             scanstand = self.scans.copy()
             felder = self.scan_geometrie.received.copy()
@@ -439,8 +449,8 @@ class Zentrale(Node):
         # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
         frisch, grund = lidar.pflichtkanaele(scanstand, topics, time.monotonic())
         jetzt = self.ros_jetzt()     # Aufnahmealter jetzt nochmal: der Scan kann seit dem Empfang gealtert sein
-        ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt)}' for t, (_, _, _, g, a, _) in zip(topics, frisch)
-                     if g or lidar.aufnahme_alter(a, jetzt)]
+        ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self))}' for t, (_, _, _, g, a, _) in zip(topics, frisch)
+                     if g or lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self))]
         if grund or ungueltig:
             # Fehlender/alter Pflichtkanal oder unbrauchbarer Scan: wie keine LiDAR-Daten (Entscheider haelt)
             self.lidar_xy = None
@@ -460,12 +470,14 @@ class Zentrale(Node):
             _, zeitgrund = lidar.pflichtkanaele(dict(zip(topics, frisch)), topics, time.monotonic())
             jetzt = self.ros_jetzt()
             zeitgrund = zeitgrund or next((g for a in stamps.values()
-                                          if (g := lidar.aufnahme_alter(a, jetzt))), None)
+                                          if (g := lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self)))), None)
             if zeitgrund:
                 self.lidar_xy = None
                 self.get_logger().warn('LiDAR unbekannt: ' + zeitgrund, throttle_duration_sec=2.0)
                 return None, None, None
-            if gap is not None and (obj is None or gap <= obj['abstand']):
+            self.lidar_luecke = gap
+            if (not self.p('begleiteter_fahrbetrieb') and gap is not None
+                    and (obj is None or gap <= obj['abstand'])):
                 self.lidar_xy = None
                 self.get_logger().warn(f'LiDAR unbekannt: gemeinsamer Fahrbereich ab {gap * 100:.0f} cm '
                                        'nicht gemessen (Roboterbezug)', throttle_duration_sec=2.0)
@@ -575,6 +587,8 @@ class Zentrale(Node):
         if fahrstellung:
             vogel = self.linien_sucher.vogel(img)     # nur die Draufsicht, die Linie sucht der Linienfolger
             zebra = finde_zebra(vogel, self.linien_sucher.RASTER, self.linien_sucher.VORNE[1])
+        bild_aufnahme = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        zebra = self.zebra_bestaetigung.aktualisieren(zebra, bild_aufnahme, self.ros_jetzt())
 
         d = None
         if tmsg is not None:
@@ -599,7 +613,10 @@ class Zentrale(Node):
             blick = 'fahr'
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
-            tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
+            if self.p('begleiteter_fahrbetrieb'):
+                tiefe_hindernis, tiefe_obj = self.kalibriertes_bodenmodell.pruefe(d, lernen=False, linie_voraus=self.weg_voraus())
+            else:
+                tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
             if tiefe_obj:
                 tiefe_obj['quelle'] = 'tiefe'
         elif (d is not None and self.boden_pruef is not None
@@ -626,6 +643,11 @@ class Zentrale(Node):
                                 'ampel': ampel_farbe, 'ampel_quelle': ampel_quelle,
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
+                                'tiefe_aufnahme': stempel(tmsg), 'tiefe_empfang': empfang[1],
+                                'tiefe_gueltig': bool(d is not None and tmsg.encoding in ('16UC1', '32FC1')
+                                                      and getattr(tmsg.header, 'frame_id', '')
+                                                      and tmsg.header.frame_id == msg.header.frame_id
+                                                      and fahrtest.tiefe_messung_gueltig(d, self.kalibriertes_bodenmodell)),
                                 'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
                                 'tiefe_nr': self.tiefe_nr,   # zaehlt nur neue, ausgewertete Tiefenbilder
                                 'pruef_tiefe': pruef_tiefe,  # Pruefblick: (Anteil gueltige Tiefe, naechster Wert m)
@@ -714,6 +736,8 @@ class Zentrale(Node):
             lid_obj = None
         w['objekt'] = w.get('tiefe_objekt') or lid_obj
         befehl = self.entscheider.update(jetzt, w)
+        if self.p('begleiteter_fahrbetrieb'):
+            befehl = fahrtest.befehl_sichern(befehl, w, jetzt, time.monotonic(), self.kamera_lage()[0])
         # Arm nur, wenn freigegeben (zurueck in die Fahrstellung darf er immer)
         arm = befehl['arm']
         zurueck = arm == 'fahrstellung' or (isinstance(arm, dict) and arm.get('pose') == 'fahrstellung')
@@ -734,7 +758,11 @@ class Zentrale(Node):
             # Aufnahmezeit des zuletzt ausgewerteten Farbbilds (None: Stempel fehlt/ungueltig). Der Linienfolger laesst
             # KI-Manoever ohne eigene Bilder nur zu, wenn diese Aufnahme frisch ist.
             'aufnahme': w.get('aufnahme'),
-            'lidar': None if w['lidar'] is None else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
+            'begleiteter_fahrbetrieb': self.p('begleiteter_fahrbetrieb'),
+            'lidar_abdeckung': 'unbekannt' if w['lidar'] is None or self.lidar_luecke is not None else 'gemessen',
+            'lidar_erste_luecke_m': self.lidar_luecke,
+            'lidar': None if (w['lidar'] is None or (self.p('begleiteter_fahrbetrieb') and self.lidar_luecke is not None))
+                     else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
             'ampel': w['ampel'], 'ampel_quelle': w.get('ampel_quelle'),
             'stoppschild': w['stoppschild'], 'schild_quelle': w.get('schild_quelle'),
             'tiefe_hindernis': w['tiefe_hindernis'],

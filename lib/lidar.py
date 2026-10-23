@@ -50,20 +50,23 @@ def scan_pruefen(msg):
     return None
 
 
-def aufnahme_alter(aufnahme, jetzt, max_alter=AUFNAHME_MAX):
+def aufnahme_alter(aufnahme, jetzt, max_alter=AUFNAHME_MAX, *, max_zukunft=0.0):
     """Ist die Aufnahmezeit (s, ROS-Zeit) bei 'jetzt' (gleiche Uhr) noch aktuell? None = ja, sonst Grund.
-    Aufnahme in der Zukunft heisst: andere Uhr oder Uhrsprung -> nicht belegbar, also nicht frisch."""
+    Standard: keine Zukunft. Ein ausdruecklicher Spielraum fuer kleine Sensoruhrabweichungen
+    ist auf 100 ms begrenzt; Aufnahmealter und monotones Empfangsalter bleiben eigene Pruefungen."""
+    if not isinstance(max_zukunft, (int, float)) or not 0.0 <= max_zukunft <= .1:
+        return 'Uhrspielraum ungueltig (maximal 0.1 s)'
     if aufnahme is None:
         return 'keine gueltige Aufnahmezeit'
     alter = jetzt - aufnahme
-    if alter < 0.0:
+    if alter < -max_zukunft:
         return f'Aufnahmezeit {-alter:.2f} s in der Zukunft (andere Uhr?)'
     if alter > max_alter:
         return f'Aufnahme {alter:.1f} s alt'
     return None
 
 
-def aufnahme_pruefen(msg, jetzt, vorher=None, max_alter=AUFNAHME_MAX):
+def aufnahme_pruefen(msg, jetzt, vorher=None, max_alter=AUFNAHME_MAX, *, max_zukunft=0.0):
     """Aufnahmezeit eines Scans beim Empfang pruefen (header.stamp, unabhaengig von der Empfangszeit).
 
     jetzt: ROS-Zeit des Empfaengers in s (Node-Uhr, dieselbe Uhrdomaene wie header.stamp; ohne use_sim_time
@@ -82,7 +85,7 @@ def aufnahme_pruefen(msg, jetzt, vorher=None, max_alter=AUFNAHME_MAX):
     aufnahme = int(sec) + int(ns) * 1e-9
     if vorher is not None and aufnahme == vorher:
         return aufnahme, 'doppelt'
-    grund = aufnahme_alter(aufnahme, jetzt, max_alter)
+    grund = aufnahme_alter(aufnahme, jetzt, max_alter, max_zukunft=max_zukunft)
     if grund is None and vorher is not None and aufnahme < vorher:
         grund = f'Aufnahmezeit laeuft {vorher - aufnahme:.2f} s zurueck'
     return aufnahme, grund
