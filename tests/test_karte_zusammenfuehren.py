@@ -54,3 +54,11 @@ def test_schlechte_eigene_guete_wird_abgelehnt():
 
 def test_kartenkennung_ist_reproduzierbar():
     assert zusammenfuehren(list(_paar())).kartenkennung == zusammenfuehren(list(reversed(_paar()))).kartenkennung
+
+
+if __name__ == "__main__":
+    for _name, _fn in sorted(globals().items()):
+        if _name.startswith("test_") and callable(_fn):
+            _fn()
+            print("OK  ", _name)
+    print("Alle Tests bestanden.")
