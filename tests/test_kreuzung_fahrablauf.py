@@ -4,7 +4,6 @@ import io
 import json
 import math
 from pathlib import Path
-import signal
 import sys
 import types
 import unittest
@@ -29,6 +28,8 @@ class Fahrablauf(unittest.TestCase):
         self.n = lf.LineFollower()
         geometrie(self.n)
         self.n._p.update(drive=True, show=False, publish_image=False)
+        self.auftrag = dict(session_id='kreuzung-panel', generation=1,
+                            start_id='bewusster-start-1', angefordert=True)
         self.e = Entscheider()
         self.nr = 0
         self.pose = (0.0, 0.0, 0.0)
@@ -64,6 +65,10 @@ class Fahrablauf(unittest.TestCase):
         b = self.e.update(self.t, dict(bild_nr=self.nr, bild_zeit=self.t, aufnahme=self.t,
             objekte=[], ampel=ampel, stoppschild=False, lidar=0.10 if nah else float('inf'),
             tiefe_hindernis=False, lidar_hinten=2.0))
+        # Bewusster Bedienauftrag mit fortlaufendem Heartbeat; die KI spiegelt
+        # genau diese Epoche wie die produktive Zentrale. Bereitschaft bleibt echt.
+        b.update({k: self.auftrag[k] for k in ('session_id', 'generation', 'start_id')})
+        self.n.on_betrieb(types.SimpleNamespace(data=json.dumps(self.auftrag)))
         self.n.on_ki(types.SimpleNamespace(data=json.dumps(b)))
         self.n.steuern()
         cmd = self.n.pub.letzte
@@ -152,61 +157,51 @@ class Fahrablauf(unittest.TestCase):
         self.assertFalse(self.e.ampel_halt)
         self.ausfahrt()
 
-    def test_panel_stopp_beendet_fahrprozess_ohne_wahltransfer(self):
-        self.abbiegend()
-        # Echter Handler und Prozesse.stopp; nur HTTP-I/O, POSIX-Signaltransport
-        # und ROS-Executor sind ersetzt. Kein echter Prozess/Geraet wird beendet.
+    def test_panel_stopp_sperrt_ausgabe_und_erhaelt_wahl_bis_neuem_start(self):
+        wahl = self.abbiegend()
+        alter_start = dict(self.auftrag)
         pn = panel.PanelNode(types.SimpleNamespace(kein_netz=True))
+        pn.betrieb = dict(self.auftrag)
         prozesse = panel.Prozesse()
         pr = Mock(pid=12345)
         pr.poll.return_value = None
         prozesse.p['fahren'] = pr
         handler, _ = panel.mache_handler(pn, prozesse)
-        request = handler.__new__(handler)
-        request.path = '/api/stopp'
-        request.client_address = ('127.0.0.1', 1234)
-        request.headers = {'Content-Type': 'application/json', 'Content-Length': '2'}
-        request.rfile = io.BytesIO(b'{}')
-        request._senden = Mock()
-        executor = Mock()
 
-        def ende(sekunden):
-            if sekunden == 0.03:
-                raise KeyboardInterrupt  # Signalzustellung am laufenden Hauptloop
-
-        def warten(timeout):
-            with patch.object(lf, 'signale_abfangen'), patch.object(lf, 'laeuft_schon', return_value=False), \
-                 patch.object(lf, 'LineFollower', return_value=self.n), \
-                 patch.object(lf, 'MultiThreadedExecutor', return_value=executor), \
-                 patch.object(lf.threading, 'Thread'), patch.object(lf.cv2, 'destroyAllWindows'), \
-                 patch('time.sleep', side_effect=ende), \
-                 patch.object(self.n, 'destroy_node') as destroy:
-                vorher = self.n.pub.n
-                with patch.object(self.n.pub, 'publish', wraps=self.n.pub.publish) as publish:
-                    lf.main()
-                    for call in publish.call_args_list:
-                        cmd = call.args[0]
-                        self.assertEqual((cmd.linear.x, cmd.linear.y, cmd.angular.z), (0, 0, 0))
-                self.assertEqual(self.n.pub.n - vorher, 5)
-                self.assertEqual(self.n.pub.letzte.linear.x, 0)
-                self.assertEqual(self.n.pub.letzte.angular.z, 0)
-                destroy.assert_called_once()
-            pr.poll.return_value = 0
-
-        pr.wait.side_effect = warten
-        with patch.object(panel.os, 'killpg', create=True) as kill:
+        def bedienen(name):
+            request = handler.__new__(handler)
+            request.path = '/api/' + name
+            request.client_address = ('127.0.0.1', 1234)
+            request.headers = {'Content-Type': 'application/json', 'Content-Length': '2'}
+            request.rfile = io.BytesIO(b'{}')
+            request._senden = Mock()
             handler.do_POST(request)
-            kill.assert_called_once_with(12345, signal.SIGINT)
-        self.assertIn('Gestoppt', request._senden.call_args.args[2].decode())
-        self.assertEqual(pn.pubs['/cmd_vel'].letzte.linear.x, 0)
-        self.assertEqual(pn.pubs['/cmd_vel'].n, 10)
-        self.assertFalse(prozesse.laeuft('fahren'))
-        executor.shutdown.assert_called_once()
-        # Ohne neuen Prozess existiert keine fortsetzbare Fahrt. Eine neue Node
-        # besitzt die alte Wahl nicht; START darf hier keinen Asttransfer erfinden.
-        neu = lf.LineFollower()
-        self.assertIsNone(neu.sucher.wahl)
-        self.assertFalse(neu.gedaechtnis.linie(0.3)['gefunden'])
+            return request._senden.call_args.args[2].decode()
+
+        # Nur der ROS-Transport ist durch direkte Nachrichtenzustellung ersetzt.
+        # Handler, Freigabeempfaenger, Sensoren und finaler Publisher laufen echt.
+        with patch.object(pn.betrieb_pub, 'publish', side_effect=self.n.on_betrieb), \
+             patch.object(prozesse, 'stopp') as beenden:
+            self.assertIn('Gestoppt', bedienen('stopp'))
+            beenden.assert_not_called()
+            self.assertTrue(prozesse.laeuft('fahren'))
+            self.assertEqual(self.n.pub.letzte.linear.x, 0)
+            self.assertFalse(self.n.betrieb.freigegeben)
+            self.assertEqual(self.n.sucher.wahl, wahl)
+            self.auftrag = dict(pn.betrieb)
+            self.assertEqual(self.schritt(), (0, 0, 0))
+            # Auch ein verspaeteter alter START darf die bleibende Sperre nicht loesen.
+            self.n.on_betrieb(types.SimpleNamespace(data=json.dumps(alter_start)))
+            self.assertEqual(self.schritt(), (0, 0, 0))
+            pn._set('ki', self.n.ki[1])
+            pn._set('lf', json.loads(self.n.pub_status.letzte.data))
+            self.assertIn('START angefordert', bedienen('start'))
+            self.auftrag = dict(pn.betrieb)
+            self.assertGreater(self.auftrag['generation'], alter_start['generation'])
+            self.assertGreater(self.schritt()[0], 0)
+            self.assertTrue(self.n.betrieb.freigegeben)
+            self.assertEqual(self.n.sucher.wahl, wahl)
+        self.ausfahrt()
 
 
 if __name__ == '__main__':

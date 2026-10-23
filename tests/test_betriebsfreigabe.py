@@ -124,7 +124,7 @@ class Publisher(unittest.TestCase):
         n.steuern()
         n.ki[1].update(aktion='manoever', aufnahme=time.time(),
                       manoever={'lin': -.05, 'quer': 0., 'dreh': 0.},
-                      raeumfreigabe=dict(request(), auftrag_id='block-1', phase='rueckfahrt', zugelassen=True))
+                      raeumfreigabe=dict(request(), auftrag_id='block-1', ziel_id='block-target-1', phase='rueckfahrt', zugelassen=True))
 
     def test_bound_clearing_reverse_reaches_real_hull_guard(self):
         n = self.node()
