@@ -82,7 +82,9 @@ def ungueltige():
 
 def start_auftrag(n):
     """Bewusster START; keine Umgehung von echter Datenbereitschaft."""
-    auftrag = dict(session_id='sensor-test', generation=1, start_id='sensor-start', angefordert=True)
+    auftrag = dict(target_process_id=n.betrieb.process_id, session_id='sensor-test', generation=1, start_id='sensor-start', angefordert=True)
+    if not n.betrieb.handshake_bestaetigt:
+        n.on_betrieb(types.SimpleNamespace(data=json.dumps(dict(auftrag, generation=0, angefordert=False))))
     n.on_betrieb(types.SimpleNamespace(data=json.dumps(auftrag)))
     if n.ki[1]:
         n.ki[1].update({k: auftrag[k] for k in ('session_id', 'generation', 'start_id')})

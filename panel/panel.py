@@ -184,7 +184,8 @@ class PanelNode(Node):
 
         self.betrieb_lock = threading.RLock()
         self.prozess_start_lock = threading.Lock()
-        self.betrieb = {'session_id': uuid.uuid4().hex, 'generation': 0, 'start_id': uuid.uuid4().hex, 'angefordert': False}
+        self.start_wartet = False
+        self.betrieb = {'target_process_id': None, 'session_id': uuid.uuid4().hex, 'generation': 0, 'start_id': uuid.uuid4().hex, 'angefordert': False}
         self.betrieb_pub = self.create_publisher(String, '/line_follower/betrieb', 10)
         self.create_timer(.1, self.betrieb_senden)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -349,23 +350,47 @@ class PanelNode(Node):
 
     def betrieb_senden(self):
         with self.betrieb_lock:
+            lf = self.get('lf', max_alter=.6) or {}
+            pid = lf.get('process_id')
+            if not self.betrieb.get('target_process_id') and isinstance(pid, str) and pid:
+                self.betrieb['target_process_id'] = pid
+            if self.start_wartet:
+                target = self.betrieb.get('target_process_id')
+                if pid and target and pid != target:
+                    # Ein Prozesswechsel waehrend START erfordert neue Bedienung.
+                    self.start_wartet = False
+                elif (pid == target and target and lf.get('handshake_bestaetigt') is True
+                      and lf.get('drive') is False and lf.get('betrieb_angefordert') is False
+                      and all(lf.get(k) == self.betrieb[k] for k in ('session_id', 'generation', 'start_id'))):
+                    self.betrieb = dict(self.betrieb, generation=self.betrieb['generation'] + 1,
+                                        start_id=uuid.uuid4().hex, angefordert=True)
+                    self.start_wartet = False
+                    self.ki_kommando_pub.publish(String(data='start'))
             self.betrieb_pub.publish(String(data=json.dumps(self.betrieb)))
 
     def betrieb_setzen(self, an):
         with self.betrieb_lock:
             lf = self.get('lf', max_alter=.6) or {}
-            if an and self.betrieb['angefordert'] and not lf.get('freigabeweg_ausgefallen'):
+            gleicher_prozess = bool(lf.get('process_id') and
+                lf['process_id'] == self.betrieb.get('target_process_id'))
+            if an and ((self.start_wartet and (gleicher_prozess or not lf.get('process_id') or
+                    not self.betrieb.get('target_process_id'))) or
+                    (self.betrieb['angefordert'] and gleicher_prozess and
+                     not lf.get('freigabeweg_ausgefallen'))):
                 return dict(self.betrieb)
+            self.start_wartet = bool(an)
             self.betrieb = {'session_id': self.betrieb['session_id'],
                             'generation': self.betrieb['generation'] + 1,
-                            'start_id': uuid.uuid4().hex, 'angefordert': bool(an)}
+                            'target_process_id': lf.get('process_id'),
+                            'start_id': uuid.uuid4().hex, 'angefordert': False}
             self.betrieb_senden()
             return dict(self.betrieb)
 
     def stopp_bestaetigt(self):
         with self.betrieb_lock:
             lf = self.get('lf', max_alter=.6) or {}
-            return (self.betrieb['angefordert'] is False and lf.get('drive') is False and
+            return (not self.start_wartet and self.betrieb['angefordert'] is False and lf.get('drive') is False and
+                    lf.get('process_id') == self.betrieb.get('target_process_id') and
                     all(lf.get(k) == self.betrieb[k] for k in ('session_id', 'generation', 'start_id')))
 
     def stillstand(self):
@@ -643,6 +668,11 @@ def mache_handler(node, prozesse, beenden=None):
             # Auftrag VOR langsamen Prozess-/Paketabfragen festhalten. STOPP benutzt
             # nur betrieb_lock und kann den Auftrag jederzeit unwiderruflich entwerten.
             with node.betrieb_lock:
+                if not prozesse.laeuft('fahren'):
+                    # Veralteter Status eines beendeten Kindes darf den neuen
+                    # bewussten Start nicht an dessen alte Prozesskennung binden.
+                    with node.lock:
+                        node.daten.pop('lf', None)
                 vorher = dict(node.betrieb)
                 auftrag = node.betrieb_setzen(name == 'start')
             with node.prozess_start_lock:
@@ -658,8 +688,6 @@ def mache_handler(node, prozesse, beenden=None):
                     return 'Anforderung durch neueren Bedienauftrag verworfen.'
                 if name == 'test':
                     return 'Testmodus: Wahrnehmung aktiv, Ausgabe gesperrt.'
-                if auftrag != vorher:
-                    node.ki_kommando_pub.publish(String(data='start'))
                 lf = node.get('lf', max_alter=.6) or {}
                 freigegeben = (lf.get('start_id') == auftrag['start_id'] and
                         lf.get('generation') == auftrag['generation'] and lf.get('betrieb_freigegeben'))
@@ -735,11 +763,11 @@ def mache_handler(node, prozesse, beenden=None):
             return 'KI: ' + (node.get('ki_antwort', max_alter=2.0) or 'keine Antwort (laeuft die KI?)')
         # ---- Arm ----
         if name.startswith('greifer_'):
-            if (node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt())) and name in ('greifer_schritt', 'greifer_messen'):
+            if (node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt())) and name in ('greifer_schritt', 'greifer_messen'):
                 return 'Arm nur bei bestaetigtem STOPP (Kamera sitzt am Arm). Erst STOPP und Quittung abwarten.'
             return greifer_einmessen(name, daten)
         if name.startswith('arm_'):
-            if (node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt())) and name in ('arm_pose', 'arm_greifer'):
+            if (node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt())) and name in ('arm_pose', 'arm_greifer'):
                 return 'Arm nur bei bestaetigtem STOPP (Kamera sitzt am Arm). Erst STOPP und Quittung abwarten.'
             if name == 'arm_pose':
                 fehler = node.arm_holen().fahre(daten.get('winkel', []), int(daten.get('zeit', 2000)))
@@ -801,7 +829,7 @@ def mache_handler(node, prozesse, beenden=None):
             node.netz_erlaubt = bool(daten.get('erlaubt'))
             return 'Laptop-Zugriff ' + ('AN' if node.netz_erlaubt else 'AUS')
         if name == 'ampel_kalibrieren':
-            if node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt()):
+            if node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt()):
                 return 'Erst STOPP druecken und Quittung abwarten.'
             env = dict(os.environ, DISPLAY=os.environ.get('DISPLAY', ':0'))
             if not prozesse.start('ampel', [sys.executable, os.path.join(REPO, 'line_follower', 'ampel_kalibrieren.py')],
@@ -812,7 +840,7 @@ def mache_handler(node, prozesse, beenden=None):
         if name == 'system_info':
             return system_info()
         if name == 'update':
-            if node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt()):
+            if node.start_wartet or node.betrieb['angefordert'] or (prozesse.laeuft('fahren') and not node.stopp_bestaetigt()):
                 return 'Erst STOPP druecken und Quittung abwarten.'
             r = subprocess.run(['bash', os.path.join(REPO, 'scripts', 'update.sh')], capture_output=True, text=True,
                                timeout=90)
@@ -873,7 +901,7 @@ def mache_handler(node, prozesse, beenden=None):
         return {
             'fahren': bool((node.get('lf', max_alter=.6) or {}).get('drive')),
             'wahrnehmung': prozesse.laeuft('fahren'),
-            'modus': 'START angefordert' if node.betrieb['angefordert'] else 'GESTOPPT',
+            'modus': 'START angefordert' if node.start_wartet or node.betrieb['angefordert'] else 'GESTOPPT',
             'ki_prozess': prozesse.laeuft('ki'),
             'lf': node.get('lf', max_alter=1.5), 'ki': node.get('ki', max_alter=1.5),
             'lf_alter': node.alter('lf'), 'fremde': fremde_programme(),

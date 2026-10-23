@@ -28,8 +28,9 @@ class Fahrablauf(unittest.TestCase):
         self.n = lf.LineFollower()
         geometrie(self.n)
         self.n._p.update(drive=True, show=False, publish_image=False)
-        self.auftrag = dict(session_id='kreuzung-panel', generation=1,
+        self.auftrag = dict(target_process_id=self.n.betrieb.process_id, session_id='kreuzung-panel', generation=1,
                             start_id='bewusster-start-1', angefordert=True)
+        self.n.on_betrieb(types.SimpleNamespace(data=json.dumps(dict(self.auftrag, generation=0, angefordert=False))))
         self.e = Entscheider()
         self.nr = 0
         self.pose = (0.0, 0.0, 0.0)
@@ -162,6 +163,7 @@ class Fahrablauf(unittest.TestCase):
         alter_start = dict(self.auftrag)
         pn = panel.PanelNode(types.SimpleNamespace(kein_netz=True))
         pn.betrieb = dict(self.auftrag)
+        pn._set('lf', json.loads(self.n.pub_status.letzte.data))
         prozesse = panel.Prozesse()
         pr = Mock(pid=12345)
         pr.poll.return_value = None
@@ -196,6 +198,9 @@ class Fahrablauf(unittest.TestCase):
             pn._set('ki', self.n.ki[1])
             pn._set('lf', json.loads(self.n.pub_status.letzte.data))
             self.assertIn('START angefordert', bedienen('start'))
+            self.n.steuern()  # inaktiven Handshake mit Prozesskennung quittieren
+            pn._set('lf', json.loads(self.n.pub_status.letzte.data))
+            pn.betrieb_senden()
             self.auftrag = dict(pn.betrieb)
             self.assertGreater(self.auftrag['generation'], alter_start['generation'])
             self.assertGreater(self.schritt()[0], 0)

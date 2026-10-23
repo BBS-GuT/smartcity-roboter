@@ -1,9 +1,12 @@
 """Kennungsgebundene Betriebsfreigabe; reine Logik ohne ROS-Abhaengigkeit."""
 import time
+import uuid
 
 
 class Betriebsfreigabe:
     def __init__(self):
+        self.process_id = uuid.uuid4().hex
+        self.handshake_bestaetigt = False
         self.session_id = None
         self.alte_sessions = set()
         self.generation = -1
@@ -15,6 +18,10 @@ class Betriebsfreigabe:
 
     def empfang(self, auftrag, jetzt=None):
         jetzt = time.monotonic() if jetzt is None else jetzt
+        if auftrag.get('target_process_id') != self.process_id:
+            return False
+        if not self.handshake_bestaetigt and auftrag.get('angefordert') is not False:
+            return False
         session = auftrag.get('session_id')
         if not isinstance(session, str) or not session or session in self.alte_sessions:
             return False
@@ -40,6 +47,8 @@ class Betriebsfreigabe:
             self.angefordert = self.freigegeben = False
         # Eine verlorene Verbindung braucht einen neuen bewussten START.
         self.empfangen = jetzt
+        if auftrag.get('angefordert') is False:
+            self.handshake_bestaetigt = True
         return True
 
     def pruefen(self, bereit, jetzt=None):
@@ -54,7 +63,7 @@ class Betriebsfreigabe:
         return self.freigegeben
 
     def status(self):
-        return dict(session_id=self.session_id, generation=self.generation, start_id=self.start_id,
+        return dict(process_id=self.process_id, handshake_bestaetigt=self.handshake_bestaetigt, session_id=self.session_id, generation=self.generation, start_id=self.start_id,
                     betrieb_angefordert=self.angefordert,
                     betrieb_freigegeben=self.freigegeben,
                     freigabeweg_ausgefallen=self.abgelaufen)

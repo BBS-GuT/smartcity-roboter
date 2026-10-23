@@ -142,7 +142,8 @@ class Sensorfreigabe(unittest.TestCase):
         n = self.neu()
         n._p['drive'] = True
         n.scans.clear()
-        token = dict(session_id='sicherheit-panel', generation=1, start_id='bewusster-start', angefordert=True)
+        token = dict(target_process_id=n.betrieb.process_id, session_id='sicherheit-panel', generation=1, start_id='bewusster-start', angefordert=True)
+        n.on_betrieb(types.SimpleNamespace(data=json.dumps(dict(token, generation=0, angefordert=False))))
         n.on_betrieb(types.SimpleNamespace(data=json.dumps(token)))
         n.ki = (1000.0, dict(token, aktion='manoever', manoever={'dreh': 0.8}))
         n.steuern()

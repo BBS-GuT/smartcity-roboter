@@ -42,7 +42,9 @@ class PanelLifecycle(unittest.TestCase):
             return json.load(response)['antwort']
 
     def ack_stop(self):
-        self.node._set('lf', dict(self.node.betrieb, drive=False))
+        self.node.betrieb['target_process_id'] = 'test-process'
+        self.node._set('lf', dict(self.node.betrieb, process_id='test-process',
+            handshake_bestaetigt=True, betrieb_angefordert=False, drive=False))
 
     def test_stop_keeps_process_and_manual_arm_needs_current_stop_ack(self):
         self.node.betrieb_setzen(True)
@@ -112,6 +114,47 @@ class PanelLifecycle(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         self.assertIn('verworfen', answer[0])
         self.assertFalse(self.node.betrieb['angefordert'])
+
+    def test_pending_start_requires_matching_process_handshake_and_stop_invalidates_ack(self):
+        self.node.betrieb_setzen(True)
+        self.assertTrue(self.node.start_wartet)
+        self.assertFalse(self.node.betrieb['angefordert'])
+        self.node._set('lf', {'process_id': 'new-process', 'drive': False})
+        self.node.betrieb_senden()
+        pending = dict(self.node.betrieb)
+        self.assertEqual(pending['target_process_id'], 'new-process')
+        ack = dict(pending, process_id='new-process', drive=False,
+                   betrieb_angefordert=False, handshake_bestaetigt=True)
+        self.node._set('lf', ack)
+        self.node.betrieb_senden()
+        self.assertTrue(self.node.betrieb['angefordert'])
+        self.assertGreater(self.node.betrieb['generation'], pending['generation'])
+        self.node.betrieb_setzen(False)
+        self.node.betrieb_setzen(True)
+        pending = dict(self.node.betrieb)
+        self.node.betrieb_setzen(False)  # STOPP gewinnt vor verspaeteter Quittung.
+        self.node._set('lf', dict(pending, process_id='new-process', drive=False,
+            betrieb_angefordert=False, handshake_bestaetigt=True))
+        self.node.betrieb_senden()
+        self.assertFalse(self.node.start_wartet)
+        self.assertFalse(self.node.betrieb['angefordert'])
+
+    def test_explicit_new_start_after_process_restart_rebinds_only_inactive(self):
+        self.ack_stop()
+        self.node.betrieb_setzen(True)
+        self.node._set('lf', dict(self.node.betrieb, process_id='test-process', drive=False,
+            betrieb_angefordert=False, handshake_bestaetigt=True))
+        self.node.betrieb_senden()
+        self.assertTrue(self.node.betrieb['angefordert'])
+        old = dict(self.node.betrieb)
+        self.node._set('lf', {'process_id': 'restarted-process', 'drive': False})
+        self.node.betrieb_senden()
+        self.assertEqual(self.node.betrieb, old)  # Normaler HB bindet nicht neu.
+        self.node.betrieb_setzen(True)  # Neue bewusste Bedienung darf handshaken.
+        self.assertTrue(self.node.start_wartet)
+        self.assertFalse(self.node.betrieb['angefordert'])
+        self.assertEqual(self.node.betrieb['target_process_id'], 'restarted-process')
+        self.assertGreater(self.node.betrieb['generation'], old['generation'])
 
 
 if __name__ == '__main__':

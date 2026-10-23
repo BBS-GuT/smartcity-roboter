@@ -14,12 +14,14 @@ q = c.q
 
 
 def request(g=1, active=True, session='panel', sid=None):
-    return dict(session_id=session, generation=g, start_id=sid or str(g), angefordert=active)
+    return dict(target_process_id='test-process', session_id=session, generation=g, start_id=sid or str(g), angefordert=active)
 
 
 class Lifecycle(unittest.TestCase):
     def test_initial_stop_and_delayed_readiness(self):
         b = Betriebsfreigabe()
+        b.process_id = 'test-process'
+        b.empfang(request(0, False), -.1)
         self.assertFalse(b.pruefen(True, 0))
         b.empfang(request(), 0)
         self.assertFalse(b.pruefen(False, .1))
@@ -27,6 +29,8 @@ class Lifecycle(unittest.TestCase):
 
     def test_stop_invalidates_old_start_and_duplicate_cannot_reenable(self):
         b = Betriebsfreigabe()
+        b.process_id = 'test-process'
+        b.empfang(request(0, False), -.1)
         b.empfang(request(), 0)
         b.empfang(request(2, False), .1)
         self.assertFalse(b.empfang(request(), .2))
@@ -38,6 +42,8 @@ class Lifecycle(unittest.TestCase):
 
     def test_heartbeat_loss_latches_until_new_start(self):
         b = Betriebsfreigabe()
+        b.process_id = 'test-process'
+        b.empfang(request(0, False), -.1)
         b.empfang(request(), 0)
         self.assertTrue(b.pruefen(True, 0))
         self.assertFalse(b.pruefen(True, .7))
@@ -48,6 +54,8 @@ class Lifecycle(unittest.TestCase):
 
     def test_new_panel_session_stops_and_rejects_retired_heartbeat(self):
         b = Betriebsfreigabe()
+        b.process_id = 'test-process'
+        b.empfang(request(0, False), -.1)
         b.empfang(request(), 0)
         self.assertTrue(b.pruefen(True, 0))
         self.assertFalse(b.empfang(request(session='new'), .1))
@@ -56,6 +64,20 @@ class Lifecycle(unittest.TestCase):
         self.assertFalse(b.empfang(request(), .3))
         b.empfang(request(1, True, 'new'), .4)
         self.assertTrue(b.pruefen(True, .4))
+
+    def test_new_process_rejects_inherited_active_and_replayed_old_process_handshake(self):
+        old = Betriebsfreigabe()
+        new = Betriebsfreigabe()
+        inherited = dict(request(), target_process_id=old.process_id)
+        self.assertFalse(new.empfang(inherited, 0))
+        self.assertFalse(new.empfang(dict(inherited, angefordert=False), .1))
+        self.assertFalse(new.empfang(dict(inherited, target_process_id=new.process_id), .2))
+        self.assertFalse(new.pruefen(True, .2))
+        handshake = dict(request(2, False), target_process_id=new.process_id)
+        self.assertTrue(new.empfang(handshake, .3))
+        self.assertFalse(new.pruefen(True, .3))
+        self.assertTrue(new.empfang(dict(request(3), target_process_id=new.process_id), .4))
+        self.assertTrue(new.pruefen(True, .4))
 
 
 class Publisher(unittest.TestCase):
@@ -68,7 +90,10 @@ class Publisher(unittest.TestCase):
         return n
 
     def send(self, n, req):
-        n.on_betrieb(SimpleNamespace(data=json.dumps(req)))
+        if not n.betrieb.handshake_bestaetigt:
+            n.on_betrieb(SimpleNamespace(data=json.dumps(dict(request(0, False),
+                target_process_id=n.betrieb.process_id))))
+        n.on_betrieb(SimpleNamespace(data=json.dumps(dict(req, target_process_id=n.betrieb.process_id))))
 
     def test_initial_stop_current_start_and_old_ack_after_stop(self):
         n = self.node()
