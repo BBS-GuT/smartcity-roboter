@@ -156,6 +156,30 @@ class PanelLifecycle(unittest.TestCase):
         self.assertEqual(self.node.betrieb['target_process_id'], 'restarted-process')
         self.assertGreater(self.node.betrieb['generation'], old['generation'])
 
+    def test_current_start_spawns_new_follower_despite_fresh_old_follower_status(self):
+        self.node._set('ki', {'aktion': 'stopp'})
+        self.node._set('lf', {'process_id': 'old-dead-process', 'drive': True})
+        running = [False]
+        self.prozesse.laeuft.side_effect = lambda name: name == 'fahren' and running[0]
+        def spawn(name, *args, **kwargs):
+            self.assertEqual(name, 'fahren')
+            running[0] = True
+            self.node._set('lf', {'process_id': 'new-child-process', 'drive': False})
+            return True
+        self.prozesse.start.side_effect = spawn
+        self.post('start')
+        self.assertTrue(self.node.start_wartet)
+        self.assertFalse(self.node.betrieb['angefordert'])
+        self.node.betrieb_senden()
+        self.assertEqual(self.node.betrieb['target_process_id'], 'new-child-process')
+        self.node._set('lf', dict(self.node.betrieb, process_id='new-child-process',
+            drive=False, betrieb_angefordert=False, handshake_bestaetigt=True))
+        self.node.betrieb_senden()
+        self.assertTrue(self.node.betrieb['angefordert'])
+        self.assertFalse(self.node.start_wartet)
+        self.assertEqual(self.node.betrieb['target_process_id'], 'new-child-process')
+        self.prozesse.start.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()
