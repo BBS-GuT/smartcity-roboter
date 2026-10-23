@@ -98,6 +98,9 @@ def pflichtkanaele(scans, topics, jetzt, max_alter=1.0):
     topics = list(topics or [])
     if not topics:
         return [], 'keine LiDAR-Kanaele eingestellt (scan_topics leer)'
+    if len(set(topics)) != len(topics):
+        # z. B. ['/scan1', '/scan1']: der zweite LiDAR waere gar nicht Pflicht, obwohl zwei eingetragen sind
+        return [], 'scan_topics enthaelt einen Kanal doppelt (jeder LiDAR genau einmal)'
     gruende = []
     for t in topics:
         if t not in scans:
@@ -281,13 +284,18 @@ class Einbau:
 
 def einbau_aus_parametern(topics, frames, xy, quellen):
     """Einbau je Kanal aus den Parametern scan_frames, scan_einbau_xy ([x0, y0, x1, y1 ...]) und scan_einbau_quelle.
-    Rueckgabe: ({topic: Einbau}, None) oder (None, Grund), wenn die Listen nicht zusammenpassen."""
+    Rueckgabe: ({topic: Einbau}, None) oder (None, Grund), wenn die Listen nicht zusammenpassen.
+    Jeder Kanal und jeder Sensor-Frame genau einmal: ein doppelter Kanal haette zwei Posen, ein doppelter Frame
+    (z. B. beide Treiber 'laser') liesse vertauschte Topics unerkannt mit der Pose des anderen LiDARs rechnen.
+    Nur base_link darf mehrfach vorkommen (beide schon im Roboterbezug, ohne Verschiebung)."""
     topics, frames, xy, quellen = list(topics), list(frames), list(xy), list(quellen)
     n = len(topics)
     if not n or len(frames) != n or len(xy) != 2 * n or len(quellen) != n:
         return None, f'Einbauangaben passen nicht zu {n} Kanaelen (frames {len(frames)}, xy {len(xy)}, ' \
                      f'quellen {len(quellen)})'
-    einbau = {}
+    if len(set(topics)) != n:
+        return None, 'scan_topics enthaelt einen Kanal doppelt (jeder LiDAR genau einmal)'
+    einbau, belegt = {}, {}
     for k, t in enumerate(topics):
         if not isinstance(frames[k], str) or not frames[k].strip():
             return None, f'{t}: Frame fehlt'
@@ -298,6 +306,10 @@ def einbau_aus_parametern(topics, frames, xy, quellen):
         except (TypeError, ValueError):
             return None, f'{t}: Einbau x/y keine Zahlen'
         einbau[t] = Einbau(frames[k].strip(), x, y, quellen[k])
+        frame = einbau[t].frame
+        if frame != BASIS_FRAME and frame in belegt:
+            return None, f'Frame {frame!r} doppelt ({belegt[frame]} und {t}): Zuordnung LiDAR <-> Topic nicht pruefbar'
+        belegt[frame] = t
     return einbau, None
 
 

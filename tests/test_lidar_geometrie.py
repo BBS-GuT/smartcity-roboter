@@ -152,6 +152,23 @@ class Gueltigkeit(unittest.TestCase):
             with self.subTest(name):
                 self.assertEqual(lidar.einbau_aus_parametern(topics, *args)[0], None)
 
+    def test_kanal_und_frame_eindeutig(self):
+        # #64: widerspruechlicher Bezug -> keine Posen. Doppelter Kanal = zwei Posen fuer einen LiDAR; doppelter
+        # Sensor-Frame = vertauschte Topics waeren an der Framepruefung nicht mehr zu erkennen.
+        xy, quellen = [-0.1, 0.09, 0.1, -0.09], ['gemessen'] * 2
+        for name, topics, frames in [('Kanal doppelt', ['/scan1', '/scan1'], ['laser0_frame', 'laser1_frame']),
+                                     ('Frame doppelt', ['/scan0', '/scan1'], ['laser', 'laser']),
+                                     ('Frame doppelt mit Leerzeichen', ['/scan0', '/scan1'], ['laser', ' laser '])]:
+            with self.subTest(name):
+                einbau, grund = lidar.einbau_aus_parametern(topics, frames, xy, quellen)
+                self.assertIsNone(einbau)
+                self.assertIn('doppelt', grund)
+        # Gegenkontrolle: beide Treiber liefern schon im Roboterbezug (ohne Verschiebung) - eindeutig genug
+        einbau, grund = lidar.einbau_aus_parametern(['/scan0', '/scan1'], ['base_link', 'base_link'],
+                                                    [0.0] * 4, quellen)
+        self.assertIsNone(grund)
+        self.assertEqual(einbau['/scan1'], lidar.Einbau('base_link', 0.0, 0.0, 'gemessen'))
+
     def test_konfiguration_enthaelt_keine_vermessung(self):
         # Solange #66 keine gemessene RM01-Pose liefert, steht keine (Werks-)Pose als Kalibrierung in der Konfig
         with open(os.path.join(HIER, '..', 'config', 'roboter.yaml')) as f:
