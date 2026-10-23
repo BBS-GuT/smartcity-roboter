@@ -87,6 +87,23 @@ class Segment(unittest.TestCase):
         self.assertEqual(n.arm.fahre.call_count,1)
         self.assertEqual(result['aktionsstatus']['status'],'verworfen')
 
+    def test_after_release_only_measured_target_box_allows_withdrawal(self):
+        for point, allowed in (([.1,.2],True),([.1,.24],False)):
+            n,command=self.scene()
+            command=dict(command,raeumfreigabe=dict(command['raeumfreigabe'],
+                         segment_name='loslassen',segment_index=6))
+            first=self.run_segment(n,command)
+            self.assertEqual(first['aktionsstatus']['status'],'ausgefuehrt')
+            n.wahrnehmung.update(blick=None,tiefe_gueltig=False)
+            command=dict(command,raeumfreigabe=dict(command['raeumfreigabe'],phase='ausfuehren:2',
+                         segment_name='Arm hoch',segment_index=7))
+            xy=n.lidar_xy.copy()
+            with mock.patch.object(n,'lidar_pruefen',side_effect=lambda: (setattr(n,'lidar_xy',
+                 np.vstack((xy,[point]))) or (float('inf'),None,float('inf')))):
+                result=self.run_segment(n,command)
+            self.assertEqual(n.arm.fahre.call_count,2 if allowed else 1)
+            self.assertEqual(result['aktionsstatus']['status'],'ausgefuehrt' if allowed else 'verworfen')
+
 
 if __name__=='__main__':
     unittest.main()

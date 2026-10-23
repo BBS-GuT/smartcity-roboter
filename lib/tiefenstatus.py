@@ -135,3 +135,18 @@ def fahrraum_frei(w, hull, cfg):
               & (xy[:, 1] <= left) & (xy[:, 1] >= -right))
     corridor, _, _ = wegmaske(xy[:, 0], xy[:, 1], cfg, w.get('weg'))
     return not inside.any(), not bool(w.get('tiefe_objekte')) and not (corridor & (xy[:, 0] > front)).any()
+
+
+def ablage_frei(xy, ablage, radius, abgelegte_region=None):
+    """Only an expected deposited target's measured footprint may be excluded."""
+    if xy is None or ablage is None or len(ablage) != 3:
+        return False
+    points = np.asarray(xy).reshape(-1, 2)
+    occupied = np.hypot(points[:, 0]-ablage[0], points[:, 1]-ablage[1]) < radius
+    if abgelegte_region:
+        low, high = np.asarray(abgelegte_region['min'][:2]), np.asarray(abgelegte_region['max'][:2])
+        half = (high-low) / 2
+        if np.isfinite(half).all() and (half > 0).all():
+            expected = (np.abs(points-np.asarray(ablage[:2])) <= half).all(axis=1)
+            occupied &= ~expected
+    return not occupied.any()

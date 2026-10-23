@@ -63,7 +63,7 @@ import fahrtest       # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
-from tiefenstatus import Zielbestaetigung, tiefe_messung_gueltig, raeum_pruefung, fahrraum_frei  # noqa: E402
+from tiefenstatus import Zielbestaetigung, tiefe_messung_gueltig, raeum_pruefung, fahrraum_frei, ablage_frei  # noqa: E402
 import sensorstatus  # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
 from ablaeufe import LEBEWESEN, FAHRZEUGE, akteur_einordnen  # noqa: E402
@@ -196,6 +196,7 @@ class Zentrale(Node):
         self.betriebsepoche = None
         self.planbindung = None
         self.auftragbindung = None
+        self.ablage_erwartet = None
         self.odom_bewegung = None
         self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scan_lock = threading.Lock()  # Geometrie und Kanalstatus bilden genau einen Scanstand
@@ -786,6 +787,7 @@ class Zentrale(Node):
             self.arm_aktionen.clear()
             self.planbindung = None
             self.auftragbindung = None
+            self.ablage_erwartet = None
         self.betriebsepoche = epoche
         self.entscheider.fahrt_aktiv = aktiv
         w['betrieb'] = dict(ids, betrieb_freigegeben=aktiv)
@@ -810,12 +812,16 @@ class Zentrale(Node):
             plan = json.dumps(plan_daten, sort_keys=True)
             ablage = plan_daten.get('ablage')
             xy = w.get('lidar_xy')
-            ablage_frei = bool(ablage and len(ablage) == 3 and xy is not None and w.get('lidar') is not None)
-            if ablage_frei:
-                xy = np.asarray(xy).reshape(-1, 2)
-                ablage_frei = not (np.hypot(xy[:, 0]-ablage[0], xy[:, 1]-ablage[1]) < armlib.ABLAGE_FREI).any()
-            w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_frei
             key = (r.get('auftrag_id'), r.get('ziel_id'), epoche, plan)
+            erwartete_region = None
+            if (self.ablage_erwartet and self.ablage_erwartet[0] == key
+                    and r.get('segment_name') in ('Arm hoch', 'zurueck in Fahrstellung')
+                    and isinstance(r.get('segment_index'), int)
+                    and r['segment_index'] > self.ablage_erwartet[1] and self.planbindung):
+                erwartete_region = self.planbindung[1]['region']
+            ablage_ok = (w.get('lidar') is not None and
+                         ablage_frei(xy, ablage, armlib.ABLAGE_FREI, erwartete_region))
+            w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_ok
             if (self.planbindung is None and aktiv and r.get('ziel_id') == w['raeumziel_id']
                     and w['raeumziel_freigegeben'] and w['raeum_umgebung_frei'] and w['chassis_frei']):
                 if w['strecke_gemessen'] and self.odom_pose is not None and self.odom_bewegung == (0., 0., 0.):
@@ -831,7 +837,7 @@ class Zentrale(Node):
                 if w.get('tiefe_gueltig') and w.get('tiefe_objekte'):
                     gebunden['tiefe_objekte'] = w['tiefe_objekte']
                 w.update(raeum_pruefung(gebunden, self.p('fahrzeug_grenzen'), time.monotonic(), self.boden.c))
-                w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_frei
+                w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_ok
                 w['zielbindung'] = 'vorher bestaetigter Plan; keine neue Tiefenmessung'
                 w['raeum_planbindung'] = {'auftrag_id': r['auftrag_id'], 'ziel_id': r['ziel_id']}
             else:
@@ -850,6 +856,7 @@ class Zentrale(Node):
             self.planbindung = None
             if ablauf is None or getattr(ablauf, 'name', None) != 'wegraeumen':
                 self.auftragbindung = None
+                self.ablage_erwartet = None
         if self.p('begleiteter_fahrbetrieb'):
             befehl = fahrtest.befehl_sichern(befehl, w, jetzt, time.monotonic(), self.kamera_lage()[0])
         self.aktionsstatus = befehl.get('aktionsstatus') or self.aktionsstatus
@@ -868,6 +875,8 @@ class Zentrale(Node):
                     self.arm_aktionen.add(key)
                     if r.get('phase', '').startswith('ausfuehren:') and self.planbindung:
                         self.auftragbindung = (r['auftrag_id'], r['ziel_id'], epoche, self.odom_abschnitt)
+                        if r.get('segment_name') == 'loslassen' and isinstance(r.get('segment_index'), int):
+                            self.ablage_erwartet = (self.planbindung[0], r['segment_index'])
             elif not erlaubt or self.arm is None:
                 self.aktionsstatus = dict(r, status='verworfen', grund='Arm oder Betrieb nicht freigegeben')
         befehl.update(ids)
