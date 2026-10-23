@@ -941,6 +941,30 @@ function zeigePosen(posen) {
 // ================= Status =================
 function chip(box, text, art) { const c = document.createElement('span'); c.className = 'chip' + (art ? ' ' + art : ''); c.textContent = text; box.appendChild(c); }
 const ABLAUF_NAME = { zebra: 'Zebrastreifen', wenden: 'Wenden', aufheben: 'Aufheben', umschauen: 'Umschauen' };
+function lidarAnzeige(ki) {
+  const d = ki.lidar, status = ki.lidar_status;
+  if (status && !status.daten_ok) return ['LiDAR: Daten abgewiesen (Diagnose siehe Sensoren)', 'rot'];
+  if (d == null) return [status && status.daten_ok ? 'LiDAR: Daten gültig; Abstand unbekannt' : 'LiDAR: Abstand unbekannt', 'gelb'];
+  return [d >= 5 ? 'LiDAR: kein Hindernistreffer im Weg' : `LiDAR: ${Math.round(d * 100)} cm im Weg`, d < 0.12 ? 'rot' : d < 0.45 ? 'gelb' : 'gruen'];
+}
+function sensorDiagnoseZeilen(s) {
+  const zeilen = [];
+  for (const [name, quelle] of [['Linienfolger', s.lf], ['KI', s.ki]]) {
+    if (!quelle) continue;
+    zeilen.push([name + ' · tatsächlicher Status', name === 'KI' ? quelle.grund || 'keine Meldung' : quelle.status || 'keine Meldung']);
+    if (quelle.betrieb_angefordert !== undefined) zeilen.push([name + ' · Betrieb',
+      `angefordert: ${!!quelle.betrieb_angefordert}; freigegeben: ${!!quelle.betrieb_freigegeben}; bereit: ${!!quelle.bereit}; Freigabeweg ausgefallen: ${!!quelle.freigabeweg_ausgefallen}; Session: ${quelle.session_id || '?'}; Generation: ${quelle.generation ?? '?'}; Start: ${quelle.start_id || '?'}`]);
+    if (quelle.bewegung) zeilen.push([name + ' · gemessene Bewegung', quelle.bewegung.gueltig ?
+      `linear: ${quelle.bewegung.linear}; quer: ${quelle.bewegung.quer}; angular: ${quelle.bewegung.angular}` : 'keine gültige Bewegungsmessung']);
+    if (quelle.lidar_abdeckung) zeilen.push([name + ' · räumliche Abdeckung', quelle.lidar_abdeckung + (quelle.begleiteter_fahrbetrieb ? ' · Messlücken werden ignoriert' : '')]);
+    for (const k of (quelle.lidar_status || {}).kanaele || []) {
+      const sek = v => v == null ? 'unbekannt' : v.toFixed(3) + ' s';
+      zeilen.push([name + ' · ' + k.topic,
+        `Empfang: ${k.empfang ? 'ja' : 'nein'}; Empfangsalter: ${sek(k.empfang_alter_s)}; Aufnahmealter: ${sek(k.aufnahme_alter_s)}; Qualität: ${k.qualitaet_ok === true ? 'akzeptiert' : 'nicht separat belegt'}; Zeit: ${k.zeit_ok === true ? 'aktuell' : k.zeit_ok === false ? 'abgewiesen' : 'unbekannt'}; Ablehnungsgrund: ${k.ablehnungsgrund || 'keiner'}`]);
+    }
+  }
+  return zeilen;
+}
 function zeigeDashboard() {
   const ki = S.ki, lf = S.lf;
   // Gedanke
@@ -955,6 +979,8 @@ function zeigeDashboard() {
   if (S.fahren) meta.push(S.modus);
   if (ki) meta.push('KI ' + ki.ki + (ki.ki_ms ? ` (${ki.ki_ms} ms/Bild)` : ''));
   if (lf) meta.push(`Linienfolger ${fmt(lf.fps, 0)} Bilder/s, ${fmt(Math.abs(lf.linear))} m/s`);
+  if (lf) meta.push('LF-Status: ' + (lf.status || 'keine Meldung'));
+  if (ki) meta.push('KI-Grund: ' + (ki.grund || 'keine Meldung'));
   $('g-meta').textContent = meta.join(' · ');
   // Lichter: Blinker-Kontrollleuchten blinken im Browser selbst (Statusabfrage alle 0,4 s waere zu grob)
   const licht = S.lichter || {};
@@ -975,7 +1001,8 @@ function zeigeDashboard() {
     if (ki.einfahrt_verboten) chip(box, 'Einfahrt verboten', 'rot');
     if (ki.zebra) chip(box, `Zebrastreifen ${Math.round(ki.zebra.abstand * 100)} cm`, 'gelb');
     const d = ki.lidar;
-    chip(box, d == null ? 'LiDAR fehlt' : d >= 5 ? 'LiDAR: Weg frei' : `LiDAR: ${Math.round(d * 100)} cm im Weg`, d == null || d < 0.12 ? 'rot' : d < 0.45 ? 'gelb' : 'gruen');
+    chip(box, ...lidarAnzeige(ki));
+    if (ki.lidar_abdeckung) chip(box, 'LiDAR-Abdeckung: ' + ki.lidar_abdeckung + (ki.begleiteter_fahrbetrieb ? ' · Messlücken ignoriert' : ''), 'aus');
     chip(box, ki.tiefe_hindernis === null ? 'Tiefe lernt ...' : ki.tiefe_hindernis ? 'Tiefe: Hindernis' : 'Tiefe: frei', ki.tiefe_hindernis ? 'rot' : ki.tiefe_hindernis === false ? 'gruen' : 'aus');
   }
   if (lf && lf.bewegung_quelle) chip(box, 'Bewegung: ' + lf.bewegung_quelle, lf.bewegung_quelle === 'Fahrbefehle' && S.fahren ? 'gelb' : '');
@@ -1020,14 +1047,18 @@ function zeigeSensoren() {
     const tr = tab.insertRow();
     tr.insertCell().textContent = x.name; tr.insertCell().textContent = x.topic;
     tr.insertCell().textContent = x.hz === null ? '' : fmt(x.hz, 1) + ' Hz';
-    const z = tr.insertCell(); z.textContent = x.ok === null ? 'Info' : x.ok ? 'OK' : 'FEHLT';
+    const z = tr.insertCell(); z.textContent = x.ok === null ? 'Info' : x.ok ? 'Empfang aktiv (keine Freigabeaussage)' : 'kein aktueller Empfang';
     z.className = x.ok === null ? '' : x.ok ? 'ok' : 'schlecht';
+  }
+  for (const [name, text] of sensorDiagnoseZeilen(S)) {
+    const tr = tab.insertRow(); tr.insertCell().textContent = name;
+    const z = tr.insertCell(); z.colSpan = 3; z.textContent = text;
   }
   $('board-diagnose').hidden = !S.board_diagnose;
   $('board-diagnose').textContent = S.board_diagnose || '';
   const pt = $('programmtabelle'); pt.innerHTML = '';
   for (const [name, an, text] of [['KI-Zentrale', !!S.ki, ''], ['Kartograf', S.kartograf, ''],
-                                  ['Linienfolger', S.fahren, S.fahren && !S.lf ? 'läuft, meldet sich aber nicht' : '']]) {
+                                  ['Linienfolger', !!S.lf, S.fahren && !S.lf ? 'Betrieb angefordert, keine Statusmeldung' : '']]) {
     const tr = pt.insertRow(); tr.insertCell().textContent = name;
     const fremd = (S.fremde || []).includes(name);
     const z = tr.insertCell();
