@@ -9,7 +9,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'lib'))
 from tiefe import Bodenmodell
-from tiefenstatus import Zielbestaetigung, strahlen, wegmaske, tiefe_messung_gueltig
+from tiefenstatus import Zielbestaetigung, strahlen, wegmaske, tiefe_messung_gueltig, raeum_pruefung, fahrraum_frei
 
 ASSET = ROOT / 'lib' / 'bodenreferenz_rm01.npz'
 with np.load(ASSET) as data:
@@ -101,6 +101,38 @@ class Corridor(unittest.TestCase):
 
 
 class Target(unittest.TestCase):
+    def scene(self):
+        obj = dict(ziel_id='t1', bestaetigt=True, messzeit=10., vor=.3, seite=0.,
+                   breite=.04, hoehe=.05, region={'min':[.3,-.02,.02], 'max':[.34,.02,.05]})
+        return dict(objekt=obj,tiefe_gueltig=True,lidar=float('inf'),
+                    lidar_xy=np.array([[.31,0.]]),tiefe_objekte=[obj],
+                    aufnahme=100.,tiefe_aufnahme=100.,tiefe_empfang=10.)
+
+    def test_only_exact_target_is_excluded_other_objects_remain(self):
+        w = self.scene()
+        hull = [.2,.2,.15,.15]
+        result = raeum_pruefung(w,hull,10.1,jetzt=100.1)
+        self.assertTrue(all(result[k] for k in ('raeumziel_freigegeben','raeum_umgebung_frei','chassis_frei')))
+        w['lidar_xy'] = np.array([[.31,0.],[.4,.03]])
+        self.assertFalse(raeum_pruefung(w,hull,10.1,jetzt=100.1)['raeum_umgebung_frei'])
+        w = self.scene()
+        w['tiefe_objekte'].append(dict(w['objekt'],ziel_id='other'))
+        self.assertFalse(raeum_pruefung(w,hull,10.1,jetzt=100.1)['raeum_umgebung_frei'])
+        self.assertFalse(raeum_pruefung(self.scene(),[.32,.2,.15,.15],10.1,jetzt=100.1)['chassis_frei'])
+
+    def test_old_mismatched_data_cannot_bind_a_plan(self):
+        for change in ({'tiefe_aufnahme':99.}, {'aufnahme':99.8}, {'tiefe_empfang':9.},
+                       {'tiefe_gueltig':False}, {'tiefe_aufnahme':None}):
+            w = dict(self.scene(),**change)
+            self.assertFalse(raeum_pruefung(w,[.2,.2,.15,.15],10.1,jetzt=100.1)['raeumziel_freigegeben'])
+
+    def test_post_grasp_checks_exclude_no_object(self):
+        w = self.scene()
+        cfg = dict(weg_breite=.15,weg_laenge=.6)
+        self.assertEqual(fahrraum_frei(w,[.2,.2,.15,.15],cfg),(True,False))
+        w.update(tiefe_objekte=[],lidar_xy=np.empty((0,2)))
+        self.assertEqual(fahrraum_frei(w,[.2,.2,.15,.15],cfg),(True,True))
+
     def test_only_distinct_recent_consistent_measurements_confirm(self):
         z = Zielbestaetigung()
         obj = dict(vor=.2, seite=.01, breite=.04, hoehe=.05, region={'min':[.2,0,0],'max':[.24,.04,.05]})

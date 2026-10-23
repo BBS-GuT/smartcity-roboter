@@ -84,3 +84,54 @@ class Zielbestaetigung:
                            blick=pose, messzeit=zeit, bestaetigt=self.anzahl >= 3,
                            messungen=self.anzahl)
         return dict(self.objekt)
+
+
+def raeum_pruefung(w, hull, monoton, cfg=None, jetzt=None):
+    """Exclude only the confirmed object's exact measured rectangle from other hits."""
+    obj = w.get('objekt') or {}
+    result = dict(raeumziel_id=obj.get('ziel_id'), raeumziel_freigegeben=False,
+                  raeum_umgebung_frei=False, chassis_frei=False)
+    region = obj.get('region') or {}
+    if not (obj.get('bestaetigt') is True and w.get('tiefe_gueltig') is True
+            and 0 <= monoton - obj.get('messzeit', -math.inf) <= .5
+            and len(hull) == 4 and all(math.isfinite(v) and v > 0 for v in hull)
+            and 'min' in region and 'max' in region):
+        return result
+    if jetzt is not None:
+        rgb, depth, receive = w.get('aufnahme'), w.get('tiefe_aufnahme'), w.get('tiefe_empfang')
+        if (any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in (rgb, depth, receive))
+                or not 0 <= jetzt-rgb <= .5 or not 0 <= jetzt-depth <= .5
+                or not 0 <= monoton-receive <= .5 or abs(rgb-depth) > .15):
+            return result
+    result['raeumziel_freigegeben'] = True
+    low, high = np.asarray(region['min']), np.asarray(region['max'])
+    xy = w.get('lidar_xy')
+    if xy is None or w.get('lidar') is None:
+        return result
+    xy = np.asarray(xy).reshape(-1, 2)
+    front, back, left, right = hull
+    inside = ((xy[:, 0] <= front) & (xy[:, 0] >= -back)
+              & (xy[:, 1] <= left) & (xy[:, 1] >= -right))
+    target_inside = low[0] <= front and high[0] >= -back and low[1] <= left and high[1] >= -right
+    result['chassis_frei'] = not target_inside and not inside.any()
+    in_target = ((xy >= low[:2]) & (xy <= high[:2])).all(axis=1)
+    # Check the entire visible depth corridor, retaining every other component;
+    # no broad target cone and no general obstacle suppression.
+    corridor, _, _ = wegmaske(xy[:, 0], xy[:, 1], cfg or
+                              {'weg_breite': max(left, right), 'weg_laenge': .6}, w.get('weg'))
+    other_front = (~in_target) & (xy[:, 0] > front) & corridor
+    result['raeum_umgebung_frei'] = len(w.get('tiefe_objekte') or []) == 1 and not other_front.any()
+    return result
+
+
+def fahrraum_frei(w, hull, cfg):
+    """Post-grasp check: no selected-object exclusion remains."""
+    if (len(hull) != 4 or not all(math.isfinite(v) and v > 0 for v in hull)
+            or w.get('lidar') is None or w.get('lidar_xy') is None):
+        return False, False
+    xy = np.asarray(w['lidar_xy']).reshape(-1, 2)
+    front, back, left, right = hull
+    inside = ((xy[:, 0] <= front) & (xy[:, 0] >= -back)
+              & (xy[:, 1] <= left) & (xy[:, 1] >= -right))
+    corridor, _, _ = wegmaske(xy[:, 0], xy[:, 1], cfg, w.get('weg'))
+    return not inside.any(), not bool(w.get('tiefe_objekte')) and not (corridor & (xy[:, 0] > front)).any()

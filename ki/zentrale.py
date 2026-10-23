@@ -63,6 +63,8 @@ import fahrtest       # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
+from tiefenstatus import Zielbestaetigung, tiefe_messung_gueltig, raeum_pruefung, fahrraum_frei  # noqa: E402
+import sensorstatus  # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
 from ablaeufe import LEBEWESEN, FAHRZEUGE, akteur_einordnen  # noqa: E402
 
@@ -106,6 +108,8 @@ class Zentrale(Node):
         dp('weg_min_conf', 0.5)         # so sicher muss sie sein, damit "im Weg" zum Anhalten fuehrt
         dp('image_topic', '/camera/color/image_raw')
         dp('depth_topic', '/camera/depth/image_raw')
+        dp('depth_info_topic', '/camera/depth/camera_info')
+        dp('bodenreferenz', os.path.join(REPO, 'lib', 'bodenreferenz_rm01.npz'))
         dp('tiefe_nutzen', True)
         dp('begleiteter_fahrbetrieb', False)
         self.add_on_set_parameters_callback(fahrtest.parameter_aenderung)
@@ -185,6 +189,14 @@ class Zentrale(Node):
         self.bild = None                # neuestes Kamerabild (ROS-Nachricht)
         self.tiefe = None
         self.tiefe_ausgewertet, self.tiefe_nr = None, 0   # zuletzt ausgewertetes Tiefenbild, Zaehler
+        self.tiefeninfo = None
+        self.zielbestaetigung = Zielbestaetigung()
+        self.aktionsstatus = None
+        self.arm_aktionen = set()
+        self.betriebsepoche = None
+        self.planbindung = None
+        self.auftragbindung = None
+        self.odom_bewegung = None
         self.bild_empfang = self.tiefe_empfang = None   # monotone Empfangszeit (Paarpruefung Farbe/Tiefe)
         self.scan_lock = threading.Lock()  # Geometrie und Kanalstatus bilden genau einen Scanstand
         self.scans = {}
@@ -196,8 +208,10 @@ class Zentrale(Node):
         # Tiefenkamera prueft denselben Fahrweg wie der LiDAR (halbe Fahrschlauch-Breite)
         self.boden = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
         self.kalibriertes_bodenmodell = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
-        # The explicitly calibrated partial-coverage model must never learn a newly placed obstacle as floor.
-        self.kalibriertes_bodenmodell.gelernt = self.kalibriertes_bodenmodell.c['lern_bilder']
+        try:
+            self.kalibriertes_bodenmodell.lade_referenz(self.p('bodenreferenz'), self.posen.get('fahrstellung'))
+        except (OSError, ValueError, KeyError) as e:
+            self.get_logger().warn(f'Bodenreferenz nicht verwendbar: {e}')
         self.lidar_luecke = None
         # Pruefblick (Kamera steiler nach unten, fuer Hindernisse zu nah fuer die Fahrstellung): eigenes Kameramodell
         self.boden_pruef = None
@@ -210,8 +224,11 @@ class Zentrale(Node):
                 cfg = None
             if cfg:
                 self.boden_pruef = Bodenmodell(cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
-                # wird nie gelernt (Boden dort unbekannt): sofort mit Korrektur 0 messen, sonst lieferte es nie etwas
-                self.boden_pruef.gelernt = self.boden_pruef.c['lern_bilder']
+                # A named look pose is not evidence of a different calibrated view.
+                try:
+                    self.boden_pruef.lade_referenz(self.p('bodenreferenz'), self.posen['pruefblick'])
+                except (OSError, ValueError, KeyError):
+                    self.boden_pruef = None
         self.ampel_werte = lade_ampel_werte()
 
         self.yolo, self.yolo_fehler = None, ''
@@ -243,6 +260,13 @@ class Zentrale(Node):
         self.create_subscription(Image, self.p('image_topic'), self._bild, nur_neuestes)
         if self.p('tiefe_nutzen'):
             self.create_subscription(Image, self.p('depth_topic'), self._tiefe, nur_neuestes)
+            # CameraInfo is required to match the measured reference intrinsics.
+            try:
+                from sensor_msgs.msg import CameraInfo
+            except ImportError:
+                CameraInfo = None  # Test stubs; without metadata reference remains unusable.
+            if CameraInfo is not None:
+                self.create_subscription(CameraInfo, self.p('depth_info_topic'), self._tiefeninfo, nur_neuestes)
         for i, t in enumerate(self.p('scan_topics')):
             self.create_subscription(LaserScan, t, lambda m, t=t, i=i: self._scan(m, t, i),
                                      qos_profile_sensor_data)
@@ -322,6 +346,9 @@ class Zentrale(Node):
         with self.lock:
             self.tiefe, self.tiefe_empfang = msg, time.monotonic()
 
+    def _tiefeninfo(self, msg):
+        self.tiefeninfo = (list(msg.k), (msg.height, msg.width), msg.header.frame_id, time.monotonic())
+
     def _scan(self, msg, topic, i):
         empfang = time.monotonic()
         fronts = self.p('scan_front_deg')
@@ -372,6 +399,7 @@ class Zentrale(Node):
             self.odom_abschnitt += 1
         dt = min(0.2, jetzt - self.odom_zeit) if self.odom_zeit else 0.0
         self.odom_zeit = jetzt
+        self.odom_bewegung = (msg.twist.twist.linear.x, msg.twist.twist.linear.y, msg.twist.twist.angular.z)
         p, q = msg.pose.pose.position, msg.pose.pose.orientation
         w = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
         alt, self.odom_pose = self.odom_pose, (p.x, p.y, w)
@@ -420,7 +448,8 @@ class Zentrale(Node):
             return None
         if self.lidar_sicht is not None:
             sicht = self.lidar_sicht
-            return sicht.hinten(self.p('fahrschlauch_breite') / 2)
+            return sicht.hinten(self.p('fahrschlauch_breite') / 2,
+                                abdeckung_pflicht=not self.p('begleiteter_fahrbetrieb'))
         xy = self.lidar_xy
         hinten = xy[(xy[:, 0] < -0.05) & (np.abs(xy[:, 1]) < self.p('fahrschlauch_breite') / 2)]
         frei = float(-hinten[:, 0].max()) if len(hinten) else 5.0
@@ -606,29 +635,54 @@ class Zentrale(Node):
                 o['spielfigur'] = spielfigur(o['box'], o['abstand'], (h, w), self.p('kamera_fov'),
                                              self.p('figur_max_hoehe'))
         tiefe_hindernis, tiefe_obj, blick, pruef_tiefe = None, None, None, None
-        if d is not None and fahrstellung:
+        modell, tiefe_objekte = None, []
+        info = self.tiefeninfo
+        pose_ab = self.arm_beobachter.zeit + self.arm_beobachter.dauer + .3 if self.arm_beobachter.winkel else 0
+        neue_pose_bilder = all(isinstance(s, (int, float)) and s > pose_ab
+                              for s in (stempel(msg), stempel(tmsg)))
+        paar_ok = bool(d is not None and tmsg.encoding in ('16UC1', '32FC1')
+                       and tmsg.header.frame_id == msg.header.frame_id
+                       and tiefe_passt(stempel(msg), stempel(tmsg), *empfang)
+                       and neue_pose_bilder)
+        if paar_ok and fahrstellung:
             blick = 'fahr'
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
             if self.p('begleiteter_fahrbetrieb'):
-                tiefe_hindernis, tiefe_obj = self.kalibriertes_bodenmodell.pruefe(d, lernen=False, linie_voraus=self.weg_voraus())
+                modell = self.kalibriertes_bodenmodell
+                ref_ok = bool(info and time.monotonic() - info[3] < 1.0
+                              and info[1] == d.shape and info[2] == tmsg.header.frame_id
+                              and modell.referenz_passt(d.shape, tmsg.header.frame_id,
+                                                       self.posen.get('fahrstellung'), info[0]))
+                if ref_ok:
+                    tiefe_hindernis, tiefe_obj = modell.pruefe(d, lernen=False, linie_voraus=self.weg_voraus())
             else:
-                tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
+                modell = self.boden
+                tiefe_hindernis, tiefe_obj = modell.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
             if tiefe_obj:
                 tiefe_obj['quelle'] = 'tiefe'
-        elif (d is not None and self.boden_pruef is not None
+        elif (paar_ok and self.boden_pruef is not None
               and self.arm_beobachter.in_pose(self.posen['pruefblick'], time.time())):
             # Arm steht im Pruefblick: mit dessen Kameramodell messen (Boden dort nicht gelernt -> nicht lernen)
             blick = 'pruef'
-            tiefe_hindernis, tiefe_obj = self.boden_pruef.pruefe(d, lernen=False)
+            modell = self.boden_pruef
+            if (info and time.monotonic() - info[3] < 1.0 and info[1] == d.shape
+                    and info[2] == tmsg.header.frame_id
+                    and modell.referenz_passt(d.shape, tmsg.header.frame_id, self.posen['pruefblick'], info[0])):
+                tiefe_hindernis, tiefe_obj = modell.pruefe(d, lernen=False, linie_voraus=self.weg_voraus())
             # Diagnose (Pruefblick sah am 21.10. nie etwas): misst die Tiefenkamera so nah ueberhaupt?
-            t = self.boden_pruef._t
-            gut = np.isfinite(t)
-            pruef_tiefe = (float(gut.mean()), float(t[gut].min()) if gut.any() else None)
+            t = getattr(self.boden_pruef, '_t', None)
+            if t is not None:
+                gut = np.isfinite(t)
+                pruef_tiefe = (float(gut.mean()), float(t[gut].min()) if gut.any() else None)
             if tiefe_obj:
                 tiefe_obj.update(quelle='tiefe', blick='pruef', blick_winkel=list(self.posen['pruefblick']))
         if blick and tmsg is not self.tiefe_ausgewertet:   # neues Tiefenbild (sonst wird das alte nur nochmal gerechnet)
             self.tiefe_ausgewertet, self.tiefe_nr = tmsg, self.tiefe_nr + 1
+        if modell is not None and tiefe_hindernis is not None:
+            tiefe_objekte = [dict(o, quelle='tiefe', blick=blick) for o in modell.objekte]
+        tiefe_obj = self.zielbestaetigung.update(tiefe_objekte, stempel(tmsg),
+                                                empfang[1] or time.monotonic(), blick)
 
         self.ki_ms = (time.time() - t0) * 1000
         with self.lock:
@@ -641,10 +695,9 @@ class Zentrale(Node):
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
                                 'tiefe_aufnahme': stempel(tmsg), 'tiefe_empfang': empfang[1],
-                                'tiefe_gueltig': bool(d is not None and tmsg.encoding in ('16UC1', '32FC1')
-                                                      and getattr(tmsg.header, 'frame_id', '')
-                                                      and tmsg.header.frame_id == msg.header.frame_id
-                                                      and fahrtest.tiefe_messung_gueltig(d, self.kalibriertes_bodenmodell)),
+                                'tiefe_gueltig': bool(paar_ok and modell is not None and tiefe_hindernis is not None
+                                                      and tiefe_messung_gueltig(d, modell, self.weg_voraus())),
+                                'tiefe_objekte': tiefe_objekte,
                                 'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
                                 'tiefe_nr': self.tiefe_nr,   # zaehlt nur neue, ausgewertete Tiefenbilder
                                 'pruef_tiefe': pruef_tiefe,  # Pruefblick: (Anteil gueltige Tiefe, naechster Wert m)
@@ -724,22 +777,92 @@ class Zentrale(Node):
         w['strecke_gemessen'] = jetzt - self.odom_zeit < ODOM_FRISCH
         w['odom_abschnitt'] = self.odom_abschnitt   # gleich = seitdem ohne Luecke gemessen
         st = self.linie_status
-        # Faehrt das Fahrprogramm wirklich? Nur dann darf die KI den Arm bewegen (nicht im TEST, nicht nach STOPP)
-        self.entscheider.fahrt_aktiv = bool(st.get('drive')) and jetzt - st.get('_zeit', 0.0) < 1.0
+        frisch = 0 <= jetzt - st.get('_zeit', 0.0) < .6
+        ids = {k: st.get(k) if frisch else None for k in ('session_id', 'generation', 'start_id')}
+        epoche = tuple(ids.values())
+        aktiv = bool(frisch and st.get('betrieb_freigegeben') is True and st.get('drive'))
+        if epoche != self.betriebsepoche or not aktiv:
+            self.aktionsstatus = None
+            self.arm_aktionen.clear()
+            self.planbindung = None
+            self.auftragbindung = None
+        self.betriebsepoche = epoche
+        self.entscheider.fahrt_aktiv = aktiv
+        w['betrieb'] = dict(ids, betrieb_freigegeben=aktiv)
+        w['aktionsquittung_pflicht'] = True
+        lf_antwort = st.get('aktionsstatus') if frisch else None
+        w['aktionsstatus'] = (lf_antwort if self.befehl.get('manoever') else self.aktionsstatus)
+        w['lidar_luecken_ignorieren'] = self.p('begleiteter_fahrbetrieb')
         w['linie'] = {'kamera': bool(st.get('linie_kamera')), 'quer': st.get('linie_quer'), 'kurs': st.get('linie_kurs'),
                       'kamera_quer': st.get('kamera_quer'), 'kamera_kurs': st.get('kamera_kurs')}
         # Hindernis fuer Aufheben/Anhalten: Tiefenkamera (sieht auch Flaches), sonst LiDAR
         if lid_obj and lid_obj['abstand'] >= self.entscheider.c['pruef_dist']:
             lid_obj = None
         w['objekt'] = w.get('tiefe_objekt') or lid_obj
+        w.update(raeum_pruefung(w, self.p('fahrzeug_grenzen'), time.monotonic(), self.boden.c, jetzt))
         befehl = self.entscheider.update(jetzt, w)
+        r = befehl.get('raeumfreigabe') or {}
+        ablauf = self.entscheider.ablauf
+        # A complete precomputed arm chain uses its initial target binding while
+        # the arm camera moves. This is explicitly not a new depth observation.
+        if r.get('phase', '').startswith('ausfuehren:'):
+            plan = json.dumps(getattr(ablauf, 'plan', None), sort_keys=True)
+            key = (r.get('auftrag_id'), r.get('ziel_id'), epoche, plan)
+            if (self.planbindung is None and aktiv and r.get('ziel_id') == w['raeumziel_id']
+                    and w['raeumziel_freigegeben'] and w['raeum_umgebung_frei'] and w['chassis_frei']):
+                if w['strecke_gemessen'] and self.odom_pose is not None and self.odom_bewegung == (0., 0., 0.):
+                    self.planbindung = (key, dict(w['objekt']), list(w.get('tiefe_objekte') or []),
+                                        self.odom_pose, self.odom_abschnitt)
+            binding = self.planbindung
+            if (binding and binding[0] == key and w['strecke_gemessen']
+                    and self.odom_abschnitt == binding[4] and self.odom_pose == binding[3]
+                    and self.odom_bewegung == (0., 0., 0.)):
+                gebunden = dict(w, objekt=dict(binding[1], messzeit=time.monotonic()),
+                                tiefe_objekte=binding[2], tiefe_gueltig=True)
+                # A new calibrated measurement of another object still vetoes.
+                if w.get('tiefe_gueltig') and w.get('tiefe_objekte'):
+                    gebunden['tiefe_objekte'] = w['tiefe_objekte']
+                w.update(raeum_pruefung(gebunden, self.p('fahrzeug_grenzen'), time.monotonic(), self.boden.c))
+                w['zielbindung'] = 'vorher bestaetigter Plan; keine neue Tiefenmessung'
+                w['raeum_planbindung'] = {'auftrag_id': r['auftrag_id'], 'ziel_id': r['ziel_id']}
+            else:
+                w['raeumziel_freigegeben'] = False
+        elif (getattr(ablauf, 'phase', None) in ('rueckweg', 'kontrolle') and self.auftragbindung
+              and self.auftragbindung[0] == getattr(ablauf, 'auftrag_id', None)
+              and self.auftragbindung[1] == getattr(ablauf, 'ziel_id', None)
+              and self.auftragbindung[2] == epoche and self.auftragbindung[3] == self.odom_abschnitt
+              and w['strecke_gemessen'] and w.get('blick') == 'fahr' and w.get('tiefe_gueltig') is True
+              and getattr(ablauf, 'nr', -1) >= len(getattr(ablauf, 'schritte', []))):
+            chassis, umgebung = fahrraum_frei(w, self.p('fahrzeug_grenzen'), self.boden.c)
+            w.update(raeumziel_id=ablauf.ziel_id, raeumziel_freigegeben=True,
+                     chassis_frei=chassis, raeum_umgebung_frei=umgebung,
+                     zielbindung='Auftragsbindung nach Aufnahme, Ziel nicht neu gesehen')
+        elif getattr(ablauf, 'phase', None) != 'ausfuehren':
+            self.planbindung = None
+            if ablauf is None or getattr(ablauf, 'name', None) != 'wegraeumen':
+                self.auftragbindung = None
         if self.p('begleiteter_fahrbetrieb'):
             befehl = fahrtest.befehl_sichern(befehl, w, jetzt, time.monotonic(), self.kamera_lage()[0])
-        # Arm nur, wenn freigegeben (zurueck in die Fahrstellung darf er immer)
+        self.aktionsstatus = befehl.get('aktionsstatus') or self.aktionsstatus
+        # One software acknowledgement for each unique authorised arm segment.
         arm = befehl['arm']
-        zurueck = arm == 'fahrstellung' or (isinstance(arm, dict) and arm.get('pose') == 'fahrstellung')
-        if arm and self.arm is not None and (self.entscheider.arm_freigabe or zurueck):
-            self._arm_befehl(befehl['arm'])
+        r = befehl.get('raeumfreigabe') or {}
+        key = (r.get('auftrag_id'), r.get('phase'), epoche)
+        if arm:
+            erlaubt = aktiv and self.entscheider.arm_freigabe and (
+                not self.p('begleiteter_fahrbetrieb') or r.get('zugelassen') is True)
+            if erlaubt and self.arm is not None and (not r or key not in self.arm_aktionen):
+                fehler = self._arm_befehl(arm)
+                self.aktionsstatus = dict(r, status='verworfen' if fehler else 'ausgefuehrt',
+                                         grund=fehler or 'Armsegment gesendet; keine Istpositionsrueckmeldung')
+                if not fehler and r:
+                    self.arm_aktionen.add(key)
+                    if r.get('phase', '').startswith('ausfuehren:') and self.planbindung:
+                        self.auftragbindung = (r['auftrag_id'], r['ziel_id'], epoche, self.odom_abschnitt)
+            elif not erlaubt or self.arm is None:
+                self.aktionsstatus = dict(r, status='verworfen', grund='Arm oder Betrieb nicht freigegeben')
+        befehl.update(ids)
+        befehl['aktionsstatus'] = self.aktionsstatus
         with self.lock:
             self.befehl = befehl
         for zeit, text, art in self.entscheider.ereignisse:
@@ -747,6 +870,11 @@ class Zentrale(Node):
         self.entscheider.ereignisse.clear()
         kamera_ok, kamera_gier = self.kamera_lage()
         info = dict(befehl)
+        with self.scan_lock:
+            scan_snapshot = dict(self.scans)
+        info['lidar_status'] = sensorstatus.lidar_status(scan_snapshot, self.p('scan_topics'), time.monotonic(),
+                                                        self.ros_jetzt(), layout='ki',
+                                                        max_zukunft=fahrtest.scan_uhrspielraum(self))
         info.update({
             'zeit': jetzt,
             'ki': self.yolo.backend if self.yolo else self.yolo_fehler, 'ki_ms': round(self.ki_ms),
@@ -773,6 +901,8 @@ class Zentrale(Node):
             'zebra': w.get('zebra'), 'einfahrt_verboten': w.get('einfahrt_verboten', False),
             'kamera_ok': kamera_ok, 'kamera_gier': kamera_gier,   # Linienfolger/Kartograf: wohin schaut die Kamera?
             'objekt': w.get('objekt'), 'weg': self.weg_voraus(), 'fahrschlauch': self.p('fahrschlauch_breite'),
+            'tiefe_objekte': w.get('tiefe_objekte'), 'zielbindung': w.get('zielbindung'),
+            'raeum_planbindung': w.get('raeum_planbindung'),
             'ablauf': self.entscheider.ablauf.name if self.entscheider.ablauf else None,
             'ablauf_phase': self.entscheider.ablauf.phase if self.entscheider.ablauf else None,
         })
@@ -820,11 +950,12 @@ class Zentrale(Node):
             fehler = self.arm.fahre(list(arm['winkel']), int(arm.get('zeit_ms', 1200)))
             if fehler:
                 self.get_logger().error(f'Arm: {fehler}')
-            return
+            return fehler
         winkel = self.posen.get(arm['pose'])
         if not winkel:
-            self.get_logger().error(f"Arm: Pose '{arm['pose']}' fehlt (im Panel einlernen)")
-            return
+            fehler = f"Pose '{arm['pose']}' fehlt (im Panel einlernen)"
+            self.get_logger().error(f'Arm: {fehler}')
+            return fehler
         winkel = list(winkel)
         auf, zu = armlib.greifer_werte()
         if arm.get('greifer') == 'auf':
@@ -834,6 +965,7 @@ class Zentrale(Node):
         fehler = self.arm.fahre(winkel, 1200)
         if fehler:
             self.get_logger().error(f'Arm: {fehler}')
+        return fehler
 
     def _sende_ereignis(self, zeit, text, art):
         self.get_logger().info(text)
