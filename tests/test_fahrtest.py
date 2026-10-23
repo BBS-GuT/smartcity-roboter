@@ -169,7 +169,8 @@ class FinalPublisher(unittest.TestCase):
         if hasattr(n, 'betrieb'):
             n.betrieb.empfang(dict(ids, angefordert=True))
             n.start_bereit = lambda: True  # Hier wird nur der finale Publisher isoliert.
-        n.ki = (q.time.time(), dict(ids, aktion='fahren', begleiteter_fahrbetrieb=True))
+        n.ki = (q.time.time(), dict(ids, aktion='fahren', begleiteter_fahrbetrieb=True,
+                                  sensoren_bereit=True))
 
     def ready(self):
         n = node(q.lf.LineFollower)
