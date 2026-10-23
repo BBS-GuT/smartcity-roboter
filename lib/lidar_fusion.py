@@ -344,9 +344,15 @@ class Geometrie:
         return True, poses, hull, fingerprint, reason
 
     def aufnehmen(self, msg, topic, stamp):
+        entry, reason = self.vorbereiten(msg, topic, stamp)
+        self.uebernehmen(topic, entry)
+        return reason
+
+    def vorbereiten(self, msg, topic, stamp):
+        """Build a complete candidate without changing any published scan field."""
         active, poses, hull, fingerprint, reason = self.config()
         if not active:
-            return reason
+            return (stamp, fingerprint, None), reason
         field = None
         if reason is None:
             topics, _, _, _, _, fronts = fingerprint
@@ -354,10 +360,16 @@ class Geometrie:
                 reason = 'unerwartete LiDAR-Quelle'
             else:
                 field, reason = messfeld(msg, fronts[topics.index(topic)], poses[topic])
-        self.received[topic] = (stamp, fingerprint, field)
-        return reason
+        return (stamp, fingerprint, field), reason
 
-    def sicht(self, stamps):
+    def uebernehmen(self, topic, entry):
+        """Constant-time commit; consumers synchronize this with channel status."""
+        self.received[topic] = entry
+
+    def sicht(self, stamps, received=None):
+        # Consumers copy channel status and fields under their short commit lock.
+        # Assemble/query the immutable candidates after releasing that lock.
+        received = self.received.copy() if received is None else received
         active, poses, hull, fingerprint, reason = self.config()
         if not active:
             return None, reason
@@ -365,7 +377,7 @@ class Geometrie:
             return None, reason
         fields, points = [], []
         for topic in fingerprint[0]:
-            entry = self.received.get(topic)
+            entry = received.get(topic)
             if entry is None or entry[0] != stamps.get(topic) or entry[1] != fingerprint or entry[2] is None:
                 return None, f'{topic}: Geometrie/Scanstand nicht eindeutig'
             field = entry[2]

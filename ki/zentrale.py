@@ -316,10 +316,7 @@ class Zentrale(Node):
             self.tiefe, self.tiefe_empfang = msg, time.monotonic()
 
     def _scan(self, msg, topic, i):
-        with self.scan_lock:
-            self._scan_auswerten(msg, topic, i)
-
-    def _scan_auswerten(self, msg, topic, i):
+        empfang = time.monotonic()
         fronts = self.p('scan_front_deg')
         front = fronts[i] if i < len(fronts) else 0.0
         # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
@@ -329,7 +326,7 @@ class Zentrale(Node):
         if grund is None:
             self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
         grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt, nie "frei"
-        geometrie_grund = self.scan_geometrie.aufnehmen(msg, topic, aufnahme)
+        feld, geometrie_grund = self.scan_geometrie.vorbereiten(msg, topic, aufnahme)
         grund = grund or geometrie_grund
         xy = breit = luecken = reichweite = None
         if grund is None:
@@ -337,8 +334,9 @@ class Zentrale(Node):
             breit = lidar.naechster_vorne(msg, front, 60.0, self.p('obstacle_min_range'))   # fuer Zebrastreifen
             luecken = lidar.ungueltige_winkel(msg, front)   # Strahlen ohne Messung: dort ist nichts bekannt
             reichweite = lidar.freie_reichweite(msg, front)  # je Richtung frei gemessen bis (dahinter verdeckt)
-        with self.lock:
-            self.scans[topic] = (time.monotonic(), xy, breit, grund, aufnahme, luecken)   # Empfang monoton
+        with self.scan_lock:
+            self.scan_geometrie.uebernehmen(topic, feld)
+            self.scans[topic] = (empfang, xy, breit, grund, aufnahme, luecken)
             self.scan_reichweite[topic] = reichweite
 
     def _imu(self, msg):
@@ -435,11 +433,11 @@ class Zentrale(Node):
         topics = self.p('scan_topics')
         self.lidar_sicht = None
         with self.scan_lock:
-            with self.lock:
-                # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
-                frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
-            stamps = {t: e[4] for t, e in zip(topics, frisch)}
-            sicht, geometrie_grund = self.scan_geometrie.sicht(stamps) if not grund else (None, None)
+            scanstand = self.scans.copy()
+            felder = self.scan_geometrie.received.copy()
+            reichweiten_stand = self.scan_reichweite.copy()
+        # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
+        frisch, grund = lidar.pflichtkanaele(scanstand, topics, time.monotonic())
         jetzt = self.ros_jetzt()     # Aufnahmealter jetzt nochmal: der Scan kann seit dem Empfang gealtert sein
         ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt)}' for t, (_, _, _, g, a, _) in zip(topics, frisch)
                      if g or lidar.aufnahme_alter(a, jetzt)]
@@ -448,6 +446,8 @@ class Zentrale(Node):
             self.lidar_xy = None
             self.get_logger().warn('LiDAR unbekannt: ' + (grund or '; '.join(ungueltig)), throttle_duration_sec=2.0)
             return None, None, None
+        stamps = {t: e[4] for t, e in zip(topics, frisch)}
+        sicht, geometrie_grund = self.scan_geometrie.sicht(stamps, felder)
         if geometrie_grund:
             self.lidar_xy = None
             self.get_logger().warn('LiDAR unbekannt: ' + geometrie_grund, throttle_duration_sec=2.0)
@@ -483,8 +483,7 @@ class Zentrale(Node):
         frisch = [(xy, b) for _, xy, b, _, _, _ in frisch]
         self.lidar_xy = np.vstack([xy for xy, _ in frisch])   # alle Punkte (fuer den Zebrastreifen)
         self.lidar_luecken = np.concatenate([e[5] for _, e in topics_frisch])
-        with self.lock:
-            reichweiten = [self.scan_reichweite.get(t) for t, _ in topics_frisch]
+        reichweiten = [reichweiten_stand.get(t) for t, _ in topics_frisch]
         self.lidar_reichweite = (np.minimum.reduce(reichweiten) if all(r is not None for r in reichweiten)
                                  else None)
         weg = self.weg_voraus()
