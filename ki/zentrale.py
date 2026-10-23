@@ -58,6 +58,7 @@ import schilder       # noqa: E402
 import linie          # noqa: E402
 from zebra import finde_zebra  # noqa: E402
 import lidar          # noqa: E402
+import lidar_fusion   # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
@@ -128,6 +129,7 @@ class Zentrale(Node):
         dp('figur_max_hoehe', 0.30)
         dp('scan_topics', ['/scan0', '/scan1'])
         dp('scan_front_deg', [0.0, 0.0])
+        self.scan_geometrie = lidar_fusion.Geometrie(self)
         dp('obstacle_half_deg', 30.0)
         dp('obstacle_min_range', 0.08)
         dp('fahrschlauch_breite', 0.30)  # Roboterbreite + etwas Rand (m) - am Roboter nachmessen
@@ -173,6 +175,7 @@ class Zentrale(Node):
         self.lidar_luecken = np.zeros(0)  # Winkel der Strahlen ohne Messung (alle Pflicht-LiDARs, fuer hinten)
         self.scan_reichweite = {}         # Kanal -> frei gemessene Reichweite je Richtung (lidar.freie_reichweite)
         self.lidar_reichweite = None      # davon das Minimum ueber alle Pflicht-LiDARs (Zebrastreifen #156)
+        self.lidar_sicht = None
 
         self.bridge = CvBridge()
         self.lock = threading.Lock()
@@ -321,6 +324,8 @@ class Zentrale(Node):
         if grund is None:
             self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
         grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt, nie "frei"
+        geometrie_grund = self.scan_geometrie.aufnehmen(msg, topic, aufnahme)
+        grund = grund or geometrie_grund
         xy = breit = luecken = reichweite = None
         if grund is None:
             xy = lidar.punkte_xy(msg, front, self.p('obstacle_min_range'))
@@ -402,6 +407,9 @@ class Zentrale(Node):
         """Frei nach hinten (m) im Streifen der Roboterbreite, None = keine LiDAR-Daten (dann nie rueckwaerts)."""
         if self.lidar_xy is None or self.lidar_d is None:
             return None
+        if self.lidar_sicht is not None:
+            sicht = self.lidar_sicht
+            return sicht.hinten(self.p('fahrschlauch_breite') / 2)
         xy = self.lidar_xy
         hinten = xy[(xy[:, 0] < -0.05) & (np.abs(xy[:, 1]) < self.p('fahrschlauch_breite') / 2)]
         frei = float(-hinten[:, 0].max()) if len(hinten) else 5.0
@@ -420,6 +428,7 @@ class Zentrale(Node):
         """(Abstand im Fahrschlauch: m, inf = frei, None = keine LiDAR-Daten; Objekt oder None;
         Abstand im breiten Bereich vorne fuer den Zebrastreifen)."""
         topics = self.p('scan_topics')
+        self.lidar_sicht = None
         with self.lock:
             # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
             frisch, grund = lidar.pflichtkanaele(self.scans, topics, time.monotonic())
@@ -431,6 +440,39 @@ class Zentrale(Node):
             self.lidar_xy = None
             self.get_logger().warn('LiDAR unbekannt: ' + (grund or '; '.join(ungueltig)), throttle_duration_sec=2.0)
             return None, None, None
+        stamps = {t: e[4] for t, e in zip(topics, frisch)}
+        sicht, geometrie_grund = self.scan_geometrie.sicht(stamps)
+        if geometrie_grund:
+            self.lidar_xy = None
+            self.get_logger().warn('LiDAR unbekannt: ' + geometrie_grund, throttle_duration_sec=2.0)
+            return None, None, None
+        if sicht is not None:
+            obj, gap = sicht.pfad(self.weg_voraus(), self.p('fahrschlauch_breite') / 2,
+                                 self.p('fahrschlauch_laenge'))
+            # A slow query must not certify expired measurements with a newer
+            # callback's reception time. Recheck precisely this snapshot.
+            _, zeitgrund = lidar.pflichtkanaele(dict(zip(topics, frisch)), topics, time.monotonic())
+            jetzt = self.ros_jetzt()
+            zeitgrund = zeitgrund or next((g for a in stamps.values()
+                                          if (g := lidar.aufnahme_alter(a, jetzt))), None)
+            if zeitgrund:
+                self.lidar_xy = None
+                self.get_logger().warn('LiDAR unbekannt: ' + zeitgrund, throttle_duration_sec=2.0)
+                return None, None, None
+            if gap is not None and (obj is None or gap <= obj['abstand']):
+                self.lidar_xy = None
+                self.get_logger().warn(f'LiDAR unbekannt: gemeinsamer Fahrbereich ab {gap * 100:.0f} cm '
+                                       'nicht gemessen (Roboterbezug)', throttle_duration_sec=2.0)
+                return None, None, None
+            self.lidar_sicht, self.lidar_xy = sicht, sicht.points
+            self.lidar_reichweite = None  # separate measured-origin area query for the crossing
+            self.lidar_luecken = np.zeros(0)
+            points = sicht.points
+            sector = (points[:, 0] > 0) & (np.abs(np.arctan2(points[:, 1], points[:, 0])) <= np.pi / 3)
+            broad = float(np.linalg.norm(points[sector], axis=1).min()) if sector.any() else float('inf')
+            if obj is None:
+                return float('inf'), None, broad
+            return obj['abstand'], dict(obj, quelle='lidar'), broad
         topics_frisch = list(zip(topics, frisch))
         frisch = [(xy, b) for _, xy, b, _, _, _ in frisch]
         self.lidar_xy = np.vstack([xy for xy, _ in frisch])   # alle Punkte (fuer den Zebrastreifen)
@@ -649,6 +691,7 @@ class Zentrale(Node):
         # Treffer verdeckt): Ablaeufe pruefen damit selbst, ob IHRE Zone ganz gemessen ist (Zebrastreifen #156) -
         # fehlende Punkte heissen sonst faelschlich "frei"
         w['lidar_reichweite'] = self.lidar_reichweite if w['lidar'] is not None else None
+        w['lidar_fusionssicht'] = self.lidar_sicht if w['lidar'] is not None else None
         w['lidar_hinten'] = self.lidar_hinten()
         w['weg'] = self.weg_voraus()
         w['gier'] = self.gier

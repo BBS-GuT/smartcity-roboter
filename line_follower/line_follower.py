@@ -55,6 +55,7 @@ REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(REPO, 'lib'))
 sys.path.insert(0, os.path.join(REPO, 'line_follower'))
 import lidar  # noqa: E402
+import lidar_fusion  # noqa: E402
 import linie  # noqa: E402
 
 # LiDAR-Bereiche der Notbremse: Mitte (Grad, links positiv), je +-obstacle_half_deg
@@ -84,6 +85,7 @@ class LineFollower(Node):
         dp('obstacle_check', True)
         dp('scan_topics', ['/scan0', '/scan1'])
         dp('scan_front_deg', [0.0, 0.0])
+        self.scan_geometrie = lidar_fusion.Geometrie(self)
         dp('obstacle_half_deg', 30.0)
         dp('notbremse_dist', 0.12)  # naeher (m) -> sofort Stopp
         # ---- Kamerabilder: wie alt duerfen sie sein? (Aufnahme bis Auswertung) ----
@@ -179,6 +181,8 @@ class LineFollower(Node):
         if grund is None:
             self.scan_stempel[topic] = aufnahme     # Fortschritt nur mit akzeptiertem, neuerem Stempel
         grund = grund or lidar.scan_pruefen(msg)     # unbrauchbarer Scan = unbekannt -> Halt (nie "frei")
+        geometrie_grund = self.scan_geometrie.aufnehmen(msg, topic, aufnahme)
+        grund = grund or geometrie_grund
         d = None
         if not grund:
             # vorne UND hinten merken: welcher Bereich zaehlt, entscheidet erst der tatsaechliche Fahrbefehl
@@ -293,12 +297,25 @@ class LineFollower(Node):
                 grund = 'noch nie ein Scan angekommen (obstacle_check:=false zum Abschalten)'
             return 'KEIN LIDAR: ' + grund
         jetzt = self.ros_jetzt()     # Aufnahmealter bei der Entscheidung (Scan kann seit dem Empfang gealtert sein)
+        stamps = {t: e[3] for t, e in zip(topics, frisch)}
+        scanstand = dict(zip(topics, frisch))
         frisch = [(t, d, g or lidar.aufnahme_alter(a, jetzt)) for t, (_, d, g, a) in zip(topics, frisch)]
         ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
         if ungueltig:
             return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'
         # Bereich der eingestellten Fahrtrichtung zaehlt wie bisher immer, dazu der des tatsaechlichen Befehls
         bereiche = {'hinten' if self.p('direction') < 0 else 'vorne', *self.bereiche(lin, quer, dreh)}
+        sicht, geometrie_grund = self.scan_geometrie.sicht(stamps)
+        if geometrie_grund:
+            return 'LIDAR UNBEKANNT: ' + geometrie_grund
+        if sicht is not None:
+            grund = sicht.schutz(bereiche, self.p('notbremse_dist'), turning=bool(dreh))
+            # Recheck the exact computed snapshot, not a newer callback's data.
+            _, zeitgrund = lidar.pflichtkanaele(scanstand, topics, time.monotonic())
+            jetzt = self.ros_jetzt()
+            zeitgrund = zeitgrund or next((g for a in stamps.values()
+                                          if (g := lidar.aufnahme_alter(a, jetzt))), None)
+            return grund or ('LIDAR UNBEKANNT: ' + zeitgrund if zeitgrund else None)
         d, b, t = min((d[b][0], b, t) for t, d, _ in frisch for b in bereiche)
         if d < self.p('notbremse_dist'):
             return f'NOTBREMSE {d * 100:.0f} cm {b} ({t})'     # echtes nahes Hindernis: auch bei Luecken

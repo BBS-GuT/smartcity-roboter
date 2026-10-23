@@ -4,6 +4,13 @@ Anleitungen und Wissenssammlung für die Software der SmartCity-Roboter RM01–R
 
 > **Wie dieses Wiki gepflegt wird:** Die Seiten liegen im Repository im Ordner [`wiki/`](https://github.com/BBS-GuT/smartcity-roboter/tree/main/wiki). Nach jedem Merge auf `main` kopiert ein GitHub-Workflow sie automatisch hierher. **Änderungen bitte per Pull Request in `wiki/` machen**, nicht im Browser: Direkte Änderungen im Wiki werden beim nächsten Abgleich überschrieben. Ausnahme: Das [Problemprotokoll](Problemprotokoll) kommt aus `docs/problemprotokoll.md`.
 
+## Ansprechpartner
+
+| Name | Telefon | E-Mail |
+|---|---|---|
+| David Heinrich | [+49 1575 1293384](tel:+4915751293384) | [david.gesuino@icloud.com](mailto:david.gesuino@icloud.com) |
+| Carsten Haas | [+49 160 95797790](tel:+4916095797790) | [h.carsten.05@gmail.com](mailto:h.carsten.05@gmail.com) |
+
 ## Erste Schritte
 
 | Ich will … | Seite |

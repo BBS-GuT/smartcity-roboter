@@ -10,14 +10,16 @@
     # Scan aelter als 1 s, haelt der Roboter - auch wenn der andere LiDAR frische Daten liefert (#61).
     scan_topics: ['/scan0', '/scan1']
     scan_front_deg: [0.0, 0.0]
-    # Einbaupose je LiDAR (lib/lidar.py einbau_aus_parametern, #63) - NOCH NICHT VERMESSEN, daher nicht gesetzt
-    # (= unbekannt) und noch von keinem Programm benutzt (Verwendung #64, Messung am Geraet #66).
+    # Einbaupose je LiDAR: geraeteeigene Werte nach Vermessung setzen (Messung #66).
+    # KI und Linienfolger nutzen damit gemeinsame Abdeckung; fehlende/unklare Angaben sperren die Fahrt.
+    # Vollstaendige Anleitung: docs/lidar-gemeinsame-abdeckung.md (#169, #64).
     # Roboterbezug base_link: x vorne, y links, Meter; Reihenfolge wie scan_topics. Die Drehung kommt allein aus
     # scan_front_deg, hier nur der Sensorursprung: p_basis = R(-scan_front_deg) * p_sensor + (x, y).
     # Erst mit am Geraet gemessenen Werten (Datum/Pruefer in docs/geraete/) eintragen, z. B.:
     #   scan_frames: ['laser0_frame', 'laser1_frame']     # erwarteter header.frame_id
     #   scan_einbau_xy: [x0, y0, x1, y1]                  # m
     #   scan_einbau_quelle: ['gemessen', 'gemessen']      # gemessen | werksmodell | unbekannt
+    #   fahrzeug_grenzen: [vorne, hinten, links, rechts]  # positive Abstaende in m, ganze Fahrstellung
     # Werks-URDF-Werte sind keine Vermessung des Roboters (hoechstens Quelle 'werksmodell').
     obstacle_half_deg: 30.0
     obstacle_min_range: 0.08
@@ -32,3 +34,11 @@ line_follower:
   ros__parameters:
     obstacle_check: true
     notbremse_dist: 0.12
+lichter:
+  ros__parameters:
+    # Abblendlicht und Blinker (Panel, lib/lichter.py, docs/lichter.md).
+    rgb_topic: '/rgb'     # LED-Leiste am Board (std_msgs/ColorRGBA, a = LED 1..8). '' = nur im Panel anzeigen
+    links_zuerst: false   # LED 1 links? RM02 21.10.: LED 1 sitzt rechts. Falsche Seite -> umstellen
+    kurve_grad: 60.0      # ab so viel Grad Abknicken der Linie voraus wird geblinkt (0 = nie wegen der Linie)
+    nachlauf: 1.0
+    mindest: 2.0

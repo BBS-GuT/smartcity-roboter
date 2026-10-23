@@ -31,6 +31,7 @@ from std_msgs.msg import String
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, os.path.join(REPO, 'sim'))
 from welt import Welt  # noqa: E402
+from lidar_geometrie import schreibe_parameter, schwer_argumente  # noqa: E402
 sys.path.insert(0, os.path.join(REPO, 'lib'))
 import karte as K      # noqa: E402
 
@@ -44,8 +45,7 @@ WUERFEL = ['-p', 'wuerfel_zufall:=true', '-p', f"wuerfel_saat:={int(os.environ.g
 WUERFEL += ['-p', 'arm_wie_planer:=true'] if os.environ.get('SIM_ARM_WIE_PLANER') else []
 ANTRIEB = os.environ.get('SIM_ANTRIEB', 'ideal')
 TEMPO = float(os.environ.get('SIM_TEMPO', 0.15))
-SCHWER = ['-p', 'halle:=true', '-p', 'imu_skala:=1.03', '-p', 'lidar_umlauf:=0.12', '-p', 'lidar_verzoegerung:=0.1',
-          '-p', 'lidar1_einbau:=[-0.12,0.0,4.0]'] if os.environ.get('SIM_SCHWER') else []
+SCHWER = schwer_argumente() if os.environ.get('SIM_SCHWER') else []
 SCHWER += os.environ.get('SIM_EXTRA', '').split()
 
 
@@ -55,15 +55,20 @@ def starte(befehl, name, env):
 
 
 def main():
-    if os.environ.get('ROS_DOMAIN_ID', '0') == '30':
-        sys.exit('ROS_DOMAIN_ID=30 ist die der Roboter! Simulation nur mit anderer Domain-ID.')
+    if os.environ.get('ROS_DOMAIN_ID') != '77':
+        sys.exit('Bekannte Simulationsgeometrie nur in ROS_DOMAIN_ID=77 (scripts/simulation.sh pruefen).')
     env = dict(os.environ)
     env.setdefault('SMARTCITY_ARM_YAML', os.path.join(REPO, 'sim', 'arm_sim.yaml'))
     # Gelerntes Greifen der Simulation nicht in config/lokal/ (das gehoert dem echten Roboter)
     env.setdefault('SMARTCITY_GREIFEN', os.path.join(LOGS, 'greifen_lokal.json'))
     if os.environ.get('SIM_GREIFEN_NEU') and os.path.exists(env['SMARTCITY_GREIFEN']):
         os.remove(env['SMARTCITY_GREIFEN'])
-    cfg = ['--params-file', os.path.join(REPO, 'config', 'roboter.yaml')]
+    eigene_parameter = None
+    if not env.get('SMARTCITY_SIM_PARAMETER'):
+        eigene_parameter = schreibe_parameter(bool(os.environ.get('SIM_SCHWER')), env['SMARTCITY_ARM_YAML'])
+        env['SMARTCITY_SIM_PARAMETER'] = eigene_parameter
+    cfg = ['--params-file', os.path.join(REPO, 'config', 'roboter.yaml'),
+           '--params-file', env['SMARTCITY_SIM_PARAMETER']]
     prozesse = [
         starte([sys.executable, os.path.join(REPO, 'sim', 'simulator.py')]
                + ['--ros-args', '-p', f'gegner:={str(GEGNER).lower()}', '-p', f'kamera_verzoegerung:={VERZ}',
@@ -101,6 +106,8 @@ def main():
                 os.killpg(p.pid, signal.SIGKILL)
         node.destroy_node()
         rclpy.shutdown()
+        if eigene_parameter:
+            os.unlink(eigene_parameter)
     with open(os.path.join(LOGS, 'sim_verlauf.json'), 'w') as f:   # zum Nachschauen
         json.dump({'zustaende': zustaende, 'ereignisse': ereignisse, 'befehle': befehle[::5], 'karte': karte}, f)
     return auswerten(zustaende, ereignisse, karte)

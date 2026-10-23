@@ -12,6 +12,8 @@ import numpy as np
 AUFLOESUNG = 0.005           # Meter pro Pixel im Weltbild
 BREITE, HOEHE = 3.0, 2.2     # Welt in Metern
 LIDAR_HOEHE = 0.10           # LiDAR misst in dieser Hoehe -> niedrigere Dinge sieht er NICHT
+FAHRZEUG_GRENZEN = (.15, .15, .12, .12)  # bestehender Modellkoerper: vorne/hinten/links/rechts
+ARM_STRICH_PX, GREIFER_RADIUS_PX = 3, 5
 
 # Kamera (am Arm in Fahrstellung). Werte geschaetzt, am echten Roboter unbekannt.
 KAMERA = {'x': 0.12, 'hoehe': 0.22, 'neigung_deg': 32.0, 'fov_deg': 70.0, 'breite': 640, 'hoehe_px': 480,
@@ -133,7 +135,9 @@ class Welt:
             cv2.putText(img, z['name'], px((z['x'] + 0.03, z['y'] + 0.03)), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (20, 20, 20), 1)
         x, y, w = pose
         c, s = math.cos(w), math.sin(w)
-        ecken = [(x + c * a - s * b, y + s * a + c * b) for a, b in ((0.15, 0.12), (0.15, -0.12), (-0.15, -0.12), (-0.15, 0.12))]
+        vor, hinten, links, rechts = FAHRZEUG_GRENZEN
+        ecken = [(x + c * a - s * b, y + s * a + c * b)
+                 for a, b in ((vor, links), (vor, -rechts), (-hinten, -rechts), (-hinten, links))]
         cv2.fillPoly(img, [self.welt_zu_pixel(np.array(ecken)).astype(np.int32)], (70, 160, 70))
         cv2.polylines(img, [self.welt_zu_pixel(np.array(ecken)).astype(np.int32)], True, (20, 60, 20), 2)
         cv2.arrowedLine(img, px((x, y)), px((x + 0.2 * c, y + 0.2 * s)), (255, 255, 255), 2, tipLength=0.3)
@@ -141,8 +145,8 @@ class Welt:
         basis = (x + KAMERA['arm_basis_x'] * c, y + KAMERA['arm_basis_x'] * s)
         a = w + math.radians(arm_dreh_deg)
         ziel = greifer or (basis[0] + 0.12 * math.cos(a), basis[1] + 0.12 * math.sin(a))
-        cv2.line(img, px(basis), px(ziel), (0, 140, 255), 3)
-        cv2.circle(img, px(ziel), 5, (0, 0, 255) if haelt else (0, 140, 255), -1)
+        cv2.line(img, px(basis), px(ziel), (0, 140, 255), ARM_STRICH_PX)
+        cv2.circle(img, px(ziel), GREIFER_RADIUS_PX, (0, 0, 255) if haelt else (0, 140, 255), -1)
         return img
 
     # ------------------------------------------------------------------ Kamera
