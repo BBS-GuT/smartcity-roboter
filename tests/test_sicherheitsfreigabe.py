@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """A1: echte Bildannahme und Entscheidung mit ROS-Attrappen, ohne Hardware."""
 import math
+import json
 import os
 import sys
 import types
@@ -141,11 +142,14 @@ class Sensorfreigabe(unittest.TestCase):
         n = self.neu()
         n._p['drive'] = True
         n.scans.clear()
-        n.ki = (1000.0, {'aktion': 'manoever', 'manoever': {'dreh': 0.8}})
+        token = dict(session_id='sicherheit-panel', generation=1, start_id='bewusster-start', angefordert=True)
+        n.on_betrieb(types.SimpleNamespace(data=json.dumps(token)))
+        n.ki = (1000.0, dict(token, aktion='manoever', manoever={'dreh': 0.8}))
         n.steuern()
         cmd = n.pub.letzte
         self.assertEqual((cmd.linear.x, cmd.linear.y, cmd.angular.z), (0.0, 0.0, 0.0))
         self.assertIn('KEIN LIDAR', n.pub_status.letzte.data)
+        self.assertIn('START WARTET', n.pub_status.letzte.data)
 
 
 if __name__ == '__main__':

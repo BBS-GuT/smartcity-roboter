@@ -119,6 +119,19 @@ class Publisher(unittest.TestCase):
             n.steuern()
             self.assertEqual(n.pub.letzte.linear.x, 0)
 
+    def test_permission_hold_preserves_concrete_sensor_reason(self):
+        for requested in (False, True):
+            n = self.node()
+            if requested:
+                self.send(n, request())
+            n.scans.pop('/scan1')
+            n.steuern()
+            status = json.loads(n.pub_status.letzte.data)['status']
+            self.assertIn('KEIN LIDAR', status)
+            self.assertIn('/scan1', status)
+            self.assertIn('START WARTET' if requested else 'BEDIEN-STOPP', status)
+            self.assertEqual(n.pub.letzte.linear.x, 0.)
+
     def maneuver(self, n):
         self.send(n, request())
         n.steuern()

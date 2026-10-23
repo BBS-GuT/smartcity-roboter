@@ -561,6 +561,7 @@ class LineFollower(Node):
             self.gedaechtnis.bewegen(lin_alt, dreh_alt, dt, quer_alt, jetzt)
         self.manoever_zugelassen = False
         lin, quer, dreh, status = self.entscheide()
+        entscheidungsstatus = status
         with self.betrieb_lock:
             bereit = self.start_bereit()
             freigegeben = self.betrieb.pruefen(bereit) and self.p('drive')
@@ -578,6 +579,8 @@ class LineFollower(Node):
                 lin = quer = dreh = 0.0
                 status = ('FREIGABEWEG AUSGEFALLEN -> STOPP' if self.betrieb.abgelaufen else
                           'START WARTET: ' + status if self.betrieb.angefordert else 'BEDIEN-STOPP')
+            if status != entscheidungsstatus:
+                status += ' | ' + entscheidungsstatus
             t = Twist()
             t.linear.x, t.linear.y, t.angular.z = lin, quer, dreh
             self.pub.publish(t)

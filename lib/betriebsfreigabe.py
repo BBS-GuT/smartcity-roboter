@@ -44,6 +44,8 @@ class Betriebsfreigabe:
 
     def pruefen(self, bereit, jetzt=None):
         jetzt = time.monotonic() if jetzt is None else jetzt
+        if self.generation < 0:
+            return False  # Noch kein Freigabeweg angefordert, initiale Bedien-Sperre.
         if jetzt - self.empfangen > .6:
             self.abgelaufen = True
             self.freigegeben = False
