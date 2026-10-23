@@ -9,6 +9,13 @@ Der Roboter folgt der schwarzen Linie. Eine **KI** beachtet Ampeln, Stoppschilde
 
 ![Dashboard](docs/bilder/panel_dashboard.jpg)
 
+## Ansprechpartner
+
+| Name | Telefon | E-Mail |
+|---|---|---|
+| David Heinrich | [+49 1575 1293384](tel:+4915751293384) | [david.gesuino@icloud.com](mailto:david.gesuino@icloud.com) |
+| Carsten Haas | [+49 160 95797790](tel:+4916095797790) | [h.carsten.05@gmail.com](mailto:h.carsten.05@gmail.com) |
+
 ## Schnellstart
 
 ```bash
