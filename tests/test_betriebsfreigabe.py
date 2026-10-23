@@ -132,6 +132,34 @@ class Publisher(unittest.TestCase):
             self.assertIn('START WARTET' if requested else 'BEDIEN-STOPP', status)
             self.assertEqual(n.pub.letzte.linear.x, 0.)
 
+    def test_active_publisher_stops_for_sensor_fault_with_current_permission_path(self):
+        for fault in ('missing', 'quality', 'geometry'):
+            with self.subTest(fault=fault):
+                n = self.node()
+                self.send(n, request())
+                with mock.patch.object(n, '_wunsch', return_value=(.15, 0., 0., 'Linie')):
+                    n.steuern()
+                    self.assertEqual(n.pub.letzte.linear.x, .15)
+                    self.assertTrue(json.loads(n.pub_status.letzte.data)['drive'])
+                    self.send(n, request())
+                    n.ki = (time.time(), n.ki[1])
+                    if fault == 'missing':
+                        n.scans.pop('/scan1')
+                    elif fault == 'quality':
+                        invalid = c.message(1)
+                        invalid.ranges = [0.] * len(invalid.ranges)
+                        n.on_scan(invalid, '/scan1', 1)
+                    else:
+                        n._p['scan_einbau_quelle'] = ['gemessen', 'unbekannt']
+                    n.steuern()
+                status = json.loads(n.pub_status.letzte.data)
+                self.assertEqual(n.pub.letzte.linear.x, 0.)
+                self.assertTrue(status['drive'])  # Betrieb aktiv, konkretes Sensorveto.
+                self.assertFalse(status['freigabeweg_ausgefallen'])
+                self.assertIn('Geometrie' if fault == 'geometry' else 'LIDAR', status['status'])
+                self.assertNotIn('FREIGABEWEG AUSGEFALLEN', status['status'])
+                self.assertNotIn('KI-BETRIEBSKENNUNG', status['status'])
+
     def maneuver(self, n):
         self.send(n, request())
         n.steuern()
