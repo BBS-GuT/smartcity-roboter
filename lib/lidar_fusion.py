@@ -243,7 +243,7 @@ class Sicht:
         gap = float(max(0.0, np.min(distance[unknown] - radius[unknown]))) if unknown.any() else None
         return obj, gap
 
-    def hinten(self, half_width, length=0.8):
+    def hinten(self, half_width, length=0.8, abdeckung_pflicht=True):
         """Proven rear clearance from base_link, limited by the first unknown cell/hit.
 
         A wall farther away does not erase the observed space in front of it.
@@ -259,7 +259,7 @@ class Sicht:
             return None
         free = gemeinsame_zellen(self.fields, low, high)
         distance = back + length
-        if (~free).any():
+        if abdeckung_pflicht and (~free).any():
             distance = min(distance, float(-high[~free, 0].max()))
         p = self.points
         rear = (p[:, 0] < -back) & (np.abs(p[:, 1]) <= half_width)
