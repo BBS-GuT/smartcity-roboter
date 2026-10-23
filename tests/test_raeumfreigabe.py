@@ -102,6 +102,13 @@ class Raeumfreigabe(unittest.TestCase):
         self.assertFalse(e.fahrt_aktiv)
         self.assertIsNone(e.start_quittung)
 
+    def test_observation_only_while_stopped_does_not_deadlock_recovery(self):
+        e = self.recovery()
+        e.ablauf = Wegraeumen(100., dict(STANDARD))  # Ohne Planer nur anschauen, kein Arm.
+        self.assertFalse(e.ablauf.braucht_arm)
+        self.assertTrue(e.bestaetige_fahrstellung(102., 100.1, 101.5, 101.9, 101.95,
+                                                 erfolgreich_gesendet=True))
+
     def test_old_failed_moving_stale_or_unpaired_return_never_resets(self):
         valid = dict(jetzt=102., anforderung_zeit=100.1, bewegung_bis=101.5,
                      rgb_aufnahme=101.9, tiefe_aufnahme=101.95, erfolgreich_gesendet=True)

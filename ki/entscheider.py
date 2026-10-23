@@ -671,7 +671,7 @@ class Entscheider:
         werte = (jetzt, anforderung_zeit, bewegung_bis, rgb_aufnahme, tiefe_aufnahme,
                  self.arm_recovery_seit)
         if (not self.arm_zurueck_noetig or erfolgreich_gesendet is not True
-                or self.ablauf is not None
+                or (self.ablauf is not None and self.ablauf.braucht_arm)
                 or not all(type(v) in (int, float) and math.isfinite(v) for v in werte)):
             return False
         if not (self.arm_recovery_seit < anforderung_zeit <= bewegung_bis <= jetzt
