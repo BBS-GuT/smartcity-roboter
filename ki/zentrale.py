@@ -445,6 +445,37 @@ class Zentrale(Node):
         ok = fahr and self.entscheider.arm_in_fahrstellung
         return ok, (0.0 if ok else gier)
 
+    @staticmethod
+    def _tiefenkomponenten_im_gebundenen_ziel(komponenten, ziel):
+        """A current component may only occupy the original measured target box.
+
+        No new spatial tolerance or target assignment is inferred from object
+        count. Missing geometry or a different calibrated view cannot prove
+        identity with the old plan target.
+        """
+        try:
+            def grenzen(obj):
+                if not isinstance(obj, dict) or not isinstance(obj.get('region'), dict):
+                    raise ValueError('fehlende Zielregion')
+                region = obj['region']
+                box = np.asarray([region['min'], region['max']], dtype=float)
+                if box.shape != (2, 3) or not np.isfinite(box).all() or (box[0] > box[1]).any():
+                    raise ValueError('ungueltige Zielregion')
+                return box
+            alt = grenzen(ziel)
+            if (not isinstance(komponenten, (list, tuple)) or ziel.get('quelle') != 'tiefe'
+                    or ziel.get('blick') not in ('fahr', 'pruef')):
+                return False
+            for obj in komponenten:
+                neu = grenzen(obj)
+                if (obj.get('quelle') != 'tiefe' or obj.get('blick') != ziel['blick']
+                        or (obj.get('ziel_id') is not None and obj['ziel_id'] != ziel.get('ziel_id'))
+                        or (neu[0] < alt[0]).any() or (neu[1] > alt[1]).any()):
+                    return False
+            return True
+        except (KeyError, TypeError, ValueError):
+            return False
+
     def _manuelle_fahrstellung_bestaetigen(self, rgb, tiefe, empfang, d, paar_ok, frame, jetzt):
         """Recover only from a new observed pose command while STOP remains confirmed.
 
@@ -877,10 +908,14 @@ class Zentrale(Node):
                 gebunden = dict(w, objekt=dict(binding[1], messzeit=time.monotonic()),
                                 tiefe_objekte=binding[2], tiefe_gueltig=True)
                 # A new calibrated measurement of another object still vetoes.
-                if w.get('tiefe_gueltig') and w.get('tiefe_objekte'):
+                komponenten_ok = True
+                if w.get('tiefe_objekte'):
                     gebunden['tiefe_objekte'] = w['tiefe_objekte']
+                    komponenten_ok = (w.get('tiefe_gueltig') is True and
+                                      self._tiefenkomponenten_im_gebundenen_ziel(
+                                          w['tiefe_objekte'], binding[1]))
                 w.update(raeum_pruefung(gebunden, self.p('fahrzeug_grenzen'), time.monotonic(), self.boden.c))
-                w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_ok
+                w['raeum_umgebung_frei'] = w['raeum_umgebung_frei'] and ablage_ok and komponenten_ok
                 w['zielbindung'] = 'vorher bestaetigter Plan; keine neue Tiefenmessung'
                 w['raeum_planbindung'] = {'auftrag_id': r['auftrag_id'], 'ziel_id': r['ziel_id']}
             else:

@@ -21,6 +21,7 @@ class Segment(unittest.TestCase):
         ids = dict(session_id='panel', generation=1, start_id='start')
         n.linie_status = dict(ids, _zeit=now, drive=True, betrieb_freigegeben=True)
         obj = dict(ziel_id='target', bestaetigt=True, messzeit=mono, vor=.3, seite=0.,
+                   quelle='tiefe', blick='fahr',
                    breite=.04,hoehe=.05,region={'min':[.3,-.02,.02],'max':[.34,.02,.05]})
         n.wahrnehmung.update(bild_zeit=now,aufnahme=now,blick='fahr',tiefe_aufnahme=now,
                             tiefe_empfang=mono,tiefe_gueltig=True,tiefe_hindernis=True,
@@ -89,7 +90,7 @@ class Segment(unittest.TestCase):
         self.run_segment(n,command)
         self.assertEqual(n.arm.fahre.call_count,1)
         # Camera has moved; bind to the old plan but retain current LiDAR.
-        n.wahrnehmung.update(blick=None,tiefe_gueltig=False)
+        n.wahrnehmung.update(blick=None,tiefe_gueltig=False,tiefe_objekte=[])
         command=dict(command,raeumfreigabe=dict(command['raeumfreigabe'],phase='ausfuehren:2'))
         xy=n.lidar_xy.copy()
         with mock.patch.object(n,'lidar_pruefen',side_effect=lambda: (setattr(n,'lidar_xy',
@@ -98,6 +99,42 @@ class Segment(unittest.TestCase):
         self.assertEqual(n.arm.fahre.call_count,1)
         self.assertEqual(result['aktionsstatus']['status'],'verworfen')
 
+    def test_changed_or_uncomparable_single_depth_component_vetoes_bound_plan(self):
+        for changes in (
+                {'region': {'min':[.4,-.02,.02], 'max':[.44,.02,.05]}},
+                {'region': {'min':[.3,.08,.02], 'max':[.34,.12,.05]}},
+                {'region': None},
+                {'region': {'min':[.3,-.02,.02], 'max':[float('nan'),.02,.05]}},
+                {'ziel_id': 'different-target'},
+                {'blick': 'pruef'}):
+            with self.subTest(changes=changes):
+                n, command = self.scene()
+                self.run_segment(n, command)
+                self.assertEqual(n.arm.fahre.call_count, 1)
+                other = dict(n.wahrnehmung['tiefe_objekt'], **changes)
+                n.wahrnehmung.update(tiefe_objekt=other, tiefe_objekte=[other])
+                command = dict(command, raeumfreigabe=dict(command['raeumfreigabe'], phase='ausfuehren:2'))
+                result = self.run_segment(n, command)
+                self.assertEqual(n.arm.fahre.call_count, 1)
+                self.assertEqual(result['aktionsstatus']['status'], 'verworfen')
+
+    def test_matching_current_depth_region_allows_next_bound_segment(self):
+        n, command = self.scene()
+        self.run_segment(n, command)
+        command = dict(command, raeumfreigabe=dict(command['raeumfreigabe'], phase='ausfuehren:2'))
+        result = self.run_segment(n, command)
+        self.assertEqual(n.arm.fahre.call_count, 2)
+        self.assertEqual(result['aktionsstatus']['status'], 'ausgefuehrt')
+
+    def test_component_without_valid_current_depth_cannot_use_old_binding(self):
+        n, command = self.scene()
+        self.run_segment(n, command)
+        n.wahrnehmung.update(blick=None, tiefe_gueltig=False)
+        command = dict(command, raeumfreigabe=dict(command['raeumfreigabe'], phase='ausfuehren:2'))
+        result = self.run_segment(n, command)
+        self.assertEqual(n.arm.fahre.call_count, 1)
+        self.assertEqual(result['aktionsstatus']['status'], 'verworfen')
+
     def test_after_release_only_measured_target_box_allows_withdrawal(self):
         for point, allowed in (([.1,.2],True),([.1,.24],False)):
             n,command=self.scene()
@@ -105,7 +142,7 @@ class Segment(unittest.TestCase):
                          segment_name='loslassen',segment_index=6))
             first=self.run_segment(n,command)
             self.assertEqual(first['aktionsstatus']['status'],'ausgefuehrt')
-            n.wahrnehmung.update(blick=None,tiefe_gueltig=False)
+            n.wahrnehmung.update(blick=None,tiefe_gueltig=False,tiefe_objekte=[])
             command=dict(command,raeumfreigabe=dict(command['raeumfreigabe'],phase='ausfuehren:2',
                          segment_name='Arm hoch',segment_index=7))
             xy=n.lidar_xy.copy()
