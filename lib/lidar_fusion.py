@@ -267,7 +267,7 @@ class Sicht:
             distance = min(distance, float(-p[rear, 0].max()))
         return distance if distance > back + 1e-9 else None
 
-    def schutz(self, directions, distance, turning=False):
+    def schutz(self, directions, distance, turning=False, abdeckung_pflicht=True):
         """Protect the translated hull; rotation checks the complete circumscribed disk."""
         front, back, left, right = self.hull
         if not math.isfinite(distance) or distance <= 0:
@@ -299,7 +299,7 @@ class Sicht:
         except (ValueError, OverflowError):
             return 'LIDAR UNBEKANNT: Schutzbereich ungueltig/zu gross'
         selected = relevant(low, high)
-        if not gemeinsame_zellen(self.fields, low[selected], high[selected]).all():
+        if abdeckung_pflicht and not gemeinsame_zellen(self.fields, low[selected], high[selected]).all():
             return 'LIDAR UNBEKANNT: Bewegungsbereich nicht gemeinsam gemessen (Roboterbezug)'
         return None
 

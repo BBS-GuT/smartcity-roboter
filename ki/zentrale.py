@@ -59,6 +59,7 @@ import linie          # noqa: E402
 from zebra import finde_zebra  # noqa: E402
 import lidar          # noqa: E402
 import lidar_fusion   # noqa: E402
+import fahrtest       # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
@@ -106,6 +107,8 @@ class Zentrale(Node):
         dp('image_topic', '/camera/color/image_raw')
         dp('depth_topic', '/camera/depth/image_raw')
         dp('tiefe_nutzen', True)
+        dp('begleiteter_fahrtest', False)
+        self.add_on_set_parameters_callback(fahrtest.parameter_aenderung)
         dp('led_ersatz', True)          # LED-Erkennung, wenn die KI keine Ampel findet
         dp('form_ersatz', True)         # Achteck-Erkennung, wenn die KI kein Stoppschild findet
         dp('ampel_min_hoehe', 0.03)     # KI-Ampel muss mind. so hoch sein (Anteil Bildhoehe) = nah genug
@@ -192,6 +195,10 @@ class Zentrale(Node):
         self.ki_ms = 0.0
         # Tiefenkamera prueft denselben Fahrweg wie der LiDAR (halbe Fahrschlauch-Breite)
         self.boden = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+        self.fahrtest_boden = Bodenmodell(self.kamera_cfg, {'weg_breite': self.p('fahrschlauch_breite') / 2})
+        # The explicitly calibrated test model must never learn a newly placed obstacle as floor.
+        self.fahrtest_boden.gelernt = self.fahrtest_boden.c['lern_bilder']
+        self.lidar_luecke = None
         # Pruefblick (Kamera steiler nach unten, fuer Hindernisse zu nah fuer die Fahrstellung): eigenes Kameramodell
         self.boden_pruef = None
         if self.posen.get('fahrstellung') and self.posen.get('pruefblick'):
@@ -432,6 +439,7 @@ class Zentrale(Node):
         Abstand im breiten Bereich vorne fuer den Zebrastreifen)."""
         topics = self.p('scan_topics')
         self.lidar_sicht = None
+        self.lidar_luecke = None
         with self.scan_lock:
             scanstand = self.scans.copy()
             felder = self.scan_geometrie.received.copy()
@@ -465,7 +473,9 @@ class Zentrale(Node):
                 self.lidar_xy = None
                 self.get_logger().warn('LiDAR unbekannt: ' + zeitgrund, throttle_duration_sec=2.0)
                 return None, None, None
-            if gap is not None and (obj is None or gap <= obj['abstand']):
+            self.lidar_luecke = gap
+            if (not self.p('begleiteter_fahrtest') and gap is not None
+                    and (obj is None or gap <= obj['abstand'])):
                 self.lidar_xy = None
                 self.get_logger().warn(f'LiDAR unbekannt: gemeinsamer Fahrbereich ab {gap * 100:.0f} cm '
                                        'nicht gemessen (Roboterbezug)', throttle_duration_sec=2.0)
@@ -599,7 +609,10 @@ class Zentrale(Node):
             blick = 'fahr'
             lid = self.lidar_d
             frei = (lid is None or lid >= self.entscheider.c['pruef_dist']) and self.entscheider.ablauf is None
-            tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
+            if self.p('begleiteter_fahrtest'):
+                tiefe_hindernis, tiefe_obj = self.fahrtest_boden.pruefe(d, lernen=False, linie_voraus=self.weg_voraus())
+            else:
+                tiefe_hindernis, tiefe_obj = self.boden.pruefe(d, lernen=frei, linie_voraus=self.weg_voraus())
             if tiefe_obj:
                 tiefe_obj['quelle'] = 'tiefe'
         elif (d is not None and self.boden_pruef is not None
@@ -626,6 +639,11 @@ class Zentrale(Node):
                                 'ampel': ampel_farbe, 'ampel_quelle': ampel_quelle,
                                 'stoppschild': schild, 'schild_quelle': schild_quelle,
                                 'tiefe_hindernis': tiefe_hindernis, 'tiefe_objekt': tiefe_obj,
+                                'tiefe_aufnahme': stempel(tmsg), 'tiefe_empfang': empfang[1],
+                                'tiefe_gueltig': bool(d is not None and tmsg.encoding in ('16UC1', '32FC1')
+                                                      and getattr(tmsg.header, 'frame_id', '')
+                                                      and tmsg.header.frame_id == msg.header.frame_id
+                                                      and (np.isfinite(d) & (d > .03)).any()),
                                 'blick': blick,   # Tiefe ausgewertet in: 'fahr' | 'pruef' | None (Arm unterwegs)
                                 'tiefe_nr': self.tiefe_nr,   # zaehlt nur neue, ausgewertete Tiefenbilder
                                 'pruef_tiefe': pruef_tiefe,  # Pruefblick: (Anteil gueltige Tiefe, naechster Wert m)
@@ -714,6 +732,8 @@ class Zentrale(Node):
             lid_obj = None
         w['objekt'] = w.get('tiefe_objekt') or lid_obj
         befehl = self.entscheider.update(jetzt, w)
+        if self.p('begleiteter_fahrtest'):
+            befehl = fahrtest.befehl_sichern(befehl, w, jetzt, time.monotonic(), self.kamera_lage()[0])
         # Arm nur, wenn freigegeben (zurueck in die Fahrstellung darf er immer)
         arm = befehl['arm']
         zurueck = arm == 'fahrstellung' or (isinstance(arm, dict) and arm.get('pose') == 'fahrstellung')
@@ -734,7 +754,11 @@ class Zentrale(Node):
             # Aufnahmezeit des zuletzt ausgewerteten Farbbilds (None: Stempel fehlt/ungueltig). Der Linienfolger laesst
             # KI-Manoever ohne eigene Bilder nur zu, wenn diese Aufnahme frisch ist.
             'aufnahme': w.get('aufnahme'),
-            'lidar': None if w['lidar'] is None else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
+            'begleiteter_fahrtest': self.p('begleiteter_fahrtest'),
+            'lidar_abdeckung': 'unbekannt' if w['lidar'] is None or self.lidar_luecke is not None else 'gemessen',
+            'lidar_erste_luecke_m': self.lidar_luecke,
+            'lidar': None if (w['lidar'] is None or (self.p('begleiteter_fahrtest') and self.lidar_luecke is not None))
+                     else (99.0 if w['lidar'] == float('inf') else round(w['lidar'], 3)),
             'ampel': w['ampel'], 'ampel_quelle': w.get('ampel_quelle'),
             'stoppschild': w['stoppschild'], 'schild_quelle': w.get('schild_quelle'),
             'tiefe_hindernis': w['tiefe_hindernis'],

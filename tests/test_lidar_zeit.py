@@ -208,14 +208,19 @@ class KiZentrale(unittest.TestCase):
         self.assertEqual(z.lidar_pruefen()[0], float('inf'))
 
     def test_altern_und_wiederfreigabe(self):
-        z = q.ki_zentrale(mit_aufnahme(time.time() - 0.8))
-        self.assertEqual(z.lidar_pruefen()[0], float('inf'))
-        echt = time.time
-        with mock.patch.object(time, 'time', lambda: echt() + 0.3):
-            self.assertEqual(z.lidar_pruefen(), (None, None, None))
-            for t, i in q.KANAELE:
-                z._scan(q.scan(3.0), t, i)                            # neue gueltige Nachrichten
+        # The 0.2-second remaining budget tests acquisition age, not host CPU
+        # speed. Hold both clocks fixed while constructing/querying the node.
+        jetzt, mono = time.time(), time.monotonic()
+        with mock.patch.object(time, 'time', return_value=jetzt), \
+                mock.patch.object(time, 'monotonic', return_value=mono):
+            z = q.ki_zentrale(mit_aufnahme(jetzt - 0.8))
             self.assertEqual(z.lidar_pruefen()[0], float('inf'))
+            with mock.patch.object(time, 'time', return_value=jetzt + .3), \
+                    mock.patch.object(time, 'monotonic', return_value=mono + .3):
+                self.assertEqual(z.lidar_pruefen(), (None, None, None))
+                for t, i in q.KANAELE:
+                    z._scan(q.scan(3.0), t, i)                        # neue gueltige Nachrichten
+                self.assertEqual(z.lidar_pruefen()[0], float('inf'))
 
 
 if __name__ == '__main__':
