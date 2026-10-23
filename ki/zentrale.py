@@ -444,6 +444,41 @@ class Zentrale(Node):
         ok = fahr and self.entscheider.arm_in_fahrstellung
         return ok, (0.0 if ok else gier)
 
+    def _manuelle_fahrstellung_bestaetigen(self, rgb, tiefe, empfang, d, paar_ok, frame, jetzt):
+        """Recover only from a new observed pose command while STOP remains confirmed.
+
+        ArmBeobachter observes successfully published commands, not servo positions.
+        Matching new images are required before releasing the camera-pose latch;
+        the operating/start permission and any fault latch remain separate.
+        """
+        e, arm = self.entscheider, self.arm_beobachter
+        if (not e.arm_zurueck_noetig or not paar_ok
+                or (e.ablauf is not None and e.ablauf.braucht_arm)):
+            return False
+        st = self.linie_status
+        if (not 0 <= jetzt - st.get('_zeit', 0.0) < .6
+                or any(st.get(k) is not False for k in
+                       ('drive', 'betrieb_freigegeben', 'betrieb_angefordert'))):
+            return False
+        pose = self.posen.get('fahrstellung')
+        if not arm.in_pose(pose, jetzt):
+            return False  # No command/default assumed pose is never a recovery proof.
+        monoton = time.monotonic()
+        if any(not isinstance(t, (int, float)) or not math.isfinite(t)
+               or not 0 <= monoton - t <= .5 for t in empfang):
+            return False
+        modell = self.kalibriertes_bodenmodell if self.p('begleiteter_fahrbetrieb') else self.boden
+        if self.p('begleiteter_fahrbetrieb'):
+            info = self.tiefeninfo
+            if (not info or not 0 <= monoton - info[3] < 1.0
+                    or info[1] != d.shape or info[2] != frame
+                    or not modell.referenz_passt(d.shape, info[2], pose, info[0])):
+                return False
+        if not tiefe_messung_gueltig(d, modell, self.weg_voraus()):
+            return False
+        return e.bestaetige_fahrstellung(jetzt, arm.zeit, arm.zeit + arm.dauer + .3, rgb, tiefe,
+                                        erfolgreich_gesendet=True)
+
     def lidar_hinten(self):
         """Frei nach hinten (m) im Streifen der Roboterbreite, None = keine LiDAR-Daten (dann nie rueckwaerts)."""
         if self.lidar_xy is None or self.lidar_d is None:
@@ -646,6 +681,10 @@ class Zentrale(Node):
                        and tmsg.header.frame_id == msg.header.frame_id
                        and tiefe_passt(stempel(msg), stempel(tmsg), *empfang)
                        and neue_pose_bilder)
+        if self._manuelle_fahrstellung_bestaetigen(
+                stempel(msg), stempel(tmsg), empfang, d, paar_ok,
+                getattr(getattr(tmsg, 'header', None), 'frame_id', ''), time.time()):
+            fahrstellung = self.kamera_lage()[0]
         if paar_ok and fahrstellung:
             blick = 'fahr'
             lid = self.lidar_d
