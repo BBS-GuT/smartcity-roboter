@@ -1,5 +1,9 @@
 import numpy as np
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lib.karte_zusammenfuehren import BELEGT, Einzelkarte, zusammenfuehren
 
 RES = 0.05
