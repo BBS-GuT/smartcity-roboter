@@ -39,13 +39,31 @@ class Recovery(unittest.TestCase):
         self.z.arm_beobachter.winkel = list(self.meta['pose'])
         self.z.arm_beobachter.zeit = time.time() - 10
         self.z.arm_beobachter.dauer = 2
+        self.lf = c.q.linienfolger()
+        c.configure(self.lf)
+        c.feed(self.lf)
+        self.lf._p['begleiteter_fahrbetrieb'] = True
+        self.panel.node._set('lf', dict(self.lf.betrieb.status(), drive=False))
 
     def stop(self):
         with mock.patch.object(self.panel.node, 'stillstand'):
             self.panel.post('stopp')
-        self.panel.ack_stop()
-        self.z.linie_status = dict(self.panel.node.betrieb, _zeit=time.time(), drive=False,
-                                  betrieb_freigegeben=False, betrieb_angefordert=False)
+        self.assertTrue(self.lf.betrieb.empfang(self.panel.node.betrieb))
+        status = dict(self.lf.betrieb.status(), drive=False)
+        self.panel.node._set('lf', status)
+        self.z.linie_status = dict(status, _zeit=time.time())
+
+    def start(self):
+        self.panel.node._set('lf', dict(self.lf.betrieb.status(), drive=False))
+        self.panel.post('start')
+        self.assertFalse(self.panel.node.betrieb['angefordert'])
+        self.assertTrue(self.lf.betrieb.empfang(self.panel.node.betrieb))
+        self.panel.node._set('lf', dict(self.lf.betrieb.status(), drive=False))
+        self.panel.node.betrieb_senden()
+        self.assertTrue(self.panel.node.betrieb['angefordert'])
+        self.assertTrue(self.lf.betrieb.empfang(self.panel.node.betrieb))
+        self.z._kommando(self.panel.node.ki_kommando_pub.letzte)
+        self.z.linie_status = dict(self.lf.betrieb.status(), _zeit=time.time(), drive=False)
 
     def images(self, old=False):
         now, mono = time.time(), time.monotonic()
@@ -64,18 +82,11 @@ class Recovery(unittest.TestCase):
     def test_manual_panel_return_and_new_images_allow_only_a_new_start(self):
         self.stop()
         self.panel.node._set('ki', {'aktion': 'stopp'})
-        self.panel.post('start')
-        self.z._kommando(self.panel.node.ki_kommando_pub.letzte)
-        self.z.linie_status = dict(self.panel.node.betrieb, _zeit=time.time(), drive=False,
-                                  betrieb_freigegeben=False, betrieb_angefordert=True)
+        self.start()
         self.images()
         self.assertTrue(self.z.entscheider.arm_zurueck_noetig)
         self.assertFalse(c.q.befehl(self.z)['sensoren_bereit'])
-        lf = c.q.linienfolger()
-        c.configure(lf)
-        c.feed(lf)
-        lf._p['begleiteter_fahrbetrieb'] = True
-        lf.betrieb.empfang(self.panel.node.betrieb)
+        lf = self.lf
         lf.ki = (time.time(), c.q.befehl(self.z))
         self.assertFalse(lf.start_bereit())
         self.stop()  # Waiting START must be revoked before manual panel movement.
@@ -94,13 +105,8 @@ class Recovery(unittest.TestCase):
             self.assertTrue(c.q.befehl(self.z)['sensoren_bereit'])
             c.feed(lf)
             lf.bild_zeit, lf.stempel_ok = time.time(), True
-            ids = {k:self.panel.node.betrieb[k] for k in ('session_id','generation','start_id')}
-            lf.betrieb.empfang(dict(ids, angefordert=False))
             self.assertFalse(lf.betrieb.pruefen(True))
-            ids.update(generation=ids['generation']+1, start_id='new-conscious-start')
-            lf.betrieb.empfang(dict(ids, angefordert=True))
-            self.z.linie_status = dict(ids, _zeit=time.time(), drive=False, betrieb_freigegeben=False,
-                                      betrieb_angefordert=True)
+            self.start()
             lf.ki = (time.time(), c.q.befehl(self.z))
             self.assertTrue(lf.start_bereit())
             self.assertTrue(lf.betrieb.pruefen(lf.start_bereit()))
