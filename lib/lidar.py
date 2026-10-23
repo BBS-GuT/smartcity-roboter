@@ -172,6 +172,35 @@ def ungueltige_winkel(msg, front_deg=0.0):
     return w[~gemessen]
 
 
+def freie_reichweite(msg, front_deg=0.0, n=1440):
+    """Wie weit ist jede Richtung frei GEMESSEN? Array mit n Werten (m) fuer die Richtungen
+    -pi + (k + 0,5) * 2pi/n (relativ zu vorne). Gueltiger Strahl: bis zu seinem Treffer (dahinter verdeckt, also
+    unbekannt). Kein Strahl in der Naehe (Regeln wie ungueltige_winkel) oder ein ungueltiger: 0. Liegen zwei
+    Strahlen gleich nah, gilt der kuerzere. Fuer Bereiche, die ganz gemessen sein muessen (Zebrastreifen #156)."""
+    w = -math.pi + (np.arange(n) + 0.5) * 2 * math.pi / n
+    frei = np.zeros(n)
+    try:
+        r = np.asarray(msg.ranges, dtype=np.float64)
+        inc = abs(float(msg.angle_increment))
+    except (AttributeError, TypeError, ValueError):
+        return frei
+    if not len(r) or not inc or not winkelspanne_ok(len(r), inc):
+        return frei
+    gut = np.isfinite(r) & (r > msg.range_min) & (r < msg.range_max)
+    r = np.where(gut, r, 0.0)
+    a = msg.angle_min + np.arange(len(r)) * msg.angle_increment - math.radians(front_deg)
+    a = np.arctan2(np.sin(a), np.cos(a))
+    ordnung = np.argsort(a)
+    a, r = a[ordnung], r[ordnung]
+    j = np.searchsorted(a, w)
+    kandidaten = np.stack([(j - 1) % len(a), j % len(a)], axis=1)
+    abstand = np.abs(np.arctan2(np.sin(w[:, None] - a[kandidaten]), np.cos(w[:, None] - a[kandidaten])))
+    nah = abstand <= min(inc / 2, STRAHL_RADIUS_MAX) + 1e-9
+    werte = np.where(nah, r[kandidaten], np.inf).min(axis=1)
+    frei[nah.any(axis=1)] = werte[nah.any(axis=1)]
+    return frei
+
+
 def sektor_abdeckung(msg, front_deg=0.0, halb_deg=30.0, rueckwaerts=False):
     """Ist der Sektor vorne (bzw. hinten) +-halb_deg vollstaendig gemessen? None = ja, sonst Grund (Text).
     Gueltige Punkte daneben ersetzen keine Messung IM Sektor: schon eine Richtung ohne Messung darin = unbekannt,
