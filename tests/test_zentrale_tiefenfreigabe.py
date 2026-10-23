@@ -73,6 +73,17 @@ class Segment(unittest.TestCase):
         self.assertIsNone(n.planbindung)
         self.assertEqual(result['aktionsstatus']['status'],'verworfen')
 
+    def test_start_data_readiness_accepts_target_but_rejects_old_snapshot(self):
+        for change,ready in (({},True),({'aufnahme':time.time()-2},False),
+                             ({'tiefe_empfang':time.monotonic()-2},False),
+                             ({'tiefe_gueltig':False},False),({'blick':None},False)):
+            n,command=self.scene()
+            n.wahrnehmung.update(change)
+            self.run_segment(n,command)
+            import json
+            published=json.loads(n.pubs['/ki/befehl'].letzte.data)
+            self.assertIs(published['sensoren_bereit'],ready)
+
     def test_new_side_obstacle_blocks_next_bound_arm_segment(self):
         n,command=self.scene()
         self.run_segment(n,command)

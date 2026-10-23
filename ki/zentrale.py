@@ -63,7 +63,8 @@ import fahrtest       # noqa: E402
 import arm as armlib  # noqa: E402
 import greifen        # noqa: E402
 from tiefe import Bodenmodell, abstand_im_kasten, spielfigur, tiefe_passt   # noqa: E402
-from tiefenstatus import Zielbestaetigung, tiefe_messung_gueltig, raeum_pruefung, fahrraum_frei, ablage_frei  # noqa: E402
+from tiefenstatus import (Zielbestaetigung, tiefe_messung_gueltig, raeum_pruefung, fahrraum_frei,
+                         ablage_frei, pflichtdaten_bereit)  # noqa: E402
 import sensorstatus  # noqa: E402
 from entscheider import Entscheider, STANDARD as KI_STANDARD  # noqa: E402
 from ablaeufe import LEBEWESEN, FAHRZEUGE, akteur_einordnen  # noqa: E402
@@ -893,6 +894,8 @@ class Zentrale(Node):
         info['lidar_status'] = sensorstatus.lidar_status(scan_snapshot, self.p('scan_topics'), time.monotonic(),
                                                         self.ros_jetzt(), layout='ki',
                                                         max_zukunft=fahrtest.scan_uhrspielraum(self))
+        info['sensoren_bereit'] = (info['lidar_status']['daten_ok'] and
+                                  pflichtdaten_bereit(w, time.time(), time.monotonic(), kamera_ok))
         info.update({
             'zeit': jetzt,
             'ki': self.yolo.backend if self.yolo else self.yolo_fehler, 'ki_ms': round(self.ki_ms),

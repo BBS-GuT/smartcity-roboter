@@ -50,6 +50,18 @@ def tiefe_messung_gueltig(tiefe_m, modell, linie_voraus=None):
     return True
 
 
+def pflichtdaten_bereit(w, jetzt, monoton, kamera_ok):
+    """Current startup data readiness; an observed obstacle is not a data fault."""
+    if (not kamera_ok or w.get('blick') != 'fahr' or w.get('lidar') is None
+            or w.get('tiefe_gueltig') is not True or w.get('tiefe_hindernis') is None):
+        return False
+    rgb, depth, receive = w.get('aufnahme'), w.get('tiefe_aufnahme'), w.get('tiefe_empfang')
+    if any(not isinstance(v, (int, float)) or not math.isfinite(v) for v in (rgb, depth, receive)):
+        return False
+    return (0 <= jetzt-rgb <= .5 and 0 <= jetzt-depth <= .5
+            and 0 <= monoton-receive <= .5 and abs(rgb-depth) <= .15)
+
+
 class Zielbestaetigung:
     """Three distinct fresh measurements of one local region; no object tracking system."""
     def __init__(self):
