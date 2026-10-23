@@ -13,10 +13,12 @@
 # UNGETESTET mit der echten Kamera. Annahme: Tiefenbild ist auf das Farbbild ausgerichtet
 # (gleicher Blickwinkel), Werte in Millimetern (16UC1) oder Metern (32FC1).
 import math
+import json
 
 import numpy as np
 
 from lidar import abstand_zum_weg
+from tiefenstatus import strahlen, wegmaske
 
 STANDARD = {
     'min_hoehe': 0.02,       # hoeher als das ueber dem Boden = Hindernis (m)
@@ -37,18 +39,42 @@ class Bodenmodell:
         self.strahlen = None
         self.korrektur = None          # gelernte Bodenhoehe je Bildzeile
         self.gelernt = 0
+        self.referenz = None
+        self.eingefroren = False
+        self.objekte = []
+
+    def lade_referenz(self, pfad, pose):
+        """Load measured free floor, bound to geometry and arm pose; never learn in operation."""
+        with np.load(pfad, allow_pickle=False) as daten:
+            meta = json.loads(str(daten['metadaten'].item()))
+            correction = np.array(daten['korrektur'], dtype=np.float32)
+        if (meta.get('frei_bestaetigt') is not True or list(pose or []) != meta.get('pose')
+                or not meta.get('quellen') or correction.shape != tuple(meta['modell_shape'])
+                or not np.isfinite(correction).all()
+                or any(not math.isclose(self.k[key], value, rel_tol=0, abs_tol=1e-6)
+                       for key, value in meta['kamera'].items())):
+            raise ValueError('Bodenreferenz passt nicht zu Kamera/Fahrpose')
+        self.referenz = meta
+        self.korrektur = correction
+        self.korrektur.setflags(write=False)
+        self.eingefroren = True
+        self.gelernt = self.c['lern_bilder']
+
+    def referenz_passt(self, shape, frame, pose, k=None):
+        r = self.referenz
+        return bool(r and list(shape) == r['bild_shape'] and frame == r['frame']
+                    and list(pose or []) == r['pose']
+                    and (k is not None and np.allclose(k, r['k'], rtol=0, atol=1e-5)))
 
     def _vorbereiten(self, h, w):
         if self.strahlen is not None and self.strahlen[0].shape == (h, w):
             return
-        k = self.k
-        f = (w / 2) / math.tan(math.radians(k['kamera_fov']) / 2)
-        u, v = np.meshgrid(np.arange(w) - w / 2 + 0.5, np.arange(h) - h / 2 + 0.5)
-        du, dv = u / f, v / f
-        p = math.radians(k['kamera_neigung'])
         # Punkt = Kamera + Tiefe * (rx, ry, rz)
-        self.strahlen = (math.cos(p) - dv * math.sin(p), -du, -math.sin(p) - dv * math.cos(p))
-        self.korrektur = np.zeros(h)
+        self.strahlen = strahlen(self.k, (h, w))
+        if not self.eingefroren:
+            self.korrektur = np.zeros(h)
+        elif self.korrektur.shape != (h, w):
+            raise ValueError('Bodenreferenz hat andere Bildgroesse')
 
     def punkte(self, tiefe_m):
         """Tiefenbild (m) -> x, y, z je Bildpunkt (verkleinert). 0 = keine Messung -> nan."""
@@ -71,7 +97,7 @@ class Bodenmodell:
         linie_voraus: Linie vor dem Roboter [(x, y), ...] (vom Linienfolger) -> Fahrweg folgt ihr."""
         x, y, z = self.punkte(tiefe_m)
         weg = (x > 0.05) & (x < self.c['weg_laenge']) & (np.abs(y) < self.c['weg_breite'])
-        if lernen:
+        if lernen and not self.eingefroren:
             # Bodenkorrektur je Zeile: Median der Hoehe der Bodenpunkte im Fahrweg (alle Zeilen auf einmal:
             # ungueltige Werte als inf ans Ende sortieren, dann die Mitte wie np.median)
             gut = weg & np.isfinite(z)
@@ -86,28 +112,51 @@ class Bodenmodell:
             self.gelernt += 1
         if self.gelernt < self.c['lern_bilder']:
             return None, None
-        hoch = (z - self.korrektur[:, None]) > self.c['min_hoehe']
-        quer_karte = None
-        if linie_voraus:
-            # Fahrweg entlang der Linie: nur die herausragenden Punkte pruefen (wenige, schnell)
-            kand = hoch & np.isfinite(z) & (x > 0.05) & (np.hypot(x, y) < self.c['weg_laenge'] + 0.1)
-            weg = np.zeros_like(kand)
-            quer_karte = np.full(kand.shape, np.nan)
-            if kand.any():
-                quer, entlang = abstand_zum_weg(np.column_stack([x[kand], y[kand]]), linie_voraus,
-                                                self.c['weg_laenge'])
-                weg[kand] = (quer < self.c['weg_breite']) & (entlang < self.c['weg_laenge'])
-                quer_karte[kand] = quer
+        correction = self.korrektur if self.korrektur.ndim == 2 else self.korrektur[:, None]
+        korrigiert = z - correction
+        hoch = korrigiert > self.c['min_hoehe']
+        weg, quer_karte, _ = wegmaske(x, y, self.c, linie_voraus)
         treffer = weg & hoch & np.isfinite(z)
         n = int(treffer.sum())
         if n < self.c['min_punkte']:
+            self.objekte = []
             return False, None
-        xs, ys, zs = x[treffer], y[treffer], z[treffer] - self.korrektur[np.nonzero(treffer)[0]]
+        # Components on a 1 cm ground grid separate neighbouring objects. Depth
+        # points in another component never become part of the selected region.
+        rows, cols = np.nonzero(treffer)
+        cells = np.floor(np.column_stack((x[treffer], y[treffer])) / .01).astype(int)
+        groups = {}
+        for i, cell in enumerate(map(tuple, cells)):
+            groups.setdefault(cell, []).append(i)
+        objects = []
+        while groups:
+            cell = next(iter(groups))
+            pending, indices = [cell], []
+            while pending:
+                a, b = pending.pop()
+                values = groups.pop((a, b), None)
+                if values is None:
+                    continue
+                indices.extend(values)
+                pending.extend((a + da, b + db) for da in (-1, 0, 1) for db in (-1, 0, 1)
+                               if (a + da, b + db) in groups)
+            if len(indices) < self.c['min_punkte']:
+                continue
+            component = np.zeros_like(treffer)
+            component[rows[indices], cols[indices]] = True
+            objects.append(self._objekt(component, x, y, korrigiert, quer_karte))
+        self.objekte = sorted(objects, key=lambda o: o['vor'])
+        return True, self.objekte[0] if self.objekte else None
+
+    def _objekt(self, treffer, x, y, korrigiert, quer_karte):
+        xs, ys, zs = x[treffer], y[treffer], korrigiert[treffer]
         naechster = float(np.percentile(xs, 5))
         vorne = xs < naechster + 0.05          # nur die Vorderseite fuer Lage und Breite
         objekt = {'vor': naechster, 'seite': float(np.median(ys[vorne])),
                   'breite': float(np.percentile(ys[vorne], 95) - np.percentile(ys[vorne], 5)),
-                  'hoehe': float(np.percentile(zs, 95)), 'punkte': n}
+                  'hoehe': float(np.percentile(zs, 95)), 'punkte': int(treffer.sum()),
+                  'region': {'min': [float(xs.min()), float(ys.min()), float(zs.min())],
+                             'max': [float(xs.max()), float(ys.max()), float(zs.max())]}}
         # Mitte im Bild (Anteil 0..1 von Breite/Hoehe) und Tiefe dort: damit rechnet Yahbooms Kinematik
         # den Punkt mit dem echten Armmodell in Arm-Koordinaten um (lib/arm.py, YahboomKinematik)
         zeilen, spalten = np.nonzero(treffer)
@@ -116,7 +165,7 @@ class Bodenmodell:
         objekt['tiefe_m'] = float(np.median(self._t[treffer]))
         if quer_karte is not None:   # wie weit neben der Linie (Mitte des Fahrwegs) liegt es?
             objekt['quer'] = float(np.median(quer_karte[treffer][vorne]))
-        return True, objekt
+        return objekt
 
 
 def tiefe_passt(stempel_bild, stempel_tiefe, empfang_bild, empfang_tiefe, max_s=0.15):
