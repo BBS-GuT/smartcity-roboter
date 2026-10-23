@@ -309,7 +309,8 @@ class LineFollower(Node):
         zeit, ki = self.ki
         return bool(ki and jetzt - zeit <= .6 and
                     all(ki.get(k) == getattr(self.betrieb, k) for k in ('session_id', 'generation', 'start_id')) and
-                    (not self.p('begleiteter_fahrbetrieb') or ki.get('begleiteter_fahrbetrieb') is True))
+                    (not self.p('begleiteter_fahrbetrieb') or
+                     (ki.get('begleiteter_fahrbetrieb') is True and ki.get('sensoren_bereit') is True)))
 
     def on_tempo(self, msg):
         # Geschwindigkeit vom Panel (Regler). Begrenzt auf 0..0,5 m/s.

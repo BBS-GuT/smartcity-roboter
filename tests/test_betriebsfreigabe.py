@@ -64,7 +64,7 @@ class Publisher(unittest.TestCase):
         c.configure(n)
         n._p.update(drive=True, begleiteter_fahrbetrieb=True)
         c.feed(n)
-        n.ki[1].update(begleiteter_fahrbetrieb=True, session_id='panel', generation=1, start_id='1')
+        n.ki[1].update(begleiteter_fahrbetrieb=True, sensoren_bereit=True, session_id='panel', generation=1, start_id='1')
         return n
 
     def send(self, n, req):
@@ -95,6 +95,31 @@ class Publisher(unittest.TestCase):
         self.assertFalse(n.start_bereit())
         n.scans['/scan1'] = saved
         self.assertTrue(n.start_bereit())
+
+    def test_supervised_start_waits_for_sensor_readiness_then_acknowledges_obstacle_hold(self):
+        for readiness in (None, False):
+            with self.subTest(readiness=readiness):
+                n = self.node()
+                self.send(n, request())
+                if readiness is None:
+                    n.ki[1].pop('sensoren_bereit')
+                else:
+                    n.ki[1]['sensoren_bereit'] = readiness
+                n.ki[1].update(aktion='stopp', grund='Klotz')
+                n.steuern()
+                waiting = json.loads(n.pub_status.letzte.data)
+                self.assertFalse(waiting['bereit'])
+                self.assertFalse(waiting['drive'])
+                self.assertEqual(n.pub.letzte.linear.x, 0.)
+                # Neue echte Sensorbestaetigung ist vom Fahrwunsch getrennt.
+                n.ki[1]['sensoren_bereit'] = True
+                self.send(n, request())
+                n.steuern()
+                acknowledged = json.loads(n.pub_status.letzte.data)
+                self.assertTrue(acknowledged['bereit'])
+                self.assertTrue(acknowledged['drive'])
+                self.assertEqual(n.pub.letzte.linear.x, 0.)
+                self.assertIn('Klotz', acknowledged['status'])
 
     def test_active_operation_remains_active_during_obstacle_hold(self):
         n = self.node()
