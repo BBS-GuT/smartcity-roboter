@@ -2,6 +2,12 @@
 import math
 
 
+def scan_uhrspielraum(node):
+    # RM01's continuously arriving MCU scans were measured about 30 ms ahead.
+    # Keep the raw stamps and all age/progress guards; never accept a large clock jump.
+    return .1 if node.p('begleiteter_fahrbetrieb') else 0.0
+
+
 def parameter_aenderung(params):
     from rcl_interfaces.msg import SetParametersResult
     changed = any(p.name == 'begleiteter_fahrbetrieb' for p in params)

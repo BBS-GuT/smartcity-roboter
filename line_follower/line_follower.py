@@ -182,7 +182,8 @@ class LineFollower(Node):
         empfang = time.monotonic()
         fronts = self.p('scan_front_deg')
         # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
-        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic),
+                                                   max_zukunft=fahrtest.scan_uhrspielraum(self))
         if grund == 'doppelt':
             return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
         if grund is None:
@@ -311,7 +312,7 @@ class LineFollower(Node):
         jetzt = self.ros_jetzt()     # Aufnahmealter bei der Entscheidung (Scan kann seit dem Empfang gealtert sein)
         stamps = {t: e[3] for t, e in zip(topics, frisch)}
         scanstand = dict(zip(topics, frisch))
-        frisch = [(t, d, g or lidar.aufnahme_alter(a, jetzt)) for t, (_, d, g, a) in zip(topics, frisch)]
+        frisch = [(t, d, g or lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self))) for t, (_, d, g, a) in zip(topics, frisch)]
         ungueltig = [f'{t}: {g}' for t, _, g in frisch if g]
         if ungueltig:
             return 'LIDAR UNBEKANNT (' + '; '.join(ungueltig) + ')'
@@ -327,7 +328,7 @@ class LineFollower(Node):
             _, zeitgrund = lidar.pflichtkanaele(scanstand, topics, time.monotonic())
             jetzt = self.ros_jetzt()
             zeitgrund = zeitgrund or next((g for a in stamps.values()
-                                          if (g := lidar.aufnahme_alter(a, jetzt))), None)
+                                          if (g := lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self)))), None)
             return grund or ('LIDAR UNBEKANNT: ' + zeitgrund if zeitgrund else None)
         d, b, t = min((d[b][0], b, t) for t, d, _ in frisch for b in bereiche)
         if d < self.p('notbremse_dist'):

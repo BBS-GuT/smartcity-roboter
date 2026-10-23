@@ -27,6 +27,22 @@ def query(n):
 
 
 class SensorGuards(unittest.TestCase):
+    def test_measured_small_clock_skew_is_explicit_and_bounded_in_both_consumers(self):
+        for make in (q.lf.LineFollower, q.zentrale.Zentrale):
+            for mode, skew, allowed in ((True, .03, True), (True, .09, True),
+                                         (True, .2, False), (False, .03, False)):
+                n = node(make)
+                n._p['begleiteter_fahrbetrieb'] = mode
+                m = c.message(1)
+                m.header = q.kopf(q.time.time() + skew)
+                m.header.frame_id = 'laser_b'
+                (n.on_scan if hasattr(n, 'notbremse') else n._scan)(m, '/scan1', 1)
+                reason = n.scans['/scan1'][2 if hasattr(n, 'notbremse') else 3]
+                with self.subTest(make=make.__name__, mode=mode, skew=skew):
+                    self.assertEqual(reason is None, allowed)
+                    if allowed:
+                        self.assertEqual(query(n), None if hasattr(n, 'notbremse') else float('inf'))
+
     def test_only_explicit_mode_accepts_a_measured_coverage_hole(self):
         for make in (q.lf.LineFollower, q.zentrale.Zentrale):
             n = node(make)

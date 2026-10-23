@@ -78,6 +78,18 @@ class ReineZeitregel(unittest.TestCase):
         self.assertIn('Zukunft', lidar.aufnahme_alter(1000.5, 1000.0))
         self.assertIsNotNone(lidar.aufnahme_alter(None, 1000.0))
 
+    def test_bounded_clock_allowance_preserves_age_duplicates_and_progress(self):
+        m = types.SimpleNamespace(header=q.kopf(1000.03))
+        stamp, reason = lidar.aufnahme_pruefen(m, 1000., max_zukunft=.1)
+        self.assertIsNone(reason)
+        self.assertAlmostEqual(stamp, 1000.03)
+        self.assertEqual(lidar.aufnahme_pruefen(m, 1000., stamp, max_zukunft=.1)[1], 'doppelt')
+        self.assertIn('zurueck', lidar.aufnahme_pruefen(m, 1000., 1000.04, max_zukunft=.1)[1])
+        self.assertIn('alt', lidar.aufnahme_pruefen(m, 1002., max_zukunft=.1)[1])
+        self.assertIn('Zukunft', lidar.aufnahme_alter(1000.11, 1000., max_zukunft=.1))
+        for invalid in (-.01, .2, float('nan'), float('inf'), None):
+            self.assertIsNotNone(lidar.aufnahme_alter(1000., 1000., max_zukunft=invalid))
+
 
 class Linienfolger(unittest.TestCase):
     def halt(self, n, text):

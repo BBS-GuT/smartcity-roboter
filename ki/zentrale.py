@@ -327,7 +327,8 @@ class Zentrale(Node):
         fronts = self.p('scan_front_deg')
         front = fronts[i] if i < len(fronts) else 0.0
         # Aufnahmezeit (header.stamp) getrennt vom Empfang: frisch empfangen heisst nicht frisch gemessen
-        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic))
+        aufnahme, grund = lidar.aufnahme_pruefen(msg, self.ros_jetzt(), self.scan_stempel.get(topic),
+                                                   max_zukunft=fahrtest.scan_uhrspielraum(self))
         if grund == 'doppelt':
             return                          # derselbe Scan nochmal: nichts Neues, Empfangszeit nicht erneuern
         if grund is None:
@@ -447,8 +448,8 @@ class Zentrale(Node):
         # Jeder Kanal in scan_topics ist Pflicht: ein frischer zweiter LiDAR ersetzt keinen fehlenden/alten
         frisch, grund = lidar.pflichtkanaele(scanstand, topics, time.monotonic())
         jetzt = self.ros_jetzt()     # Aufnahmealter jetzt nochmal: der Scan kann seit dem Empfang gealtert sein
-        ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt)}' for t, (_, _, _, g, a, _) in zip(topics, frisch)
-                     if g or lidar.aufnahme_alter(a, jetzt)]
+        ungueltig = [f'{t}: {g or lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self))}' for t, (_, _, _, g, a, _) in zip(topics, frisch)
+                     if g or lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self))]
         if grund or ungueltig:
             # Fehlender/alter Pflichtkanal oder unbrauchbarer Scan: wie keine LiDAR-Daten (Entscheider haelt)
             self.lidar_xy = None
@@ -468,7 +469,7 @@ class Zentrale(Node):
             _, zeitgrund = lidar.pflichtkanaele(dict(zip(topics, frisch)), topics, time.monotonic())
             jetzt = self.ros_jetzt()
             zeitgrund = zeitgrund or next((g for a in stamps.values()
-                                          if (g := lidar.aufnahme_alter(a, jetzt))), None)
+                                          if (g := lidar.aufnahme_alter(a, jetzt, max_zukunft=fahrtest.scan_uhrspielraum(self)))), None)
             if zeitgrund:
                 self.lidar_xy = None
                 self.get_logger().warn('LiDAR unbekannt: ' + zeitgrund, throttle_duration_sec=2.0)
